@@ -283,8 +283,8 @@ pub struct ChannelView {
     pub kind: String,
     /// Описание, если есть
     pub description: Option<String>,
-    /// Иконка с CDN
-    pub icon: Option<String>,
+    /// Иконка канала: эмодзи, а не файл (в Stoat это `icon` + `default_permissions` нет).
+    pub emoji: Option<String>,
     /// Id последнего сообщения — для сортировки ЛС
     pub last_message_id: Option<String>,
     /// Идёт ли голосовая сессия
@@ -312,7 +312,7 @@ impl ChannelView {
                 name: name.clone(),
                 kind: if voice.is_some() { "voice" } else { "text" }.into(),
                 description: description.clone(),
-                icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
+                emoji: icon.as_ref().and_then(|file| emoji_of(file)),
                 last_message_id: last_message_id.clone(),
                 voice: voice.is_some(),
             },
@@ -326,7 +326,7 @@ impl ChannelView {
                 name: recipient_name(recipients, users, members),
                 kind: "dm".into(),
                 description: None,
-                icon: None,
+                emoji: None,
                 last_message_id: last_message_id.clone(),
                 voice: false,
             },
@@ -342,7 +342,7 @@ impl ChannelView {
                 name: name.clone(),
                 kind: "group".into(),
                 description: description.clone(),
-                icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
+                emoji: icon.as_ref().and_then(|file| emoji_of(file)),
                 last_message_id: last_message_id.clone(),
                 voice: false,
             },
@@ -351,7 +351,7 @@ impl ChannelView {
                 name: "Избранное".into(),
                 kind: "notes".into(),
                 description: None,
-                icon: None,
+                emoji: None,
                 last_message_id: None,
                 voice: false,
             },
@@ -386,6 +386,31 @@ pub struct ChatMessage {
     pub attachments: Vec<AttachmentView>,
     /// Оформление текста по кускам
     pub segments: Segments,
+    /// Цвет ника из роли или маски
+    pub colour: Option<String>,
+    /// Встраивания: превью ссылок, картинки, видео
+    pub embeds: Vec<EmbedView>,
+}
+
+/// Встраиваемое содержимое сообщения.
+#[derive(Debug, Serialize)]
+pub struct EmbedView {
+    /// `website`, `image`, `video`, `text`
+    pub kind: String,
+    /// Адрес
+    pub url: Option<String>,
+    /// Заголовок
+    pub title: Option<String>,
+    /// Описание
+    pub description: Option<String>,
+    /// Сайт
+    pub site: Option<String>,
+    /// Картинка предпросмотра
+    pub image: Option<String>,
+    /// Ширина картинки
+    pub width: Option<usize>,
+    /// Высота картинки
+    pub height: Option<usize>,
 }
 
 impl ChatMessage {
@@ -398,32 +423,57 @@ impl ChatMessage {
         authors: &HashMap<String, UserView>,
         cdn: Option<&str>,
     ) -> Self {
-        let author = message
-            .user
-            .as_ref()
-            .map(display_name)
+        // Порядок как в клиенте Stoat: маска сообщения важнее всего, затем
+        // вебхук (у него своё имя и аватар), затем участник, затем профиль.
+        let masquerade = message.masquerade.as_ref();
+        let webhook = message.webhook.as_ref();
+
+        let author = masquerade
+            .and_then(|mask| mask.name.clone())
+            .or_else(|| webhook.map(|hook| hook.name.clone()))
             .or_else(|| message.member.as_ref().and_then(|m| m.nickname.clone()))
+            .or_else(|| message.user.as_ref().map(display_name))
             .or_else(|| authors.get(&message.author).map(UserView::label))
             .unwrap_or_else(|| message.author.clone());
 
-        let avatar = message
-            .user
-            .as_ref()
-            .and_then(|user| user.avatar.as_ref())
+        // маска хранит готовый адрес, вебхук — только id файла
+        let avatar = masquerade
+            .and_then(|mask| mask.avatar.clone())
+            .or_else(|| {
+                webhook
+                    .and_then(|hook| hook.avatar.as_ref())
+                    .and_then(|id| webhook_avatar_url(id, cdn))
+            })
+            .or_else(|| {
+                message
+                    .user
+                    .as_ref()
+                    .and_then(|user| user.avatar.as_ref())
+                    .and_then(|file| file_url(file, cdn))
+            })
             .or_else(|| {
                 message
                     .member
                     .as_ref()
                     .and_then(|member| member.avatar.as_ref())
-            })
-            .and_then(|file| file_url(file, cdn));
+                    .and_then(|file| file_url(file, cdn))
+            });
 
+        let colour = masquerade.and_then(|mask| mask.colour.clone());
         let system = message.system.is_some();
+
         let attachments = message
             .attachments
             .iter()
             .flatten()
             .map(|file| AttachmentView::build(file, cdn))
+            .collect();
+
+        let embeds = message
+            .embeds
+            .iter()
+            .flatten()
+            .filter_map(EmbedView::build)
             .collect();
 
         let content = message.content.unwrap_or_default();
@@ -442,7 +492,78 @@ impl ChatMessage {
             edited: message.edited.is_some(),
             system,
             attachments,
+            colour,
+            embeds,
         }
+    }
+}
+
+impl EmbedView {
+    fn build(embed: &v0::Embed) -> Option<Self> {
+        match embed {
+            v0::Embed::Website(website) => Some(Self {
+                kind: "website".into(),
+                url: website.url.clone().or_else(|| website.original_url.clone()),
+                title: website.title.clone(),
+                description: website.description.clone(),
+                site: website.site_name.clone(),
+                image: website.image.as_ref().map(|image| image.url.clone()),
+                width: website.image.as_ref().map(|image| image.width),
+                height: website.image.as_ref().map(|image| image.height),
+            }),
+            v0::Embed::Image(image) => Some(Self {
+                kind: "image".into(),
+                url: Some(image.url.clone()),
+                title: None,
+                description: None,
+                site: None,
+                image: Some(image.url.clone()),
+                width: Some(image.width),
+                height: Some(image.height),
+            }),
+            v0::Embed::Video(video) => Some(Self {
+                kind: "video".into(),
+                url: Some(video.url.clone()),
+                title: None,
+                description: None,
+                site: None,
+                image: None,
+                width: Some(video.width),
+                height: Some(video.height),
+            }),
+            v0::Embed::Text(text) => Some(Self {
+                kind: "text".into(),
+                url: text.url.clone(),
+                title: text.title.clone(),
+                description: text.description.clone(),
+                site: None,
+                image: None,
+                width: None,
+                height: None,
+            }),
+            v0::Embed::None => None,
+        }
+    }
+}
+
+/// Цвет ника: маска сообщения важнее роли участника.
+fn colour_of(message: &v0::Message) -> Option<String> {
+    message
+        .masquerade
+        .as_ref()
+        .and_then(|mask| mask.colour.clone())
+}
+
+/// Текст текстового эмбеда: в модели это `content`, а не `description`.
+///
+/// Адрес аватара вебхука: в сообщении приходит только id файла.
+pub fn webhook_avatar_url(id: &str, cdn: Option<&str>) -> Option<String> {
+    let base = cdn?.trim_end_matches('/');
+    // вебхуки хранят аватары в том же хранилище, что и пользователи
+    if id.contains('/') {
+        Some(format!("{base}/{id}"))
+    } else {
+        Some(format!("{base}/avatars/{id}"))
     }
 }
 
@@ -554,113 +675,168 @@ pub fn segments(text: &str) -> Segments {
 
     // блоки кода разбираем первыми: внутри них разметка не действует
     let mut rest = text;
-    while let Some(open) = rest.find("```") {
-        push_text(&mut out, &rest[..open]);
-        let after = &rest[open + 3..];
-        match after.find("```") {
-            Some(close) => {
-                out.push(Segment {
-                    kind: "codeblock".into(),
-                    text: after[..close].trim_matches('\n').to_string(),
-                    href: None,
-                });
-                rest = &after[close + 3..];
+    loop {
+        match rest.find("```") {
+            Some(open) => {
+                push_text(&mut out, &rest[..open]);
+                let after = &rest[open + 3..];
+                match after.find("```") {
+                    Some(close) => {
+                        out.push(Segment {
+                            kind: "codeblock".into(),
+                            text: after[..close].trim_matches('\n').to_string(),
+                            href: None,
+                        });
+                        rest = &after[close + 3..];
+                    }
+                    None => {
+                        // незакрытый блок — показываем как обычный текст
+                        push_text(&mut out, &rest[open..]);
+                        return out;
+                    }
+                }
             }
-            // незакрытый блок — считаем остаток обычным текстом
             None => {
-                rest = &rest[open..];
-                break;
+                push_text(&mut out, rest);
+                return out;
             }
         }
     }
-    push_text(&mut out, rest);
-    out
 }
 
+/// Разметка внутри строки.
+///
+/// Ищем ближайший открывающий маркер, а не «первый попавшийся» символ:
+/// из-за этого раньше терялся текст между `**…**` и `` `…` ``.
 fn push_text(out: &mut Segments, text: &str) {
-    if text.is_empty() {
-        return;
-    }
     let mut plain = String::new();
     let mut rest = text;
 
-    'outer: while !rest.is_empty() {
-        // инлайн-код: `…`
-        if rest.starts_with('`')
-            && let Some(end) = rest[1..].find('`')
-        {
-            push_plain(out, &mut plain);
-            out.push(Segment {
-                kind: "code".into(),
-                text: rest[1..1 + end].to_string(),
-                href: None,
-            });
-            rest = &rest[1 + end + 1..];
-            continue;
-        }
+    while let Some((at, marker, kind)) = next_marker(rest) {
+        // текст до маркера
+        plain.push_str(&rest[..at]);
 
-        // спойлер: ||…||
-        if rest.starts_with("||")
-            && let Some(end) = rest[2..].find("||")
-        {
-            push_plain(out, &mut plain);
-            out.push(Segment {
-                kind: "spoiler".into(),
-                text: rest[2..2 + end].to_string(),
-                href: None,
-            });
-            rest = &rest[2 + end + 2..];
-            continue;
-        }
+        let after = &rest[at + marker.len()..];
+        let closing = if kind == "link" {
+            None
+        } else {
+            after.find(marker)
+        };
 
-        // ссылка: [текст](адрес)
-        if rest.starts_with('[')
-            && let Some(close) = rest.find("](")
-            && let Some(end) = rest[close + 2..].find(')')
-        {
-            let title = &rest[1..close];
-            let href = &rest[close + 2..close + 2 + end];
-            if href.starts_with("http://") || href.starts_with("https://") {
-                push_plain(out, &mut plain);
-                out.push(Segment {
-                    kind: "link".into(),
-                    text: title.to_string(),
-                    href: Some(href.to_string()),
-                });
-                rest = &rest[close + 2 + end + 1..];
-                continue;
+        match kind {
+            // ссылка: [текст](адрес)
+            "link" => {
+                let parsed = after
+                    .find("](")
+                    .and_then(|close| after[close + 2..].find(')').map(|end| (close, end)))
+                    .map(|(close, end)| {
+                        let title = after[..close].to_string();
+                        let href = after[close + 2..close + 2 + end].to_string();
+                        (title, href, close + 2 + end + 1)
+                    })
+                    .filter(|(_, href, _)| href.starts_with("http"));
+
+                match parsed {
+                    Some((title, href, used)) => {
+                        push_plain(out, &mut plain);
+                        out.push(Segment {
+                            kind: "link".into(),
+                            text: title,
+                            href: Some(href),
+                        });
+                        rest = &after[used..];
+                    }
+                    // это не ссылка — оставляем скобку как текст
+                    None => {
+                        plain.push('[');
+                        rest = &rest[at + 1..];
+                    }
+                }
             }
+            _ => match closing {
+                Some(end) if end > 0 => {
+                    push_plain(out, &mut plain);
+                    out.push(Segment {
+                        kind: kind.into(),
+                        text: after[..end].to_string(),
+                        href: None,
+                    });
+                    rest = &after[end + marker.len()..];
+                }
+                // закрывающего маркера нет — считаем символ обычным текстом
+                _ => {
+                    plain.push_str(marker);
+                    rest = after;
+                }
+            },
         }
-
-        // жирный, зачёркнутый, курсив — закрывающая пара должна быть дальше
-        for (marker, kind) in [
-            ("**", "bold"),
-            ("~~", "strike"),
-            ("*", "italic"),
-            ("_", "italic"),
-        ] {
-            if rest.starts_with(marker)
-                && let Some(end) = rest[marker.len()..].find(marker)
-                && end > 0
-            {
-                push_plain(out, &mut plain);
-                out.push(Segment {
-                    kind: kind.into(),
-                    text: rest[marker.len()..marker.len() + end].to_string(),
-                    href: None,
-                });
-                rest = &rest[marker.len() + end + marker.len()..];
-                continue 'outer;
-            }
-        }
-
-        // обычный символ
-        let symbol = rest.chars().next().expect("строка не пуста");
-        plain.push(symbol);
-        rest = &rest[symbol.len_utf8()..];
     }
 
+    plain.push_str(rest);
     push_plain(out, &mut plain);
+}
+
+/// Ближайший маркер разметки: (позиция, маркер, вид).
+fn next_marker(text: &str) -> Option<(usize, &'static str, &'static str)> {
+    const MARKERS: [(&str, &str); 6] = [
+        ("```", "codeblock"),
+        ("`", "code"),
+        ("**", "bold"),
+        ("~~", "strike"),
+        ("||", "spoiler"),
+        ("*", "italic"),
+    ];
+
+    let mut best: Option<(usize, &'static str, &'static str)> = None;
+    for (marker, kind) in MARKERS {
+        // одиночная «*» не должна перебивать «**»
+        if marker == "*" && text.starts_with("**") {
+            continue;
+        }
+        if let Some(at) = text.find(marker) {
+            let better = match best {
+                None => true,
+                // при равной позиции предпочитаем длинный маркер
+                Some((best_at, best_marker, _)) => {
+                    at < best_at || (at == best_at && marker.len() > best_marker.len())
+                }
+            };
+            if better {
+                best = Some((at, marker, kind));
+            }
+        }
+    }
+
+    // «_курсив_» отдельно: подчёркивания часто встречаются в словах и ссылках
+    if let Some(at) = text.find('_')
+        && let Some((best_at, _, _)) = best
+        && at < best_at
+        && text[at + 1..].contains('_')
+    {
+        best = Some((at, "_", "italic"));
+    }
+
+    // ссылка
+    if let Some(at) = text.find('[')
+        && text[at..].contains("](")
+    {
+        let better = match best {
+            None => true,
+            Some((best_at, _, _)) => at < best_at,
+        };
+        if better {
+            best = Some((at, "[", "link"));
+        }
+    }
+
+    // позицию ссылки отмечаем отдельно: маркер «[» имеет длину 1
+    best.map(|(at, marker, kind)| {
+        if kind == "link" {
+            (at, "[", "link")
+        } else {
+            (at, marker, kind)
+        }
+    })
 }
 
 fn push_plain(out: &mut Segments, plain: &mut String) {
@@ -691,6 +867,22 @@ pub fn message_link(server: Option<&str>, channel: &str, message: &str) -> Strin
         Some(server) => format!("https://stoat.chat/server/{server}/channel/{channel}/{message}"),
         None => format!("https://stoat.chat/channel/{channel}/{message}"),
     }
+}
+
+/// Имя файла эмодзи, если «иконка» канала на самом деле эмодзи.
+///
+/// В Stoat иконка канала — это файл с тегом `emojis` и именем вида `1f600.webp`:
+/// по имени и определяется, что показать вместо «#».
+pub fn emoji_of(file: &v0::File) -> Option<String> {
+    let name = file.filename.rsplit('/').next().unwrap_or(&file.filename);
+    let codepoint = name.split('.').next().unwrap_or(name).trim().to_lowercase();
+    if codepoint.is_empty() {
+        return None;
+    }
+    let valid = codepoint
+        .split('-')
+        .all(|part| !part.is_empty() && part.chars().all(|symbol| symbol.is_ascii_hexdigit()));
+    valid.then_some(codepoint)
 }
 
 /// Адрес картинки эмодзи на статике Stoat.
@@ -882,6 +1074,41 @@ mod tests {
         let link = parts.iter().find(|part| part.kind == "link").unwrap();
         assert_eq!(link.href.as_deref(), Some("https://stoat.chat"));
         assert_eq!(link.text, "ссылкой");
+    }
+
+    #[test]
+    fn markdown_keeps_all_text() {
+        // раньше здесь терялось « между »
+        let text = "начало **жирный** между `код` и *курсив* конец";
+        let parts = segments(text);
+        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
+        assert!(
+            joined.contains("между"),
+            "текст между разметкой не должен теряться"
+        );
+        assert!(joined.contains("начало"));
+        assert!(joined.contains("конец"));
+        assert_eq!(parts.iter().filter(|part| part.kind == "bold").count(), 1);
+        assert_eq!(parts.iter().filter(|part| part.kind == "italic").count(), 1);
+    }
+
+    #[test]
+    fn multiple_bold_pairs_are_split() {
+        let parts = segments("**один** и **два**");
+        let bold: Vec<&str> = parts
+            .iter()
+            .filter(|part| part.kind == "bold")
+            .map(|part| part.text.as_str())
+            .collect();
+        assert_eq!(bold, vec!["один", "два"]);
+    }
+
+    #[test]
+    fn unmatched_marker_stays_text() {
+        let parts = segments("2 * 2 = 4 и [скобка без ссылки");
+        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
+        assert!(joined.contains("2 * 2 = 4"));
+        assert!(joined.contains("[скобка без ссылки"));
     }
 
     #[test]

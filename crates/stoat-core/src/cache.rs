@@ -281,6 +281,22 @@ impl Cache {
         messages
     }
 
+    /// Участник сервера: нужен для ролей и цвета ника.
+    pub async fn member(&self, server: &str, user: &str) -> Option<v0::Member> {
+        let state = self.state.read().await;
+        state
+            .members
+            .get(server)
+            .and_then(|map| map.get(user))
+            .cloned()
+    }
+
+    /// Есть ли сервер в кэше.
+    pub async fn has_server(&self, id: &str) -> bool {
+        let state = self.state.read().await;
+        state.servers.contains_key(id)
+    }
+
     /// Кто сейчас печатает в канале.
     pub async fn typers(&self, channel: &str) -> Vec<String> {
         let state = self.state.read().await;

@@ -433,6 +433,7 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
 
     let cache = state.cache.clone();
     let emitter = app.clone();
+    let app_state = state.inner().clone();
     tokio::spawn(async move {
         while let Some(event) = events.recv().await {
             if let GatewayEvent::Ready(ready) = &event {
@@ -440,7 +441,41 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
             } else {
                 cache.apply(event.clone()).await;
             }
-            // отдаём событие в webview как есть; UI решает, что перерисовать
+
+            // Новое сообщение отдаём в том же виде, что и историю:
+            // иначе в ленте пропадают имя вебхука, цвет, эмбеды и аватар.
+            if let GatewayEvent::Message(message) = &event {
+                let cdn = app_state.cdn_url.read().await.clone();
+                let view = message_view(&cache, cdn.as_deref(), (**message).clone()).await;
+                if let Ok(payload) = serde_json::to_string(&view)
+                    && emitter.emit("stoat:message", payload).is_err()
+                {
+                    break;
+                }
+                continue;
+            }
+
+            // Изменённое сообщение тоже собираем целиком: иначе после правки
+            // пропадала разметка, эмбеды и имя вебхука.
+            if let GatewayEvent::MessageUpdate { id, channel, .. } = &event {
+                let merged = cache
+                    .messages(channel)
+                    .await
+                    .into_iter()
+                    .find(|item| &item.id == id);
+                if let Some(message) = merged {
+                    let cdn = app_state.cdn_url.read().await.clone();
+                    let view = message_view(&cache, cdn.as_deref(), message).await;
+                    if let Ok(payload) = serde_json::to_string(&view)
+                        && emitter.emit("stoat:message", payload).is_err()
+                    {
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            // остальное — как есть; UI решает, что перерисовать
             if let Ok(payload) = serde_json::to_string(&event)
                 && emitter.emit("stoat:gateway", payload).is_err()
             {
@@ -450,6 +485,22 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
     });
 
     Ok(())
+}
+
+/// Собрать сообщение для интерфейса, подтянув автора из кэша.
+///
+/// В событиях gateway приходит только id автора, поэтому имя и аватар
+/// берутся из кэша — иначе новые сообщения выглядели бы «безымянными».
+async fn message_view(
+    cache: &stoat_core::cache::Cache,
+    cdn: Option<&str>,
+    message: revolt_models::v0::Message,
+) -> ChatMessage {
+    let mut authors = std::collections::HashMap::new();
+    if let Some(user) = cache.user(&message.author).await {
+        authors.insert(message.author.clone(), UserView::from(user));
+    }
+    ChatMessage::build(message, &authors, cdn)
 }
 
 /// Отправить сообщение в канал.

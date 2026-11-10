@@ -192,6 +192,14 @@ button { font: inherit; color: inherit; cursor: pointer; }
   height: 18px;
   object-fit: contain;
 }
+/* иконка канала — эмодзи-картинка из статики Stoat */
+.channel .hash .emoji-img {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  display: block;
+}
+.channel .hash .channel-emoji { font-size: 15px; line-height: 1; }
 .channel .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel.unread { color: var(--text); font-weight: 600; }
 .channel .badge {
@@ -532,3 +540,106 @@ button { font: inherit; color: inherit; cursor: pointer; }
   display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ─────────────────────── карточки встраивания ───────────────────────────── */
+
+.embeds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  max-width: 460px;
+}
+
+.embed {
+  border-left: 3px solid var(--accent);
+  background: var(--panel-2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  overflow: hidden;
+}
+
+.embed-bare {
+  border-left: none;
+  background: transparent;
+  padding: 0;
+}
+
+.embed-image {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  max-height: 320px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--panel-2);
+  min-width: 60px;
+  min-height: 48px;
+}
+
+.embed-site {
+  display: block;
+  font-size: 11.5px;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+
+.embed-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #7aa7ff;
+  text-decoration: none;
+  margin-bottom: 4px;
+  word-break: break-word;
+}
+
+.embed-title:hover { text-decoration: underline; }
+
+.embed-text {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ──────────────── ссылка на сообщение кнопкой, как в Stoat ─────────────── */
+
+.msg-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: #2a3140;
+  color: #c9d3e6;
+  border-radius: 5px;
+  padding: 1px 7px 1px 5px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.45;
+  vertical-align: baseline;
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.msg-link:hover { background: #333c4e; color: #fff; }
+.msg-link:active { background: #3b455a; }
+.msg-link-icon { width: 12px; height: 12px; flex: 0 0 12px; opacity: .85; }
+.msg-link-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
+/* подсветка сообщения, к которому перешли по ссылке */
+.msg.flash {
+  animation: msg-flash 1.6s ease-out;
+}
+
+@keyframes msg-flash {
+  0%, 40% { background: #2f3a5255; }
+  100% { background: transparent; }
+}

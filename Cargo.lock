@@ -4474,7 +4474,7 @@ dependencies = [
 
 [[package]]
 name = "stoat-core"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "futures-util",
  "iso8601-timestamp",
@@ -4492,7 +4492,7 @@ dependencies = [
 
 [[package]]
 name = "stoat-plugin-api"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -4954,7 +4954,7 @@ dependencies = [
 
 [[package]]
 name = "tauri-stoat"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "base64 0.22.1",
  "directories",

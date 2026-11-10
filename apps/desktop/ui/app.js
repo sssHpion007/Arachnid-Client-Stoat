@@ -15,7 +15,7 @@ const sendBtn = el("btn-send");
 const state = {
   me: null,
   media: new Map(),      // адрес → data-URL (что уже скачал Rust)
-  mediaInFlight: new Set(),
+  mediaInFlight: new Map(),  // адрес → обещание загрузки
   workspace: null,
   serverId: null,      // null = личные сообщения
   channelId: null,
@@ -23,6 +23,8 @@ const state = {
   collapsed: new Set(),
   sending: false,
   editing: null,
+  loadingOlder: false,
+  reachedStart: false,
 };
 
 // ─────────────────────────── мелкие помощники ──────────────────────────────
@@ -54,22 +56,30 @@ function avatarEl(url, name, size) {
 
 // WebView2 не грузит сторонние картинки на встроенных страницах, поэтому
 // файлы скачивает Rust и отдаёт готовые data-URL.
-async function mediaUrl(url) {
-  if (!url) return null;
-  if (state.media.has(url)) return state.media.get(url);
-  if (state.mediaInFlight.has(url)) return null;
-  state.mediaInFlight.add(url);
-  try {
-    const data = await call("fetch_media", { url });
-    state.media.set(url, data);
-    return data;
-  } catch (error) {
-    console.warn("не удалось загрузить файл:", url, error);
-    state.media.set(url, null);
-    return null;
-  } finally {
-    state.mediaInFlight.delete(url);
-  }
+function mediaUrl(url) {
+  if (!url) return Promise.resolve(null);
+  if (state.media.has(url)) return Promise.resolve(state.media.get(url));
+  // Раньше второй запрос того же файла возвращал null, и аватар навсегда
+  // оставался буквой. Теперь все ждут одну и ту же загрузку.
+  const running = state.mediaInFlight.get(url);
+  if (running) return running;
+
+  const task = call("fetch_media", { url })
+    .then((data) => {
+      state.media.set(url, data || null);
+      return data || null;
+    })
+    .catch((error) => {
+      console.warn("не удалось загрузить файл:", url, error);
+      state.media.set(url, null);
+      return null;
+    })
+    .finally(() => {
+      state.mediaInFlight.delete(url);
+    });
+
+  state.mediaInFlight.set(url, task);
+  return task;
 }
 
 // Подставить картинку, когда она загрузится.
@@ -136,6 +146,12 @@ const EMOJI_RE = /(\p{Extended_Pictographic}(?:\u200D\p{Extended_Pictographic}|\
 const emojiCache = new Map();
 let emojiPack = null;
 
+// Набор эмодзи (twemoji или noto) ядро определяет само; запоминаем,
+// чтобы не спрашивать его для каждой картинки.
+function noteEmojiPack(pack) {
+  if (pack && pack !== emojiPack) emojiPack = pack;
+}
+
 function emojiCodepoint(text) {
   const points = [];
   for (const symbol of text) {
@@ -162,13 +178,47 @@ function emojiNode(text) {
 
   call("fetch_emoji", { codepoint, pack: emojiPack })
     .then((data) => {
-      emojiCache.set(codepoint, data);
-      slot.replaceChildren(lazyImage(data, text, "emoji-img"));
+      emojiCache.set(codepoint, data || "none");
+      if (!data) return;
+      const img = lazyImage(data, text, "emoji-img");
+      slot.replaceChildren(img);
     })
     .catch(() => {
       emojiCache.set(codepoint, "none");
     });
   return slot;
+}
+
+// Иконка канала в Stoat — это эмодзи, а не «#».
+function channelIconNode(channel, target) {
+  const emoji = channel.emoji;
+  if (!emoji) return false;
+  const slot = document.createElement("span");
+  slot.className = "emoji channel-emoji";
+  slot.textContent = "💬";
+  target.replaceChildren(slot);
+  call("fetch_emoji", { codepoint: emoji, pack: emojiPack })
+    .then((data) => {
+      if (!data) throw new Error("нет картинки");
+      slot.replaceChildren(lazyImage(data, channel.name, "emoji-img"));
+    })
+    .catch(() => {
+      // если картинка недоступна — показываем сам эмодзи символом
+      slot.textContent = emojiSymbol(emoji);
+    });
+  return true;
+}
+
+// `1f600` → сама пиктограмма, чтобы иконка не исчезала без интернета.
+function emojiSymbol(codepoint) {
+  try {
+    return codepoint
+      .split("-")
+      .map((part) => String.fromCodePoint(parseInt(part, 16)))
+      .join("");
+  } catch {
+    return "#";
+  }
 }
 
 // Текст с эмодзи и ссылками.
@@ -194,12 +244,17 @@ function richText(text) {
 
     if (linkAt <= emojiAt) {
       if (linkAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, linkAt)));
-      const link = document.createElement("a");
-      link.href = linkMatch[0];
-      link.textContent = linkMatch[0];
-      link.target = "_blank";
-      link.rel = "noreferrer";
-      frag.appendChild(link);
+      const info = messageLinkInfo(linkMatch[0]);
+      if (info) {
+        frag.appendChild(messageLinkNode(info, linkMatch[0]));
+      } else {
+        const link = document.createElement("a");
+        link.href = linkMatch[0];
+        link.textContent = linkMatch[0];
+        link.target = "_blank";
+        link.rel = "noreferrer";
+        frag.appendChild(link);
+      }
       rest = rest.slice(linkAt + linkMatch[0].length);
     } else {
       if (emojiAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, emojiAt)));
@@ -223,8 +278,14 @@ function segmentsNode(message) {
       continue;
     }
     if (part.kind === "link") {
+      const href = part.href || part.text;
+      const info = messageLinkInfo(href);
+      if (info) {
+        wrap.appendChild(messageLinkNode(info, href));
+        continue;
+      }
       const link = document.createElement("a");
-      link.href = part.href || part.text;
+      link.href = href;
       link.textContent = part.text;
       link.target = "_blank";
       link.rel = "noreferrer";
@@ -241,6 +302,178 @@ function segmentsNode(message) {
     wrap.appendChild(node);
   }
   return wrap;
+}
+
+// Цвет ника приходит строкой вида `#ff0000` или `hsl(0, 100%, 50%)`,
+// а может прийти и числом 0xff0000 — приводим к CSS.
+function colourCss(value) {
+  const text = String(value).trim();
+  if (/^\d+$/.test(text)) {
+    return "#" + Number(text).toString(16).padStart(6, "0").slice(-6);
+  }
+  return text;
+}
+
+// Карточка встраивания: превью сайта или прямая картинка по ссылке.
+function embedNode(embed) {
+  const box = document.createElement("div");
+  box.className = "embed embed-" + (embed.kind || "website");
+
+  // картинка идёт сверху и растягивается по ширине карточки
+  if (embed.image) {
+    const img = lazyImage(embed.image, embed.title || "");
+    img.className = "embed-image";
+    if (embed.width && embed.height) {
+      img.style.aspectRatio = embed.width + " / " + embed.height;
+    }
+    box.appendChild(img);
+    // прямая картинка — без лишней рамки и подложки
+    if (embed.kind === "image") {
+      box.classList.add("embed-bare");
+      return box;
+    }
+  }
+
+  const head = document.createElement("div");
+  head.className = "embed-head";
+  if (embed.site) {
+    const site = document.createElement("span");
+    site.className = "embed-site";
+    site.textContent = embed.site;
+    head.appendChild(site);
+  }
+  if (embed.title) {
+    const title = document.createElement("a");
+    title.className = "embed-title";
+    title.textContent = embed.title;
+    title.href = embed.url || "#";
+    title.target = "_blank";
+    title.rel = "noreferrer";
+    head.appendChild(title);
+  }
+  if (head.childElementCount) box.appendChild(head);
+
+  if (embed.description) {
+    const text = document.createElement("div");
+    text.className = "embed-text";
+    text.appendChild(richText(embed.description));
+    box.appendChild(text);
+  }
+  return box;
+}
+
+// Ссылка на сообщение внутри текста: у Stoat она выглядит кнопкой
+// с названием канала, а не голым адресом.
+const MESSAGE_LINK_RE = /^https?:\/\/(?:stoat\.chat|rvlt\.gg)\/(server\/[^/\s]+\/)?channel\/([^/\s]+)\/([^/\s?#]+)/i;
+
+function messageLinkInfo(href) {
+  const match = MESSAGE_LINK_RE.exec(href || "");
+  if (!match) return null;
+  return { server: match[1] ? match[1].split("/")[1] : null, channel: match[2], message: match[3] };
+}
+
+function messageLinkNode(info, fallbackHref) {
+  const button = document.createElement("button");
+  button.className = "msg-link";
+  button.type = "button";
+  button.appendChild(jumpIcon());
+
+  const label = channelLabel(info.channel);
+  const name = document.createElement("span");
+  name.className = "msg-link-name";
+  name.textContent = label;
+  button.appendChild(name);
+
+  button.title = "Перейти к сообщению";
+  button.onclick = () => jumpToMessage(info).catch((error) => toast(describe(error), "error"));
+  return button;
+}
+
+// Значок «стрелка в сообщение», как в веб-клиенте.
+function jumpIcon() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 16");
+  svg.setAttribute("class", "msg-link-icon");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("fill", "currentColor");
+  path.setAttribute(
+    "d",
+    "M3 2.5a.5.5 0 0 1 .8-.4l4 3.5a.5.5 0 0 1 0 .8l-4 3.5a.5.5 0 0 1-.8-.4v-7Z"
+  );
+  svg.appendChild(path);
+  return svg;
+}
+
+function channelName(channelId) {
+  const ws = state.workspace;
+  if (!ws) return null;
+  for (const server of ws.servers) {
+    for (const category of server.categories) {
+      const found = category.channels.find((item) => item.id === channelId);
+      if (found) return found.name;
+    }
+  }
+  const dm = ws.dms.find((item) => item.id === channelId);
+  return dm ? dm.name : null;
+}
+
+function channelLabel(channelId) {
+  return channelName(channelId) || "сообщение";
+}
+
+// Перейти к сообщению: открыть канал, найти его в ленте и подсветить.
+async function jumpToMessage(info) {
+  const channel = findChannel(info.channel);
+  if (!channel) {
+    await copyText(`https://stoat.chat/channel/${info.channel}/${info.message}`);
+    toast("Канал недоступен — ссылка скопирована");
+    return;
+  }
+  if (state.channelId !== info.channel) await openChannel(channel);
+  await focusMessage(info.message);
+}
+
+function findChannel(channelId) {
+  const ws = state.workspace;
+  if (!ws) return null;
+  for (const server of ws.servers) {
+    for (const category of server.categories) {
+      const found = category.channels.find((item) => item.id === channelId);
+      if (found) return { ...found, serverId: server.id };
+    }
+  }
+  return ws.dms.find((item) => item.id === channelId) || null;
+}
+
+// Ищем сообщение в ленте; если его ещё нет — догружаем историю вверх.
+async function focusMessage(messageId, depth = 0) {
+  const hit = messagesEl.querySelector(`.msg[data-id="${messageId}"]`);
+  if (hit) {
+    hit.classList.add("flash");
+    hit.scrollIntoView({ block: "center", behavior: "smooth" });
+    setTimeout(() => hit.classList.remove("flash"), 1600);
+    return;
+  }
+  if (depth >= 8 || state.reachedStart) {
+    toast("Сообщение не найдено в загруженной истории", "error");
+    return;
+  }
+  await loadOlder();
+  await focusMessage(messageId, depth + 1);
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // запасной путь, если буфер обмена недоступен
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
 }
 
 function humanSize(bytes) {
@@ -372,17 +605,7 @@ function channelButton(channel) {
   button.appendChild(hash);
 
   // У канала может быть своя иконка-эмодзи: рисуем её вместо «#».
-  if (channel.icon) {
-    mediaUrl(channel.icon).then((data) => {
-      if (!data) return;
-      const img = document.createElement("img");
-      img.className = "channel-icon";
-      img.alt = "";
-      img.src = data;
-      hash.textContent = "";
-      hash.appendChild(img);
-    });
-  }
+  channelIconNode(channel, hash);
 
   const name = document.createElement("span");
   name.className = "name";
@@ -454,6 +677,7 @@ async function openChannel(channel) {
   el("chat-title").textContent = channel.name;
   el("chat-sub").textContent = channel.description || "";
   el("chat-hash").textContent = channel.kind === "voice" ? "🔊" : channel.kind === "dm" ? "@" : "#";
+  channelIconNode(channel, el("chat-hash"));
   inputEl.disabled = false;
   inputEl.placeholder = "Написать в #" + channel.name;
   inputEl.focus();
@@ -467,10 +691,92 @@ async function openChannel(channel) {
   try {
     const history = await call("channel_history", { channelId: channel.id, limit: 50 });
     if (state.channelId !== channel.id) return; // пользователь уже ушёл в другой канал
-    state.messages = history.messages || [];
+    state.messages = markMine(history.messages || []);
+    state.reachedStart = history.has_more === false || !state.messages.length;
     renderMessages(true);
+    resolveAvatars();
   } catch (error) {
     showEmpty("Не удалось загрузить историю", describe(error));
+  }
+}
+
+// Старые сообщения подгружаются при прокрутке вверх, как в веб-клиенте.
+async function loadOlder() {
+  if (state.loadingOlder || state.reachedStart) return;
+  const oldest = state.messages[0];
+  if (!oldest) return;
+  const channelId = state.channelId;
+  state.loadingOlder = true;
+  const before = el("messages").scrollHeight;
+  try {
+    const page = await call("channel_history", {
+      channelId,
+      before: oldest.id,
+      limit: 50,
+    });
+    if (state.channelId !== channelId) return;
+    const older = markMine(page.messages || []);
+    if (!older.length) {
+      state.reachedStart = true;
+      return;
+    }
+    if (page.has_more === false) state.reachedStart = true;
+    // запоминаем, где был верх, чтобы лента не прыгнула
+    const anchor = messagesEl.firstChild;
+    const anchorTop = anchor ? anchor.getBoundingClientRect().top : 0;
+    state.messages = older.concat(state.messages);
+    renderMessages(false);
+    if (anchor) {
+      const shift = anchor.getBoundingClientRect().top - anchorTop;
+      messagesEl.scrollTop += shift;
+    } else {
+      messagesEl.scrollTop = messagesEl.scrollHeight - before;
+    }
+  } catch (error) {
+    console.warn("не удалось подгрузить старые сообщения:", error);
+    state.reachedStart = true;
+  } finally {
+    state.loadingOlder = false;
+  }
+}
+
+// Ядро не знает, кто «я», поэтому свою пометку ставим здесь.
+function markMine(list) {
+  for (const message of list) {
+    if (message) message.mine = Boolean(state.me && message.author_id === state.me.id);
+  }
+  return list;
+}
+
+// Дозапрос профилей: в сообщении часто нет файла аватара, только автор.
+// Делаем это один раз на автора и параллельно, иначе лента «моргает» буквами.
+function resolveAvatars() {
+  const seen = new Set();
+  const nodes = messagesEl.querySelectorAll(".msg-avatar [data-author]");
+  for (const node of nodes) {
+    const authorId = node.dataset.author;
+    if (!authorId || seen.has(authorId)) continue;
+    seen.add(authorId);
+    const key = "avatar:" + authorId;
+    const name = node.dataset.name || "?";
+    const apply = (data) => {
+      if (data) fillAvatar(node, data, name);
+    };
+    if (state.media.has(key)) {
+      const known = state.media.get(key);
+      if (known) mediaUrl(known).then(apply);
+      continue;
+    }
+    call("user_avatar", { userId: authorId })
+      .then((url) => {
+        state.media.set(key, url || null);
+        if (!url) return null;
+        return mediaUrl(url);
+      })
+      .then((data) => {
+        if (data) apply(data);
+      })
+      .catch(() => state.media.set(key, null));
   }
 }
 
@@ -515,27 +821,11 @@ function messageNode(message, grouped) {
   const avatarBox = document.createElement("div");
   avatarBox.className = "msg-avatar";
   if (!grouped) {
-    if (message.avatar) {
-      avatarBox.appendChild(avatarEl(message.avatar, message.author, 40));
-    } else {
-      const node = avatarEl(null, message.author, 40);
-      avatarBox.appendChild(node);
-      // в сообщениях автор часто приходит без файла — дозапрашиваем профиль
-      const key = "avatar:" + message.author_id;
-      const known = state.media.get(key);
-      if (known !== undefined) {
-        if (known) fillAvatar(node, known, message.author);
-      } else {
-        call("user_avatar", { userId: message.author_id })
-          .then((url) => {
-            state.media.set(key, url || null);
-            if (url) return mediaUrl(url).then((data) => {
-              if (data) fillAvatar(node, data, message.author);
-            });
-          })
-          .catch(() => state.media.set(key, null));
-      }
-    }
+    const node = avatarEl(message.avatar, message.author, 40);
+    node.dataset.author = message.author_id;
+    node.dataset.name = message.author;
+    node.title = message.author;
+    avatarBox.appendChild(node);
   }
   row.appendChild(avatarBox);
 
@@ -548,7 +838,10 @@ function messageNode(message, grouped) {
     const author = document.createElement("span");
     author.className = "msg-author";
     author.textContent = message.author;
-    author.style.color = message.mine ? "var(--accent)" : "";
+    author.title = message.author_id;
+    author.style.color = message.colour
+      ? colourCss(message.colour)
+      : message.mine ? "var(--accent)" : "";
     const time = document.createElement("span");
     time.className = "msg-time";
     time.textContent = timeText(message.timestamp);
@@ -591,6 +884,13 @@ function messageNode(message, grouped) {
     body.appendChild(box);
   }
 
+  if (message.embeds && message.embeds.length) {
+    const box = document.createElement("div");
+    box.className = "embeds";
+    for (const embed of message.embeds) box.appendChild(embedNode(embed));
+    body.appendChild(box);
+  }
+
   // ссылка на сообщение: копируется по правому клику, как в браузере
   row.title = "Правый клик — скопировать ссылку на сообщение";
   row.addEventListener("contextmenu", (event) => {
@@ -629,19 +929,14 @@ async function copyMessageLink(message) {
   try {
     link = await call("message_link", {
       server: state.serverId,
-      channel: message.channel,
+      channel: message.channel || state.channelId,
       message: message.id,
     });
-  } catch (error) {
-    return toast("Не удалось собрать ссылку: " + describe(error), "err");
-  }
-  try {
-    await navigator.clipboard.writeText(link);
-    toast("Ссылка на сообщение скопирована", "ok");
   } catch {
-    // запасной путь: показываем адрес, чтобы можно было скопировать вручную
-    toast(link);
+    link = `https://stoat.chat/channel/${message.channel || state.channelId}/${message.id}`;
   }
+  await copyText(link);
+  toast("Ссылка на сообщение скопирована");
 }
 
 function startEdit(message) {
@@ -701,7 +996,7 @@ async function submit() {
       });
       const index = state.messages.findIndex((item) => item.id === id);
       if (index >= 0) {
-        state.messages[index] = { ...state.messages[index], ...updated, mine: true };
+        state.messages[index] = markMine([{ ...state.messages[index], ...updated }])[0];
       }
       stopEdit();
       renderMessages();
@@ -721,8 +1016,9 @@ async function submit() {
     if (state.channelId === channelId && sent) {
       // не дублируем: то же сообщение могло уже прийти через gateway
       if (!state.messages.some((item) => item.id === sent.id)) {
-        state.messages.push(sent);
+        state.messages.push(markMine([sent])[0]);
         renderMessages(true);
+        resolveAvatars();
       }
     }
   } catch (error) {
@@ -815,6 +1111,26 @@ function serverOfChannel(channelId) {
 
 // ─────────────────────────── события gateway ──────────────────────────────
 
+// Вставить пришедшее сообщение в открытую ленту.
+function addIncoming(message) {
+  if (!message || !message.id) return;
+  if (message.channel && message.channel !== state.channelId) return;
+  const index = state.messages.findIndex((item) => item.id === message.id);
+  if (index >= 0) {
+    // пришло обновление того же сообщения (правка текста или эмбедов)
+    state.messages[index] = message;
+    renderMessages();
+    resolveAvatars();
+    return;
+  }
+  markMine([message]);
+  const nearBottom =
+    messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160;
+  state.messages.push(message);
+  renderMessages(nearBottom);
+  resolveAvatars();
+}
+
 async function onGateway(payload) {
   let event;
   try {
@@ -840,41 +1156,21 @@ async function onGateway(payload) {
     return;
   }
 
+  // ядро присылает уже собранное сообщение (с вебхуком, цветом и эмбедами)
+  if (type === "MessageView") {
+    addIncoming(source);
+    return;
+  }
+
   if (type === "Message") {
-    const channel = source.channel;
-    if (channel !== state.channelId) return;
-
-    // сообщение пришло целиком — конвертируем в тот же вид, что отдаёт ядро
-    const message = {
-      id: source._id || source.id,
-      channel,
-      author_id: source.author,
-      author: (source.user && (source.user.display_name || source.user.username)) || "неизвестный",
-      avatar: source.user && source.user.avatar
-        ? `${state.workspace?.cdn || ""}/${source.user.avatar.tag}/${source.user.avatar._id}`
-        : null,
-      content: source.content || "",
-      timestamp: new Date((source.timestamp || 0) * 1000).toISOString(),
-      edited: false,
-      system: Boolean(source.system),
-      attachments: [],
-      mine: Boolean(state.me && source.author === state.me.id),
-    };
-
-    if (state.messages.some((item) => item.id === message.id)) return;
-    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160;
-    state.messages.push(message);
-    renderMessages(nearBottom);
+    if (source.channel !== state.channelId) return;
+    // старый путь на случай, если пришло сырое событие
+    addIncoming(source);
     return;
   }
 
   if (type === "MessageUpdate") {
-    const index = state.messages.findIndex((item) => item.id === source.id);
-    if (index >= 0 && source.data && typeof source.data.content === "string") {
-      state.messages[index].content = source.data.content;
-      state.messages[index].edited = true;
-      renderMessages();
-    }
+    // содержимое приедет отдельным событием `stoat:message` из ядра
     return;
   }
 
@@ -916,6 +1212,10 @@ async function boot() {
     return;
   }
 
+  messagesEl.addEventListener("scroll", () => {
+    if (messagesEl.scrollTop < 240) loadOlder();
+  });
+
   sendBtn.onclick = submit;
   inputEl.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -953,6 +1253,15 @@ async function boot() {
   }
 
   if (listen) await listen("stoat:gateway", (event) => onGateway(event.payload));
+  if (listen) {
+    await listen("stoat:message", (event) => {
+      try {
+        addIncoming(JSON.parse(event.payload));
+      } catch (error) {
+        console.warn("плохое событие сообщения:", error);
+      }
+    });
+  }
 
   setConn("warn", "подключаюсь…");
   try {
