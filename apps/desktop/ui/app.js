@@ -163,6 +163,38 @@ function emojiCodepoint(text) {
   return points.join("-");
 }
 
+// ── спрайты эмодзи в комплекте (twemoji), как в официальном клиенте
+const spriteFiles = new Map();   // номер файла → массив строк
+const spriteWaiters = new Map(); // номер файла → обещание загрузки
+
+function spriteEntry(codepoint) {
+  const map = window.EMOJI_MAP;
+  if (!map) return null;
+  return map[codepoint] || null;
+}
+
+async function spriteUrl(codepoint) {
+  const entry = spriteEntry(codepoint);
+  if (!entry) return null;
+  const [file, line] = entry;
+  if (!spriteFiles.has(file)) {
+    if (!spriteWaiters.has(file)) {
+      spriteWaiters.set(
+        file,
+        fetch(`emoji/${file}.txt`)
+          .then((response) => (response.ok ? response.text() : ""))
+          .then((text) => text.split("\n"))
+          .catch(() => []),
+      );
+    }
+    spriteFiles.set(file, await spriteWaiters.get(file));
+  }
+  const svg = spriteFiles.get(file)[line];
+  if (!svg) return null;
+  // картинку собираем прямо в памяти: сеть не нужна
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
 function emojiNode(text) {
   const slot = document.createElement("span");
   slot.className = "emoji";
@@ -175,6 +207,14 @@ function emojiNode(text) {
     if (cached !== "none") slot.replaceChildren(lazyImage(cached, text, "emoji-img"));
     return slot;
   }
+
+  // сначала комплект в приложении — он работает и без интернета
+  spriteUrl(codepoint).then((data) => {
+    if (!data) return;
+    emojiCache.set(codepoint, data);
+    if (!slot.isConnected) return;
+    slot.replaceChildren(lazyImage(data, text, "emoji-img"));
+  });
 
   call("fetch_emoji", { codepoint, pack: emojiPack })
     .then((data) => {
