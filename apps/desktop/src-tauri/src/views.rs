@@ -61,9 +61,60 @@ pub struct WorkspaceView {
     pub cdn: Option<String>,
 }
 
+/// Порядок, который пользователь задал в браузерной версии Stoat.
+///
+/// Хранится в настройке `ordering` и приходит как JSON-строка.
+#[derive(Debug, Default, Clone, Deserialize)]
+pub struct Ordering {
+    /// Порядок серверов в рельсе
+    #[serde(default)]
+    pub servers: Vec<String>,
+    /// Свой порядок категорий: id сервера → список id категорий.
+    ///
+    /// Категория `default` — это каналы без категории.
+    #[serde(default)]
+    pub categories: HashMap<String, Vec<String>>,
+    /// Свой порядок каналов внутри категорий (старый формат).
+    #[serde(default)]
+    pub channels: HashMap<String, Vec<String>>,
+}
+
+impl Ordering {
+    /// Разобрать строку из настроек; при ошибке порядок остаётся пустым.
+    pub fn parse(raw: Option<&str>) -> Self {
+        raw.and_then(|value| serde_json::from_str(value).ok())
+            .unwrap_or_default()
+    }
+
+    /// Расставить элементы по сохранённому порядку.
+    ///
+    /// Всё, чего нет в настройках, идёт следом в исходном порядке — так же
+    /// поступает браузерный клиент, когда список устарел.
+    fn apply<T, F>(items: &mut Vec<T>, order: &[String], key: F)
+    where
+        F: Fn(&T) -> &str,
+    {
+        if order.is_empty() {
+            return;
+        }
+        let rank = |item: &T| {
+            order
+                .iter()
+                .position(|id| id == key(item))
+                .unwrap_or(usize::MAX)
+        };
+        items.sort_by_key(rank);
+    }
+}
+
 impl WorkspaceView {
-    /// Собрать дерево из снимка кэша.
+    /// Собрать дерево из снимка кэша (порядок — по умолчанию).
     pub fn build(snapshot: Snapshot, cdn: Option<String>) -> Self {
+        Self::build_ordered(snapshot, cdn, &Ordering::default())
+    }
+
+    /// Собрать дерево с учётом пользовательского порядка.
+    pub fn build_ordered(snapshot: Snapshot, cdn: Option<String>, ordering: &Ordering) -> Self {
         let channels: Vec<&v0::Channel> = snapshot.channels.iter().collect();
 
         let mut servers: Vec<ServerView> = snapshot
@@ -74,11 +125,16 @@ impl WorkspaceView {
                     server,
                     &channels,
                     snapshot.members.get(&server.id),
+                    ordering,
                     cdn.as_deref(),
                 )
             })
             .collect();
-        servers.sort_by_key(|server| server.name.to_lowercase());
+        // порядок как в браузере: сначала серверы из настроек, затем новые
+        Ordering::apply(&mut servers, &ordering.servers, |server| &server.id);
+        if ordering.servers.is_empty() {
+            servers.sort_by_key(|server| server.name.to_lowercase());
+        }
 
         let mut dms: Vec<ChannelView> = channels
             .iter()
@@ -135,6 +191,7 @@ impl ServerView {
         server: &v0::Server,
         channels: &[&v0::Channel],
         members: Option<&Vec<v0::Member>>,
+        ordering: &Ordering,
         cdn: Option<&str>,
     ) -> Self {
         let members = members.cloned().unwrap_or_default();
@@ -170,19 +227,36 @@ impl ServerView {
             }
         }
 
-        // каналы, не попавшие ни в одну категорию
+        // Каналы без категории: в браузере они попадают в категорию
+        // `default`, и если такая категория уже есть — дополняют её,
+        // иначе она идёт первой. Повторяем это поведение.
         let mut rest: Vec<ChannelView> = own
             .iter()
             .filter(|channel| !placed.contains(&id_of(channel).to_string()))
             .map(|channel| ChannelView::build(channel, &[], Some(&members), cdn))
             .collect();
+
         if !rest.is_empty() {
-            rest.sort_by_key(|channel| channel.name.to_lowercase());
-            categories.push(CategoryView {
-                id: "none".into(),
-                title: "Каналы".into(),
-                channels: rest,
-            });
+            if let Some(index) = categories
+                .iter()
+                .position(|category| category.id == "default")
+            {
+                categories[index].channels.append(&mut rest);
+            } else {
+                categories.insert(
+                    0,
+                    CategoryView {
+                        id: "default".into(),
+                        title: "Каналы".into(),
+                        channels: rest,
+                    },
+                );
+            }
+        }
+
+        // порядок категорий мог быть переставлен перетаскиванием
+        if let Some(order) = ordering.categories.get(&server.id) {
+            Ordering::apply(&mut categories, order, |category| &category.id);
         }
 
         Self {
@@ -576,10 +650,68 @@ mod tests {
         assert_eq!(server.name, "Мой сервер");
         assert_eq!(server.initial, "М");
         assert_eq!(server.categories.len(), 2, "категория сервера + остаток");
-        assert_eq!(server.categories[0].title, "Основное");
-        assert_eq!(server.categories[0].channels[0].name, "общий");
-        assert_eq!(server.categories[1].channels[0].name, "флуд");
-        assert_eq!(workspace.last_channel.as_deref(), Some("c1"));
+        // как в браузере: каналы без категории попадают в «default», и он идёт первым
+        assert_eq!(server.categories[0].id, "default");
+        assert_eq!(server.categories[0].channels[0].name, "флуд");
+        assert_eq!(server.categories[1].title, "Основное");
+        assert_eq!(server.categories[1].channels[0].name, "общий");
+        assert_eq!(workspace.last_channel.as_deref(), Some("c2"));
+    }
+
+    #[test]
+    fn ordering_from_settings_is_applied() {
+        let snapshot = Snapshot {
+            users: Vec::new(),
+            servers: serde_json::from_str(
+                r#"[{"_id":"s1","owner":"u1","name":"Альфа","channels":["c1","c2"],
+                     "categories":[{"id":"cat1","title":"Первая","channels":["c1"]},
+                                   {"id":"other","title":"Вторая","channels":["c2"]}],
+                     "roles":{},"default_permissions":0,"flags":0,"nsfw":false,
+                     "analytics":false,"discoverable":false,"approximate_member_count":1},
+                    {"_id":"s2","owner":"u1","name":"Бета","channels":[],
+                     "roles":{},"default_permissions":0,"flags":0,"nsfw":false,
+                     "analytics":false,"discoverable":false,"approximate_member_count":1}]"#,
+            )
+            .unwrap(),
+            channels: serde_json::from_str(
+                r#"[{"channel_type":"TextChannel","_id":"c1","server":"s1",
+                     "name":"общий","role_permissions":{}},
+                    {"channel_type":"TextChannel","_id":"c2","server":"s1",
+                     "name":"без категории","role_permissions":{}}]"#,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+
+        // пользователь поставил «Бета» перед «Альфа» и поменял категории местами
+        let ordering = Ordering::parse(Some(
+            r#"{"servers":["s2","s1"],"categories":{"s1":["other","cat1"]}}"#,
+        ));
+
+        let workspace = WorkspaceView::build_ordered(snapshot, None, &ordering);
+        assert_eq!(
+            workspace.servers[0].name, "Бета",
+            "порядок серверов из настроек"
+        );
+        assert_eq!(workspace.servers[1].name, "Альфа");
+
+        let categories: Vec<&str> = workspace.servers[1]
+            .categories
+            .iter()
+            .map(|category| category.id.as_str())
+            .collect();
+        assert_eq!(
+            categories,
+            vec!["other", "cat1"],
+            "порядок категорий из настроек"
+        );
+    }
+
+    #[test]
+    fn ordering_survives_broken_value() {
+        // мусор в настройке не должен ломать интерфейс
+        assert!(Ordering::parse(Some("не json")).servers.is_empty());
+        assert!(Ordering::parse(None).servers.is_empty());
     }
 
     #[test]

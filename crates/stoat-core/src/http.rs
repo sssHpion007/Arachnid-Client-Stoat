@@ -161,6 +161,40 @@ impl HttpClient {
         .await
     }
 
+    /// `POST /sync/settings/fetch` — прочитать настройки синхронизации.
+    ///
+    /// Именно здесь хранится порядок серверов и каналов, который пользователь
+    /// задал в браузерной версии: ключ `ordering`. Значение — JSON-строка
+    /// (её нужно разобрать отдельно), например
+    /// `{"servers":["01…","01…"],"categories":{…},"channels":{…}}`.
+    pub async fn fetch_settings(&self, keys: &[&str]) -> Result<Vec<(String, Option<String>)>> {
+        let url = self.endpoint("/sync/settings/fetch")?;
+        let body = serde_json::json!({ "keys": keys });
+        let raw: std::collections::HashMap<String, serde_json::Value> = self
+            .request::<std::collections::HashMap<String, serde_json::Value>, _>(
+                Method::POST,
+                url,
+                Some(&body),
+                None,
+                None,
+            )
+            .await?;
+
+        // ответ: { "ordering": ["<время>", "<json-строка>"], … }
+        Ok(keys
+            .iter()
+            .map(|key| {
+                let value = raw
+                    .get(*key)
+                    .and_then(|entry| entry.as_array())
+                    .and_then(|pair| pair.get(1))
+                    .and_then(|value| value.as_str())
+                    .map(str::to_string);
+                ((*key).to_string(), value)
+            })
+            .collect())
+    }
+
     /// `POST /auth/session/logout` — завершить текущую сессию.
     pub async fn logout(&self) -> Result<()> {
         let url = self.endpoint("/auth/session/logout")?;

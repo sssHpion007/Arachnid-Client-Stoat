@@ -34,6 +34,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   display: grid;
   grid-template-columns: 74px 254px 1fr;
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ───────────── рельс серверов ───────────── */
@@ -106,8 +108,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   background: var(--panel);
   border-right: 1px solid var(--line);
   display: grid;
-  grid-template-rows: 48px 1fr 56px;
+  grid-template-rows: 48px minmax(0, 1fr) 56px;
   min-height: 0;
+  overflow: hidden;
 }
 .sidebar-head {
   display: flex;
@@ -176,7 +179,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 .channel:hover { background: var(--hover); color: var(--text); }
 .channel.active { background: var(--active); color: #fff; }
-.channel .hash { color: var(--dim); font-size: 17px; width: 16px; text-align: center; }
+.channel .hash {
+  color: var(--dim);
+  font-size: 17px;
+  width: 18px;
+  flex: 0 0 18px;
+  display: grid;
+  place-items: center;
+}
+.channel-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+}
 .channel .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel.unread { color: var(--text); font-weight: 600; }
 .channel .badge {
@@ -223,8 +238,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ───────────── чат ───────────── */
 .chat {
   display: grid;
-  grid-template-rows: 48px 1fr auto;
+  grid-template-rows: 48px minmax(0, 1fr) auto;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg);
 }
 .chat-head {
@@ -337,6 +354,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
   border-radius: 8px;
   display: block;
   background: var(--panel-2);
+  min-width: 40px;
+  min-height: 40px;
 }
 .attachment-file {
   display: flex;

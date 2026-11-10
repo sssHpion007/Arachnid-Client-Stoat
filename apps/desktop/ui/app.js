@@ -14,6 +14,8 @@ const sendBtn = el("btn-send");
 
 const state = {
   me: null,
+  media: new Map(),      // адрес → data-URL (что уже скачал Rust)
+  mediaInFlight: new Set(),
   workspace: null,
   serverId: null,      // null = личные сообщения
   channelId: null,
@@ -35,16 +37,51 @@ function avatarEl(url, name, size) {
   if (size) {
     node.style.width = node.style.height = node.style.flexBasis = size + "px";
   }
+  node.textContent = initial(name);
   if (url) {
-    const img = document.createElement("img");
-    img.src = url;
-    img.alt = "";
-    img.onerror = () => { node.textContent = initial(name); };
-    node.appendChild(img);
-  } else {
-    node.textContent = initial(name);
+    mediaUrl(url).then((data) => {
+      if (!data) return;
+      const img = document.createElement("img");
+      img.alt = "";
+      img.onerror = () => img.remove();
+      img.src = data;
+      node.textContent = "";
+      node.appendChild(img);
+    });
   }
   return node;
+}
+
+// WebView2 не грузит сторонние картинки на встроенных страницах, поэтому
+// файлы скачивает Rust и отдаёт готовые data-URL.
+async function mediaUrl(url) {
+  if (!url) return null;
+  if (state.media.has(url)) return state.media.get(url);
+  if (state.mediaInFlight.has(url)) return null;
+  state.mediaInFlight.add(url);
+  try {
+    const data = await call("fetch_media", { url });
+    state.media.set(url, data);
+    return data;
+  } catch (error) {
+    console.warn("не удалось загрузить файл:", url, error);
+    state.media.set(url, null);
+    return null;
+  } finally {
+    state.mediaInFlight.delete(url);
+  }
+}
+
+// Подставить картинку, когда она загрузится.
+function lazyImage(url, alt, className) {
+  const img = document.createElement("img");
+  if (className) img.className = className;
+  img.alt = alt || "";
+  img.loading = "lazy";
+  mediaUrl(url).then((data) => {
+    if (data) img.src = data;
+  });
+  return img;
 }
 
 let toastTimer = null;
@@ -136,14 +173,17 @@ function renderRail() {
     button.className = "rail-btn" + (state.serverId === server.id ? " active" : "");
     button.title = server.name;
     button.innerHTML = '<span class="marker"></span>';
+    button.appendChild(document.createTextNode(server.initial));
     if (server.icon) {
-      const img = document.createElement("img");
-      img.src = server.icon;
-      img.alt = "";
-      img.onerror = () => { img.remove(); button.appendChild(document.createTextNode(server.initial)); };
-      button.appendChild(img);
-    } else {
-      button.appendChild(document.createTextNode(server.initial));
+      mediaUrl(server.icon).then((data) => {
+        if (!data) return;
+        const img = document.createElement("img");
+        img.alt = "";
+        img.onerror = () => img.remove();
+        img.src = data;
+        button.textContent = "";
+        button.appendChild(img);
+      });
     }
     button.onclick = () => selectServer(server.id);
     railList.appendChild(button);
@@ -219,8 +259,22 @@ function channelButton(channel) {
 
   const hash = document.createElement("span");
   hash.className = "hash";
-  hash.textContent = channel.kind === "voice" ? "🔊" : channel.kind === "dm" ? "@" : "#";
+  const symbol = channel.kind === "voice" ? "🔊" : channel.kind === "dm" ? "@" : "#";
+  hash.textContent = symbol;
   button.appendChild(hash);
+
+  // У канала может быть своя иконка-эмодзи: рисуем её вместо «#».
+  if (channel.icon) {
+    mediaUrl(channel.icon).then((data) => {
+      if (!data) return;
+      const img = document.createElement("img");
+      img.className = "channel-icon";
+      img.alt = "";
+      img.src = data;
+      hash.textContent = "";
+      hash.appendChild(img);
+    });
+  }
 
   const name = document.createElement("span");
   name.className = "name";
@@ -389,9 +443,7 @@ function messageNode(message, grouped) {
     box.className = "attachments";
     for (const file of message.attachments) {
       if (file.kind === "image" && file.url) {
-        const img = document.createElement("img");
-        img.src = file.url;
-        img.alt = file.name;
+        const img = lazyImage(file.url, file.name);
         img.title = file.name;
         box.appendChild(img);
       } else {

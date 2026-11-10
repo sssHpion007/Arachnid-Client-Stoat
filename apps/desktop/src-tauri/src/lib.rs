@@ -32,6 +32,8 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
     pub cdn_url: RwLock<Option<String>>,
+    /// Что уже скачано для показа (адрес → data-URL)
+    pub media: RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl AppState {
@@ -43,6 +45,7 @@ impl AppState {
             gateway: Mutex::new(None),
             data_dir,
             cdn_url: RwLock::new(None),
+            media: RwLock::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -485,11 +488,99 @@ async fn send_message(
 #[tauri::command]
 async fn workspace(state: State<'_, Arc<AppState>>) -> CmdResult<WorkspaceView> {
     let snapshot = state.cache.snapshot().await;
+
     let mut cdn = state.cdn_url.read().await.clone();
     if cdn.is_none() {
         cdn = fetch_cdn_url(&state).await;
     }
-    Ok(WorkspaceView::build(snapshot, cdn))
+
+    // порядок серверов и каналов задан пользователем в браузерной версии:
+    // без него рельс выглядел бы случайным
+    let ordering = fetch_ordering(&state).await;
+    Ok(WorkspaceView::build_ordered(snapshot, cdn, &ordering))
+}
+
+/// Прочитать порядок серверов и категорий из настроек синхронизации.
+///
+/// Ошибка здесь не критична: без настроек интерфейс покажет порядок
+/// по умолчанию, поэтому запрос не роняет команду.
+async fn fetch_ordering(state: &State<'_, Arc<AppState>>) -> views::Ordering {
+    let http = {
+        let guard = state.http.read().await;
+        match guard.as_ref() {
+            Some(client) => client.clone(),
+            None => return views::Ordering::default(),
+        }
+    };
+
+    match http.fetch_settings(&["ordering"]).await {
+        Ok(settings) => {
+            let raw = settings
+                .into_iter()
+                .find(|(key, _)| key == "ordering")
+                .and_then(|(_, value)| value);
+            views::Ordering::parse(raw.as_deref())
+        }
+        Err(error) => {
+            tracing::warn!(%error, "не удалось прочитать порядок серверов");
+            views::Ordering::default()
+        }
+    }
+}
+
+/// Скачать картинку и отдать её интерфейсу как data-URL.
+///
+/// WebView2 блокирует сторонние изображения на встроенных страницах
+/// (`tauri://`), а политика безопасности запрещает внешние загрузки.
+/// Поэтому файл скачивает Rust и отдаёт уже готовые байты.
+#[tauri::command]
+async fn fetch_media(url: String, state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    if !url.starts_with("https://") {
+        return Err(CommandError::new(
+            "bad_url",
+            "адрес должен начинаться с https://",
+        ));
+    }
+
+    // повторный показ аватара не должен снова ходить в сеть
+    if let Some(cached) = state.media.read().await.get(&url) {
+        return Ok(cached.clone());
+    }
+
+    let response = reqwest::get(&url).await.map_err(|error| {
+        CommandError::new("network", format!("не удалось скачать файл: {error}"))
+    })?;
+
+    if !response.status().is_success() {
+        return Err(CommandError::new(
+            "not_found",
+            format!("файл недоступен: HTTP {}", response.status().as_u16()),
+        ));
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("image/png")
+        .to_string();
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| CommandError::new("network", format!("файл не дочитан: {error}")))?;
+
+    // защита от случайно огромных файлов в памяти интерфейса
+    if bytes.len() > 12 * 1024 * 1024 {
+        return Err(CommandError::new("too_large", "файл больше 12 МБ"));
+    }
+
+    use base64::Engine as _;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let data_url = format!("data:{content_type};base64,{encoded}");
+
+    state.media.write().await.insert(url, data_url.clone());
+    Ok(data_url)
 }
 
 /// Узнать адрес файлового сервиса у инстанса (нужен для аватаров).
@@ -735,6 +826,7 @@ pub fn run() {
             session_state,
             connect_gateway,
             workspace,
+            fetch_media,
             channel_history,
             send_message,
             edit_message,
