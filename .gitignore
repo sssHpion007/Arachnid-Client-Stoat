@@ -1,0 +1,10 @@
+# секреты и локальные конфиги
+.env
+*.local.js
+secrets.json
+
+# мусор
+.DS_Store
+Thumbs.db
+node_modules/
+*.log
