@@ -78,6 +78,11 @@ impl CommandError {
 
 impl From<stoat_core::Error> for CommandError {
     fn from(error: stoat_core::Error) -> Self {
+        // код из API (`InvalidCredentials`, `AccountDisabled`, …) важнее
+        // общего вида ошибки: по нему форма выбирает текст для человека
+        if let Some(api_kind) = error.api_kind() {
+            return Self::new(api_kind.to_lowercase(), error.to_string());
+        }
         let kind = match &error {
             stoat_core::Error::Unauthorized => "unauthorized",
             stoat_core::Error::RateLimited(_) => "rate_limited",
@@ -191,7 +196,11 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
 /// Токен не пишется в конфиг: только в память процесса и, если доступно,
 /// в системное хранилище секретов (через плагин store на стороне UI).
 #[tauri::command]
-async fn login_with_token(token: String, state: State<'_, Arc<AppState>>) -> CmdResult<UserView> {
+async fn login_with_token(
+    app: tauri::AppHandle,
+    token: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<UserView> {
     let instance = state.instance.read().await.clone();
     let mut client = HttpClient::new(instance.api_url.clone());
     client.set_app_name(instance.app_name.clone());
@@ -201,6 +210,7 @@ async fn login_with_token(token: String, state: State<'_, Arc<AppState>>) -> Cmd
     state.cache.set_me(me.clone()).await;
 
     *state.http.write().await = Some(client);
+    show_client(&app);
     Ok(UserView::from(me))
 }
 
@@ -232,6 +242,7 @@ pub enum LoginStep {
 /// Вход по почте и паролю.
 #[tauri::command]
 async fn login_password(
+    app: tauri::AppHandle,
     email: String,
     password: String,
     state: State<'_, Arc<AppState>>,
@@ -244,12 +255,13 @@ async fn login_password(
         .login_password(&email, &password, Some(instance.app_name.clone()))
         .await?;
 
-    finish_login(response, client, state).await
+    finish_login(app, response, client, state).await
 }
 
 /// Второй шаг входа: пароль, TOTP или код восстановления.
 #[tauri::command]
 async fn login_mfa(
+    app: tauri::AppHandle,
     ticket: String,
     method: String,
     value: String,
@@ -279,11 +291,44 @@ async fn login_mfa(
         .login_mfa(&ticket, mfa, Some(instance.app_name.clone()))
         .await?;
 
-    finish_login(response, client, state).await
+    finish_login(app, response, client, state).await
+}
+
+/// Показать экран приложения после успешного входа.
+///
+/// Переключение делает Rust, а не `location.replace` из страницы: навигация
+/// по встроенным страницам (`tauri://localhost`) из скрипта может быть
+/// запрещена политикой безопасности, и форма просто «зависала» бы.
+fn show_client(app: &tauri::AppHandle) {
+    use tauri::Manager as _;
+
+    // Адрес страницы берём из текущего, чтобы не зависеть от схемы
+    // (на Windows это `http://tauri.localhost`, на Linux — `tauri://localhost`).
+    let base = match app.get_webview_window("main").and_then(|w| w.url().ok()) {
+        Some(url) => url,
+        None => {
+            eprintln!("окно main не найдено: экран приложения не открыт");
+            return;
+        }
+    };
+    let page = match base.join("app.html") {
+        Ok(url) => url,
+        Err(error) => {
+            eprintln!("не удалось собрать адрес app.html: {error}");
+            return;
+        }
+    };
+
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(error) = window.navigate(page.clone())
+    {
+        eprintln!("не удалось открыть {page}: {error}");
+    }
 }
 
 /// Общая часть входа: разобрать ответ и, если успех, поднять сессию.
 async fn finish_login(
+    app: tauri::AppHandle,
     response: revolt_models::v0::ResponseLogin,
     mut client: HttpClient,
     state: State<'_, Arc<AppState>>,
@@ -296,6 +341,8 @@ async fn finish_login(
             let me = client.fetch_self().await?;
             state.cache.set_me(me.clone()).await;
             *state.http.write().await = Some(client);
+
+            show_client(&app);
 
             Ok(LoginStep::Success {
                 user: UserView::from(me),
