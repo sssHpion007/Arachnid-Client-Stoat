@@ -494,6 +494,44 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
 ///
 /// В событиях gateway приходит только id автора, поэтому имя и аватар
 /// берутся из кэша — иначе новые сообщения выглядели бы «безымянными».
+/// Данные сервера, нужные для подписей в чате: роли и ники участников.
+///
+/// В событиях шлюза ни ника, ни ролей нет, поэтому их приходится брать из кэша.
+#[derive(Default)]
+struct ServerInfo {
+    roles: std::collections::HashMap<String, revolt_models::v0::Role>,
+    nicknames: std::collections::HashMap<String, String>,
+    colours: std::collections::HashMap<String, String>,
+}
+
+async fn server_info(cache: &stoat_core::cache::Cache, channel: &str) -> ServerInfo {
+    let Some(server_id) = cache.server_of_channel(channel).await else {
+        return ServerInfo::default();
+    };
+    let Some(server) = cache.server(&server_id).await else {
+        return ServerInfo::default();
+    };
+
+    let members = cache.members(&server_id).await;
+    let mut nicknames = std::collections::HashMap::new();
+    let mut colours = std::collections::HashMap::new();
+    for member in &members {
+        if let Some(nickname) = member.nickname.clone().filter(|name| !name.trim().is_empty()) {
+            nicknames.insert(member.id.user.clone(), nickname);
+        }
+        if let Some(colour) = views::role_colour(&member.roles, &server.roles) {
+            colours.insert(member.id.user.clone(), colour);
+        }
+    }
+
+    ServerInfo {
+        roles: server.roles,
+        nicknames,
+        colours,
+    }
+}
+
+/// Собрать сообщение для интерфейса, подтянув автора, ник и цвет из кэша.
 async fn message_view(
     cache: &stoat_core::cache::Cache,
     cdn: Option<&str>,
@@ -503,7 +541,15 @@ async fn message_view(
     if let Some(user) = cache.user(&message.author).await {
         authors.insert(message.author.clone(), UserView::from(user));
     }
-    ChatMessage::build(message, &authors, cdn)
+    let info = server_info(cache, &message.channel).await;
+    ChatMessage::build(
+        message,
+        &authors,
+        &info.roles,
+        &info.nicknames,
+        &info.colours,
+        cdn,
+    )
 }
 
 /// Отправить сообщение в канал.
@@ -528,9 +574,17 @@ async fn send_message(
     state.cache.insert_message(message.clone()).await;
 
     let cdn = state.cdn_url.read().await.clone();
+    let mut authors = std::collections::HashMap::new();
+    if let Some(user) = state.cache.user(&message.author).await {
+        authors.insert(message.author.clone(), UserView::from(user));
+    }
+    let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
         message,
-        &std::collections::HashMap::new(),
+        &authors,
+        &info.roles,
+        &info.nicknames,
+        &info.colours,
         cdn.as_deref(),
     ))
 }
@@ -703,6 +757,31 @@ async fn user_avatar(
         .and_then(|file| views::file_url(file, cdn.as_deref())))
 }
 
+/// Участники сервера для правой панели.
+///
+/// Данные берутся из кэша (шлюз присылает участников при подключении),
+/// участника без имени пропускаем — рисовать «неизвестного» незачем.
+#[tauri::command]
+async fn server_members(
+    server_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Vec<views::MemberView>> {
+    let Some(server) = state.cache.server(&server_id).await else {
+        return Ok(Vec::new());
+    };
+
+    let members = state.cache.members(&server_id).await;
+    let mut users = std::collections::HashMap::new();
+    for member in &members {
+        if let Some(user) = state.cache.user(&member.id.user).await {
+            users.insert(user.id.clone(), user);
+        }
+    }
+
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(views::members_of(&server, &members, &users, cdn.as_deref()))
+}
+
 /// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
 ///
 /// Список меняется редко, поэтому кэшируется в памяти на время сеанса.
@@ -835,10 +914,20 @@ async fn channel_history(
     }
 
     let cdn = state.cdn_url.read().await.clone();
+    let info = server_info(&state.cache, &channel_id).await;
     Ok(HistoryView {
         messages: messages
             .into_iter()
-            .map(|message| ChatMessage::build(message, &authors, cdn.as_deref()))
+            .map(|message| {
+                ChatMessage::build(
+                    message,
+                    &authors,
+                    &info.roles,
+                    &info.nicknames,
+                    &info.colours,
+                    cdn.as_deref(),
+                )
+            })
             .collect(),
         has_more: true,
     })
@@ -868,8 +957,19 @@ async fn edit_message(
     state.cache.insert_message_no_event(message.clone()).await;
 
     let cdn = state.cdn_url.read().await.clone();
-    let authors = std::collections::HashMap::new();
-    Ok(ChatMessage::build(message, &authors, cdn.as_deref()))
+    let mut authors = std::collections::HashMap::new();
+    if let Some(user) = state.cache.user(&message.author).await {
+        authors.insert(message.author.clone(), UserView::from(user));
+    }
+    let info = server_info(&state.cache, &channel_id).await;
+    Ok(ChatMessage::build(
+        message,
+        &authors,
+        &info.roles,
+        &info.nicknames,
+        &info.colours,
+        cdn.as_deref(),
+    ))
 }
 
 /// Удалить своё сообщение.
@@ -1015,6 +1115,7 @@ pub fn run() {
             fetch_media,
             fetch_emoji,
             server_emojis,
+            server_members,
             user_avatar,
             message_link,
             channel_history,

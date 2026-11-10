@@ -291,6 +291,28 @@ impl Cache {
             .cloned()
     }
 
+    /// Все участники сервера.
+    pub async fn members(&self, server: &str) -> Vec<v0::Member> {
+        self.state
+            .read()
+            .await
+            .members
+            .get(server)
+            .map(|map| map.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Id сервера, которому принадлежит канал (для правой панели и ролей).
+    pub async fn server_of_channel(&self, channel: &str) -> Option<String> {
+        let state = self.state.read().await;
+        let channel = state.channels.get(channel)?;
+        match channel {
+            v0::Channel::TextChannel { server, .. } => Some(server.clone()),
+            // голосовые каналы в модели тоже TextChannel (с полем voice)
+            _ => None,
+        }
+    }
+
     /// Есть ли сервер в кэше.
     pub async fn has_server(&self, id: &str) -> bool {
         let state = self.state.read().await;
