@@ -12,6 +12,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# нужно, чтобы tauri-action мог создать черновик релиза и залить установщики
+permissions:
+  contents: write
+
 jobs:
   bootstrap:
     name: bootstrap-скрипты
