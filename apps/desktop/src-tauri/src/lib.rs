@@ -437,19 +437,56 @@ fn nonce() -> String {
 
 /// Запуск приложения.
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "tauri_stoat=info,stoat_core=info".into()),
-        )
-        .init();
+    let log_dir = log_directory();
+    let file_writer = log_dir.as_ref().and_then(|dir| {
+        std::fs::create_dir_all(dir).ok()?;
+        std::fs::File::create(dir.join("tauri-stoat.log")).ok()
+    });
+
+    let filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "tauri_stoat=debug,stoat_core=info".into());
+
+    // в Windows-релизе нет консоли, поэтому журнал обязательно пишем в файл
+    match file_writer {
+        Some(file) => {
+            tracing_subscriber::fmt()
+                .with_env_filter(filter)
+                .with_ansi(false)
+                .with_writer(std::sync::Mutex::new(file))
+                .init();
+        }
+        None => {
+            tracing_subscriber::fmt().with_env_filter(filter).init();
+        }
+    }
+
+    // паника в GUI-процессе иначе исчезает бесследно
+    std::panic::set_hook(Box::new(|info| {
+        tracing::error!(%info, "паника");
+        if let Some(dir) = log_directory() {
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join("panic.log");
+            let _ = std::fs::write(path, format!("{info}\n"));
+        }
+    }));
+
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        log_dir = ?log_dir,
+        "запуск Tauri-Stoat"
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            // ошибка инициализации не должна убивать окно без следа
             let data_dir = resolve_data_dir(app.handle());
             tracing::info!(dir = %data_dir.display(), "каталог данных");
+
+            if let Err(error) = ensure_layout(&data_dir) {
+                tracing::warn!(%error, "не удалось подготовить каталоги данных");
+            }
 
             let state = Arc::new(AppState::new(data_dir));
             app.manage(state);
