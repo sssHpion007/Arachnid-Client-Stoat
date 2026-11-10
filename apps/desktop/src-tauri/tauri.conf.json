@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: https://cdn.stoatusercontent.com https://*.stoat.chat; media-src 'self' https://cdn.stoatusercontent.com; connect-src ipc: http://ipc.localhost https://api.stoat.chat wss://events.stoat.chat; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: https://cdn.stoatusercontent.com https://*.stoat.chat; media-src 'self' https://cdn.stoatusercontent.com; connect-src 'self' ipc: http://ipc.localhost https://api.stoat.chat wss://events.stoat.chat; font-src 'self' data:"
     },
     "withGlobalTauri": true
   },

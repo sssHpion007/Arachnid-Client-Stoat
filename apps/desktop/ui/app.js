@@ -208,21 +208,19 @@ function emojiNode(text) {
     return slot;
   }
 
-  // сначала комплект в приложении — он работает и без интернета
-  spriteUrl(codepoint).then((data) => {
-    if (!data) return;
-    emojiCache.set(codepoint, data);
-    if (!slot.isConnected) return;
-    slot.replaceChildren(lazyImage(data, text, "emoji-img"));
-  });
-
-  call("fetch_emoji", { codepoint, pack: emojiPack })
+  // картинка из комплекта: он в самой программе и работает без интернета
+  spriteUrl(codepoint)
     .then((data) => {
-      // «не нашлось» не запоминаем навсегда: набор картинок мог ещё не
-      // определиться, иначе один промах ломал эмодзи до перезапуска
-      if (!data) return;
+      if (!data) {
+        // редкого эмодзи могло не быть в комплекте — тогда идём в сеть
+        return call("fetch_emoji", { codepoint, pack: emojiPack }).catch(() => null);
+      }
       emojiCache.set(codepoint, data);
-      if (!slot.isConnected) return;
+      return data;
+    })
+    .then((data) => {
+      if (!data || !slot.isConnected) return;
+      emojiCache.set(codepoint, data);
       slot.replaceChildren(lazyImage(data, text, "emoji-img"));
     })
     .catch(() => {});
