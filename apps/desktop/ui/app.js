@@ -1816,8 +1816,9 @@ async function boot() {
   document.addEventListener("click", () => toggleEmojiPicker(false));
   document.addEventListener("click", () => closeContextMenu());
   document.addEventListener("contextmenu", (event) => {
-    // клик мимо меню закрывает его, но своё меню открывается как обычно
-    if (!ctxMenu().contains(event.target)) closeContextMenu();
+    // если своё меню открыл обработчик элемента, он уже вызвал preventDefault;
+    // иначе это ПКМ по пустому месту — закрываем
+    if (!event.defaultPrevented) closeContextMenu();
   });
   window.addEventListener("resize", () => closeContextMenu());
   document.addEventListener("keydown", (event) => {

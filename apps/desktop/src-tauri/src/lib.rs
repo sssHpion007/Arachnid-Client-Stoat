@@ -516,7 +516,11 @@ async fn server_info(cache: &stoat_core::cache::Cache, channel: &str) -> ServerI
     let mut nicknames = std::collections::HashMap::new();
     let mut colours = std::collections::HashMap::new();
     for member in &members {
-        if let Some(nickname) = member.nickname.clone().filter(|name| !name.trim().is_empty()) {
+        if let Some(nickname) = member
+            .nickname
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+        {
             nicknames.insert(member.id.user.clone(), nickname);
         }
         if let Some(colour) = views::role_colour(&member.roles, &server.roles) {

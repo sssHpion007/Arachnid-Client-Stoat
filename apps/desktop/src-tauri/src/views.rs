@@ -489,7 +489,7 @@ pub fn members_of(
                 .filter_map(|id| server.roles.get(id))
                 .collect();
             // как в клиенте: сначала старшие роли
-            roles.sort_by(|a, b| b.rank.cmp(&a.rank));
+            roles.sort_by_key(|role| std::cmp::Reverse(role.rank));
             Some(MemberView {
                 id: member.id.user.clone(),
                 name: user_label_with(user, Some(member)),
@@ -1544,11 +1544,98 @@ let a = 1;
         )
         .unwrap();
 
-        let view = ChatMessage::build(message, &HashMap::new(), None);
+        let view = ChatMessage::build(
+            message,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
         assert_eq!(view.content, "привет");
         assert_eq!(view.author, "Я");
         assert!(!view.edited);
         assert!(!view.system);
         assert!(view.timestamp.ends_with('Z'), "время должно быть ISO-8601");
+    }
+
+    fn roles_json() -> HashMap<String, v0::Role> {
+        serde_json::from_str(
+            r##"{"r1":{"_id":"r1","name":"Гость","permissions":{"a":0,"d":0},"rank":1,"colour":"#00ff00"},
+                 "r2":{"_id":"r2","name":"Админ","permissions":{"a":0,"d":0},"rank":10,"colour":"#ff0000"},
+                 "r3":{"_id":"r3","name":"Без цвета","permissions":{"a":0,"d":0},"rank":99}}"##,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn colour_comes_from_highest_role() {
+        let roles = roles_json();
+        let member_roles = vec!["r1".to_string(), "r3".to_string(), "r2".to_string()];
+        assert_eq!(
+            role_colour(&member_roles, &roles),
+            Some("#ff0000".to_string()),
+            "цвет берётся у старшей роли, а не у первой в списке"
+        );
+        assert_eq!(role_colour(&["r3".to_string()], &roles), None);
+        assert_eq!(role_colour(&[], &roles), None);
+    }
+
+    #[test]
+    fn nickname_and_colour_come_from_member() {
+        let message: v0::Message = serde_json::from_str(
+            r#"{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"u1",
+                "content":"привет <@01ARZ3NDEKTSV4RRFFQ69G5FAV>",
+                "member":{"_id":{"server":"s1","user":"u1"},"joined_at":"2026-01-01T00:00:00Z",
+                          "nickname":"Шеф","roles":["r2"]},
+                "user":{"_id":"u1","username":"boss","discriminator":"0002","display_name":"Профиль",
+                        "relationship":"User","online":true}}"#,
+        )
+        .unwrap();
+
+        let view = ChatMessage::build(
+            message,
+            &HashMap::new(),
+            &roles_json(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert_eq!(view.author, "Шеф", "ник с сервера важнее имени профиля");
+        assert_eq!(view.colour.as_deref(), Some("#ff0000"));
+        assert_eq!(view.roles, vec!["Админ"]);
+        assert_eq!(view.mentions, vec!["01ARZ3NDEKTSV4RRFFQ69G5FAV"]);
+        assert_eq!(view.username.as_deref(), Some("boss#0002"));
+    }
+
+    #[test]
+    fn members_are_sorted_online_first() {
+        let server: v0::Server = serde_json::from_str(
+            r##"{"_id":"s1","owner":"u1","name":"С","channels":[],"roles":
+                 {"r2":{"_id":"r2","name":"Админ","permissions":{"a":0,"d":0},"rank":10,"colour":"#ff0000"}},
+                 "default_permissions":0,"flags":0,"nsfw":false,"analytics":false,
+                 "discoverable":false,"approximate_member_count":2}"##,
+        )
+        .unwrap();
+        let members: Vec<v0::Member> = serde_json::from_str(
+            r#"[{"_id":{"server":"s1","user":"u1"},"joined_at":"2026-01-01T00:00:00Z",
+                 "nickname":"Шеф","roles":["r2"]},
+                {"_id":{"server":"s1","user":"u2"},"joined_at":"2026-01-01T00:00:00Z"}]"#,
+        )
+        .unwrap();
+        let users: HashMap<String, v0::User> = serde_json::from_str(
+            r#"[{"_id":"u1","username":"boss","discriminator":"0002","relationship":"User","online":false},
+                {"_id":"u2","username":"sleepy","discriminator":"0003","relationship":"User","online":true}]"#,
+        )
+        .map(|list: Vec<v0::User>| list.into_iter().map(|u| (u.id.clone(), u)).collect())
+        .unwrap();
+
+        let list = members_of(&server, &members, &users, None);
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "u2", "сначала те, кто в сети");
+        assert_eq!(list[1].name, "Шеф");
+        assert_eq!(list[1].colour.as_deref(), Some("#ff0000"));
+        assert_eq!(list[1].roles, vec!["Админ"]);
+        assert!(!list[1].online);
     }
 }
