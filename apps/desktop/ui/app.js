@@ -1213,7 +1213,9 @@ async function boot() {
   }
 
   messagesEl.addEventListener("scroll", () => {
-    if (messagesEl.scrollTop < 240) loadOlder();
+    // догружаем только когда лента действительно прокручивается и мы у верха
+    const scrollable = messagesEl.scrollHeight > messagesEl.clientHeight + 400;
+    if (scrollable && messagesEl.scrollTop < 240) loadOlder();
   });
 
   sendBtn.onclick = submit;
