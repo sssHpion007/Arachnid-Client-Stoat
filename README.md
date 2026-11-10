@@ -1,59 +1,52 @@
 # Tauri-Stoat
 
-Приватный набор плагинов и заметок по клиенту [Stoat](https://stoat.chat/) (бывший Revolt) на Windows.
+Клиент [Stoat](https://stoat.chat/) (бывший Revolt) на Rust: своё ядро, Tauri-оболочка
+и API плагинов с манифестом прав — без костылей вроде ножниц в чужой DOM.
 
-## Состав
+## Состояние
+
+| Часть | Статус |
+|---|---|
+| `crates/stoat-core` — REST, gateway, кэш, rate-limit | готово, 23 теста, проверено на живом API 0.16.3 |
+| `crates/stoat-plugin-api` — ABI плагинов и манифест прав | каркас |
+| `crates/stoat-plugin-host` — WASM-хост на `wasmi` | план |
+| `apps/desktop` — Tauri 2 + webview | план |
+
+## Структура
 
 ```
-docs/avia-setup-windows.md   — установка Avia Client, темы, гифки, переводчик, риски
-plugins/                     — свои плагины (JS, формат Avia Client)
+crates/stoat-core/        транспорт и протокол (см. docs/stoat-core.md)
+crates/stoat-plugin-api/  ABI плагинов, манифест прав
+apps/desktop/             Tauri-приложение
+docs/                     документация по частям
+plugins/                  примеры плагинов
 ```
 
-## Исходная вводная
+## Быстрый старт
 
-- ОС: Windows
-- Хочется: темы, меню избранных гифок, переводчик с заменой текста сообщения (как в BetterDiscord/Vencord)
-- Rust-клиенты Stoat (Ermine, RuSToat, VimStoat) plugin API не имеют → выбран Avia Client
-  (форк официального `for-desktop`, ~Vencord для Stoat)
-
-## План
-
-- [ ] поставить Avia Client и проверить базу (логин, панель Avia, QuickCSS)
-- [ ] темы с https://rvlt.gg/discover/themes + собственные правки через QuickCSS
-- [ ] избранные гифки: `BetterFavourites` + `KlipyV2` (нужен Klipy API key)
-- [ ] переводчик: `Translate` (переключить язык на `ru`), либо свой плагин — см. `docs/`
-- [ ] свой плагин перевода через настраиваемый движок (без Google по умолчанию)
-- [ ] свой плагин меню избранных гифок с категориями и вставкой в поле ввода
-- [ ] опционально: каркас своего клиента/оверлея на Tauri (Rust + web UI)
-
-## Почему Tauri (опциональная ветка)
-
-Avia даёт темы/плагины сегодня и работает как форк Electron-клиента. Если позже захочется
-нативный Rust-клиент **с** плагинами — практичный путь не GPUI/Freya с нуля, а Tauri:
-Rust-ядро (сеть, кэш, плагины на WASM/`libloading`) + web-UI, куда можно переиспользовать
-CSS-темы и часть логики клиента Stoat.
-
-## Формат плагина Avia (кратко)
-
-Плагин — самовызывающийся IIFE с guard-флагом в `window`, метаданными в комментарии
-(`@UPDATEURL`, `@VERSION`) и настройками в `localStorage`. UI вставляется через
-`MutationObserver` по классам Stoat (`.Toolbar`, `span.material-symbols-outlined` и т.п.).
-
-```js
-/*
-  @UPDATEURL: <url до raw-файла>
-  @VERSION: 1.0
-*/
-(function () {
-    if (window.__MY_PLUGIN__) return;
-    window.__MY_PLUGIN__ = true;
-    // ...
-})();
+```bash
+cargo test --workspace
+cargo run -p stoat-core --example probe            # проверка связи с инстансом
+cargo run -p stoat-core --example gateway_probe    # проверка gateway
 ```
 
-## Заметки по безопасности
+## Принципы
 
-Плагины исполняются с доступом к сессии Stoat. Ставить только из проверенных источников,
-перед включением читать исходник (кнопка **View source** в Avia).
+- **Типы — из официального крейта.** `revolt-models` 0.16.3 (MIT), а не самописные
+  структуры: клиент не разъезжается с API.
+- **Токен не попадает в URL** — только в событии `Authenticate` и в заголовке запроса.
+- **Плагины — WASM с манифестом прав.** Плагин объявляет, что ему нужно
+  (`messages:read`, `messages:rewrite`, `ui:toolbar`, `http:<host>`), и не может
+  выйти за эти рамки: ни DOM, ни токена сессии у него нет.
+- **Ошибки протокола разбираются терпимо.** Неизвестное событие не ломает поток.
 
-Секреты (API-ключи, токены) в репозиторий не коммитим — `.gitignore` уже настроен.
+## Документация
+
+- [docs/stoat-core.md](docs/stoat-core.md) — ядро: протокол, решения, что проверено
+- [docs/avia-setup-windows.md](docs/avia-setup-windows.md) — референс по Avia Client
+  (темы/плагины в JS-клиенте, для сравнения подходов)
+- [docs/plugin-api-notes.md](docs/plugin-api-notes.md) — заметки по API плагинов
+
+## Лицензия
+
+AGPL-3.0-or-later.
