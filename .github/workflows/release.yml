@@ -33,6 +33,9 @@ jobs:
 
   portable:
     name: portable (${{ matrix.asset }})
+    # у приватного репозитория нет macOS-минут: такие джобы отменяются после
+    # 15 минут ожидания раннера, поэтому выпуск от них не зависит
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +101,7 @@ jobs:
 
   installers:
     name: установщики (${{ matrix.os }})
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -154,7 +158,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" \
-            artifacts/bootstrap/bootstrap.sh \
-            artifacts/bootstrap/bootstrap.ps1 \
-            artifacts/*/*.zip artifacts/*/*.tar.gz --clobber
+          # релиз обычно создаёт tauri-action из джобы установщиков; если он
+          # не появился — создаём сами
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
+            gh release create "${GITHUB_REF_NAME}" \
+              --title "Tauri-Stoat ${GITHUB_REF_NAME}" \
+              --notes "Клиент Stoat: интерфейс, вход по почте и паролю, чат."
+
+          # заливаем по одному файлу: отсутствие части артефактов
+          # (например, macOS) не должно ломать выпуск
+          for file in artifacts/bootstrap/*.sh artifacts/bootstrap/*.ps1 \
+                      artifacts/*/*.zip artifacts/*/*.tar.gz; do
+            [ -f "$file" ] || continue
+            echo "загружаю $file"
+            gh release upload "${GITHUB_REF_NAME}" "$file" --clobber
+          done
