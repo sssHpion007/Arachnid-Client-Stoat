@@ -74,9 +74,6 @@ pub struct Ordering {
     /// Категория `default` — это каналы без категории.
     #[serde(default)]
     pub categories: HashMap<String, Vec<String>>,
-    /// Свой порядок каналов внутри категорий (старый формат).
-    #[serde(default)]
-    pub channels: HashMap<String, Vec<String>>,
 }
 
 impl Ordering {
@@ -90,7 +87,7 @@ impl Ordering {
     ///
     /// Всё, чего нет в настройках, идёт следом в исходном порядке — так же
     /// поступает браузерный клиент, когда список устарел.
-    fn apply<T, F>(items: &mut Vec<T>, order: &[String], key: F)
+    fn apply<T, F>(items: &mut [T], order: &[String], key: F)
     where
         F: Fn(&T) -> &str,
     {
@@ -108,11 +105,6 @@ impl Ordering {
 }
 
 impl WorkspaceView {
-    /// Собрать дерево из снимка кэша (порядок — по умолчанию).
-    pub fn build(snapshot: Snapshot, cdn: Option<String>) -> Self {
-        Self::build_ordered(snapshot, cdn, &Ordering::default())
-    }
-
     /// Собрать дерево с учётом пользовательского порядка.
     pub fn build_ordered(snapshot: Snapshot, cdn: Option<String>, ordering: &Ordering) -> Self {
         let channels: Vec<&v0::Channel> = snapshot.channels.iter().collect();
@@ -643,7 +635,11 @@ mod tests {
             ..Default::default()
         };
 
-        let workspace = WorkspaceView::build(snapshot, Some("https://cdn".into()));
+        let workspace = WorkspaceView::build_ordered(
+            snapshot,
+            Some("https://cdn".into()),
+            &Ordering::default(),
+        );
         assert_eq!(workspace.servers.len(), 1);
 
         let server = &workspace.servers[0];
