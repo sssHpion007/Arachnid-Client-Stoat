@@ -1,0 +1,52 @@
+name: windows
+
+# Быстрая сборка только под Windows: нужен один архив, который можно
+# распаковать и запустить. Без тегов, без релизов, без macOS/Linux —
+# чтобы проверка изменений занимала минуты, а не полчаса.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: exe для windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-fast
+
+      - name: Тесты ядра
+        run: cargo test -p stoat-core -p stoat-plugin-api
+
+      - name: Сборка приложения
+        run: cargo build --release -p tauri-stoat
+
+      - name: Собрать папку и архив
+        shell: bash
+        run: |
+          mkdir -p dist/Tauri-Stoat
+          cp target/release/tauri-stoat.exe dist/Tauri-Stoat/
+          mkdir -p dist/Tauri-Stoat/cache dist/Tauri-Stoat/plugins \
+                   dist/Tauri-Stoat/themes dist/Tauri-Stoat/logs
+          cp bootstrap/config.toml dist/Tauri-Stoat/ || true
+          cp bootstrap/README.txt dist/Tauri-Stoat/ || true
+          # интерфейс и эмодзи лежат внутри exe, но копия рядом не мешает
+          cd dist
+          powershell -Command "Compress-Archive -Path Tauri-Stoat -DestinationPath 'tauri-stoat-windows-x86_64.zip' -Force"
+          ls -la
+          du -h tauri-stoat-windows-x86_64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-stoat-windows-x86_64
+          path: dist/tauri-stoat-windows-x86_64.zip
+          if-no-files-found: error
+          retention-days: 30
