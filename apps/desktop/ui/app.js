@@ -84,6 +84,17 @@ function lazyImage(url, alt, className) {
   return img;
 }
 
+function fillAvatar(node, data, name) {
+  if (!node.isConnected && !node.childElementCount && !data) return;
+  const img = document.createElement("img");
+  img.alt = "";
+  img.onerror = () => img.remove();
+  img.src = data;
+  node.textContent = "";
+  node.title = name || "";
+  node.appendChild(img);
+}
+
 let toastTimer = null;
 function toast(text, kind = "") {
   const node = el("toast");
@@ -118,21 +129,118 @@ function dayText(iso) {
 
 // Ссылки в тексте делаем кликабельными, остальное — как есть (без innerHTML).
 const URL_RE = /(https?:\/\/[^\s<]+)/g;
-function textNode(text) {
-  const frag = document.createDocumentFragment();
-  let last = 0;
-  for (const match of text.matchAll(URL_RE)) {
-    if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
-    const link = document.createElement("a");
-    link.href = match[0];
-    link.textContent = match[0];
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    frag.appendChild(link);
-    last = match.index + match[0].length;
+
+// Эмодзи ищем по коду символа и грузим картинку из статики Stoat,
+// как это делает браузерный клиент (пути к файлам там же).
+const EMOJI_RE = /(\p{Extended_Pictographic}(?:\u200D\p{Extended_Pictographic}|\uFE0F|\u{1F3FB}-\u{1F3FF})*)/gu;
+const emojiCache = new Map();
+let emojiPack = null;
+
+function emojiCodepoint(text) {
+  const points = [];
+  for (const symbol of text) {
+    const code = symbol.codePointAt(0);
+    // модификаторы и склейки в имя файла не входят
+    if (code === 0xfe0f || (code >= 0x1f3fb && code <= 0x1f3ff)) continue;
+    points.push(code.toString(16));
   }
-  if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+  return points.join("-");
+}
+
+function emojiNode(text) {
+  const slot = document.createElement("span");
+  slot.className = "emoji";
+  slot.textContent = text;
+  const codepoint = emojiCodepoint(text);
+  if (!codepoint) return slot;
+
+  const cached = emojiCache.get(codepoint);
+  if (cached) {
+    if (cached !== "none") slot.replaceChildren(lazyImage(cached, text, "emoji-img"));
+    return slot;
+  }
+
+  call("fetch_emoji", { codepoint, pack: emojiPack })
+    .then((data) => {
+      emojiCache.set(codepoint, data);
+      slot.replaceChildren(lazyImage(data, text, "emoji-img"));
+    })
+    .catch(() => {
+      emojiCache.set(codepoint, "none");
+    });
+  return slot;
+}
+
+// Текст с эмодзи и ссылками.
+function richText(text) {
+  const frag = document.createDocumentFragment();
+  let rest = text;
+
+  while (rest.length) {
+    // ссылка
+    URL_RE.lastIndex = 0;
+    const linkMatch = URL_RE.exec(rest);
+    // эмодзи
+    EMOJI_RE.lastIndex = 0;
+    const emojiMatch = EMOJI_RE.exec(rest);
+
+    const linkAt = linkMatch ? linkMatch.index : Infinity;
+    const emojiAt = emojiMatch ? emojiMatch.index : Infinity;
+
+    if (linkAt === Infinity && emojiAt === Infinity) {
+      frag.appendChild(document.createTextNode(rest));
+      break;
+    }
+
+    if (linkAt <= emojiAt) {
+      if (linkAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, linkAt)));
+      const link = document.createElement("a");
+      link.href = linkMatch[0];
+      link.textContent = linkMatch[0];
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      frag.appendChild(link);
+      rest = rest.slice(linkAt + linkMatch[0].length);
+    } else {
+      if (emojiAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, emojiAt)));
+      frag.appendChild(emojiNode(emojiMatch[0]));
+      rest = rest.slice(emojiAt + emojiMatch[0].length);
+    }
+  }
   return frag;
+}
+
+// Оформление сообщения по узлам от ядра (жирный, код, ссылка, спойлер).
+function segmentsNode(message) {
+  const wrap = document.createDocumentFragment();
+  const parts = message.segments && message.segments.length
+    ? message.segments
+    : [{ kind: "text", text: message.content || "" }];
+
+  for (const part of parts) {
+    if (part.kind === "text") {
+      wrap.appendChild(richText(part.text));
+      continue;
+    }
+    if (part.kind === "link") {
+      const link = document.createElement("a");
+      link.href = part.href || part.text;
+      link.textContent = part.text;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      wrap.appendChild(link);
+      continue;
+    }
+    const node = document.createElement(part.kind === "codeblock" ? "pre" : "span");
+    node.className = "md-" + part.kind;
+    if (part.kind === "codeblock") {
+      node.textContent = part.text;
+    } else {
+      node.appendChild(richText(part.text));
+    }
+    wrap.appendChild(node);
+  }
+  return wrap;
 }
 
 function humanSize(bytes) {
@@ -406,7 +514,29 @@ function messageNode(message, grouped) {
 
   const avatarBox = document.createElement("div");
   avatarBox.className = "msg-avatar";
-  if (!grouped) avatarBox.appendChild(avatarEl(message.avatar, message.author, 40));
+  if (!grouped) {
+    if (message.avatar) {
+      avatarBox.appendChild(avatarEl(message.avatar, message.author, 40));
+    } else {
+      const node = avatarEl(null, message.author, 40);
+      avatarBox.appendChild(node);
+      // в сообщениях автор часто приходит без файла — дозапрашиваем профиль
+      const key = "avatar:" + message.author_id;
+      const known = state.media.get(key);
+      if (known !== undefined) {
+        if (known) fillAvatar(node, known, message.author);
+      } else {
+        call("user_avatar", { userId: message.author_id })
+          .then((url) => {
+            state.media.set(key, url || null);
+            if (url) return mediaUrl(url).then((data) => {
+              if (data) fillAvatar(node, data, message.author);
+            });
+          })
+          .catch(() => state.media.set(key, null));
+      }
+    }
+  }
   row.appendChild(avatarBox);
 
   const body = document.createElement("div");
@@ -435,7 +565,7 @@ function messageNode(message, grouped) {
 
   const text = document.createElement("div");
   text.className = "msg-text";
-  text.appendChild(textNode(message.content || ""));
+  text.appendChild(segmentsNode(message));
   body.appendChild(text);
 
   if (message.attachments && message.attachments.length) {
@@ -461,6 +591,13 @@ function messageNode(message, grouped) {
     body.appendChild(box);
   }
 
+  // ссылка на сообщение: копируется по правому клику, как в браузере
+  row.title = "Правый клик — скопировать ссылку на сообщение";
+  row.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    copyMessageLink(message);
+  });
+
   // действия: изменить и удалить можно только свои
   if (message.mine) {
     const tools = document.createElement("div");
@@ -483,6 +620,25 @@ function messageNode(message, grouped) {
 
   row.appendChild(body);
   return row;
+}
+
+function messageLink(message) {
+  const server = state.serverId;
+  const base = "https://stoat.chat";
+  return server
+    ? `${base}/server/${server}/channel/${message.channel}/${message.id}`
+    : `${base}/channel/${message.channel}/${message.id}`;
+}
+
+async function copyMessageLink(message) {
+  const link = messageLink(message);
+  try {
+    await navigator.clipboard.writeText(link);
+    toast("Ссылка на сообщение скопирована", "ok");
+  } catch {
+    // запасной путь: показываем адрес, чтобы можно было скопировать вручную
+    toast(link);
+  }
 }
 
 function startEdit(message) {

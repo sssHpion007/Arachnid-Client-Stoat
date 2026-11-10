@@ -384,6 +384,8 @@ pub struct ChatMessage {
     pub system: bool,
     /// Файлы
     pub attachments: Vec<AttachmentView>,
+    /// Оформление текста по кускам
+    pub segments: Segments,
 }
 
 impl ChatMessage {
@@ -424,16 +426,19 @@ impl ChatMessage {
             .map(|file| AttachmentView::build(file, cdn))
             .collect();
 
+        let content = message.content.unwrap_or_default();
+
         Self {
             timestamp: ulid_time_ms(&message.id)
                 .map(iso_from_ms)
                 .unwrap_or_default(),
+            segments: segments(&content),
             id: message.id,
             channel: message.channel,
             author_id: message.author,
             author,
             avatar,
-            content: message.content.unwrap_or_default(),
+            content,
             edited: message.edited.is_some(),
             system,
             attachments,
@@ -525,6 +530,149 @@ pub fn display_name(user: &v0::User) -> String {
         .unwrap_or_else(|| format!("{}#{}", user.username, user.discriminator))
 }
 
+/// Стилизация текста сообщения (жирный, курсив, код, ссылка).
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Segment {
+    /// Вид: `text`, `bold`, `italic`, `strike`, `code`, `codeblock`, `spoiler`
+    pub kind: String,
+    /// Содержимое
+    pub text: String,
+    /// Адрес ссылки, если это ссылка
+    pub href: Option<String>,
+}
+
+/// Разметка сообщения по «узлам», чтобы интерфейс не собирал HTML.
+pub type Segments = Vec<Segment>;
+
+/// Разобрать текст сообщения на оформленные куски.
+///
+/// Поддерживается то, что реально встречается в Stoat: `**жирный**`,
+/// `*курсив*` и `_курсив_`, `~~зачёркнутый~~`, `` `код` ``, блоки кода
+/// ```…```, `||спойлер||` и ссылки `[текст](адрес)`.
+pub fn segments(text: &str) -> Segments {
+    let mut out = Vec::new();
+
+    // блоки кода разбираем первыми: внутри них разметка не действует
+    let mut rest = text;
+    while let Some(open) = rest.find("```") {
+        push_text(&mut out, &rest[..open]);
+        let after = &rest[open + 3..];
+        match after.find("```") {
+            Some(close) => {
+                out.push(Segment {
+                    kind: "codeblock".into(),
+                    text: after[..close].trim_matches('\n').to_string(),
+                    href: None,
+                });
+                rest = &after[close + 3..];
+            }
+            // незакрытый блок — считаем остаток обычным текстом
+            None => {
+                rest = &rest[open..];
+                break;
+            }
+        }
+    }
+    push_text(&mut out, rest);
+    out
+}
+
+fn push_text(out: &mut Segments, text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let mut plain = String::new();
+    let mut rest = text;
+
+    'outer: while !rest.is_empty() {
+        // инлайн-код: `…`
+        if rest.starts_with('`')
+            && let Some(end) = rest[1..].find('`')
+        {
+            push_plain(out, &mut plain);
+            out.push(Segment {
+                kind: "code".into(),
+                text: rest[1..1 + end].to_string(),
+                href: None,
+            });
+            rest = &rest[1 + end + 1..];
+            continue;
+        }
+
+        // спойлер: ||…||
+        if rest.starts_with("||")
+            && let Some(end) = rest[2..].find("||")
+        {
+            push_plain(out, &mut plain);
+            out.push(Segment {
+                kind: "spoiler".into(),
+                text: rest[2..2 + end].to_string(),
+                href: None,
+            });
+            rest = &rest[2 + end + 2..];
+            continue;
+        }
+
+        // ссылка: [текст](адрес)
+        if rest.starts_with('[')
+            && let Some(close) = rest.find("](")
+            && let Some(end) = rest[close + 2..].find(')')
+        {
+            let title = &rest[1..close];
+            let href = &rest[close + 2..close + 2 + end];
+            if href.starts_with("http://") || href.starts_with("https://") {
+                push_plain(out, &mut plain);
+                out.push(Segment {
+                    kind: "link".into(),
+                    text: title.to_string(),
+                    href: Some(href.to_string()),
+                });
+                rest = &rest[close + 2 + end + 1..];
+                continue;
+            }
+        }
+
+        // жирный, зачёркнутый, курсив — закрывающая пара должна быть дальше
+        for (marker, kind) in [
+            ("**", "bold"),
+            ("~~", "strike"),
+            ("*", "italic"),
+            ("_", "italic"),
+        ] {
+            if rest.starts_with(marker)
+                && let Some(end) = rest[marker.len()..].find(marker)
+                && end > 0
+            {
+                push_plain(out, &mut plain);
+                out.push(Segment {
+                    kind: kind.into(),
+                    text: rest[marker.len()..marker.len() + end].to_string(),
+                    href: None,
+                });
+                rest = &rest[marker.len() + end + marker.len()..];
+                continue 'outer;
+            }
+        }
+
+        // обычный символ
+        let symbol = rest.chars().next().expect("строка не пуста");
+        plain.push(symbol);
+        rest = &rest[symbol.len_utf8()..];
+    }
+
+    push_plain(out, &mut plain);
+}
+
+fn push_plain(out: &mut Segments, plain: &mut String) {
+    if !plain.is_empty() {
+        out.push(Segment {
+            kind: "text".into(),
+            text: std::mem::take(plain),
+            href: None,
+        });
+    }
+}
+
 /// Адрес файла на CDN Stoat: `<cdn>/<tag>/<id>`.
 pub fn file_url(file: &v0::File, cdn: Option<&str>) -> Option<String> {
     if file.deleted == Some(true) {
@@ -532,6 +680,25 @@ pub fn file_url(file: &v0::File, cdn: Option<&str>) -> Option<String> {
     }
     let base = cdn?.trim_end_matches('/');
     Some(format!("{base}/{}/{}", file.tag, file.id))
+}
+
+/// Адрес сообщения, как его понимает браузерный клиент Stoat.
+///
+/// Для сервера: `https://stoat.chat/server/<сервер>/channel/<канал>/<сообщение>`,
+/// для личных сообщений: `https://stoat.chat/channel/<канал>/<сообщение>`.
+pub fn message_link(server: Option<&str>, channel: &str, message: &str) -> String {
+    match server {
+        Some(server) => format!("https://stoat.chat/server/{server}/channel/{channel}/{message}"),
+        None => format!("https://stoat.chat/channel/{channel}/{message}"),
+    }
+}
+
+/// Адрес картинки эмодзи на статике Stoat.
+///
+/// Официальный клиент берёт `https://static.stoat.chat/emoji/<набор>/<код>.svg`:
+/// набор определяет стиль картинок (`twemoji`, `noto`).
+pub fn emoji_url(pack: &str, codepoint: &str) -> String {
+    format!("https://static.stoat.chat/emoji/{pack}/{codepoint}.svg?v=1")
 }
 
 /// Время из ULID: первые 10 символов — миллисекунды эпохи.
@@ -700,6 +867,52 @@ mod tests {
             categories,
             vec!["other", "cat1"],
             "порядок категорий из настроек"
+        );
+    }
+
+    #[test]
+    fn markdown_becomes_segments() {
+        let parts = segments("привет **мир** и `код` со [ссылкой](https://stoat.chat)");
+        let kinds: Vec<&str> = parts.iter().map(|part| part.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["text", "bold", "text", "code", "text", "link"]);
+
+        let bold = parts.iter().find(|part| part.kind == "bold").unwrap();
+        assert_eq!(bold.text, "мир");
+
+        let link = parts.iter().find(|part| part.kind == "link").unwrap();
+        assert_eq!(link.href.as_deref(), Some("https://stoat.chat"));
+        assert_eq!(link.text, "ссылкой");
+    }
+
+    #[test]
+    fn code_block_and_spoiler_are_separate() {
+        let parts = segments(
+            "```
+let a = 1;
+``` после ||тайна||",
+        );
+        assert_eq!(parts[0].kind, "codeblock");
+        assert_eq!(parts[0].text, "let a = 1;");
+        assert!(
+            parts
+                .iter()
+                .any(|part| part.kind == "spoiler" && part.text == "тайна")
+        );
+    }
+
+    #[test]
+    fn message_and_emoji_urls_match_web_client() {
+        assert_eq!(
+            message_link(Some("01S"), "01C", "01M"),
+            "https://stoat.chat/server/01S/channel/01C/01M"
+        );
+        assert_eq!(
+            message_link(None, "01C", "01M"),
+            "https://stoat.chat/channel/01C/01M"
+        );
+        assert_eq!(
+            emoji_url("twemoji", "1f600"),
+            "https://static.stoat.chat/emoji/twemoji/1f600.svg?v=1"
         );
     }
 

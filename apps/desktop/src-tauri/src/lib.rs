@@ -544,43 +544,136 @@ async fn fetch_media(url: String, state: State<'_, Arc<AppState>>) -> CmdResult<
 
     // повторный показ аватара не должен снова ходить в сеть
     if let Some(cached) = state.media.read().await.get(&url) {
-        return Ok(cached.clone());
+        return cached
+            .clone()
+            .ok_or_else(|| CommandError::new("not_found", "файл недоступен"));
     }
 
-    let response = reqwest::get(&url).await.map_err(|error| {
-        CommandError::new("network", format!("не удалось скачать файл: {error}"))
-    })?;
+    let result = download_data_url(&url).await;
+    // запоминаем и неудачу, чтобы не дёргать сеть на каждую отрисовку
+    let stored = result.as_ref().ok().cloned();
+    state.media.write().await.insert(url, stored);
 
-    if !response.status().is_success() {
-        return Err(CommandError::new(
-            "not_found",
-            format!("файл недоступен: HTTP {}", response.status().as_u16()),
-        ));
+    result.map_err(|message| CommandError::new("media", message))
+}
+
+/// Скачать файл и превратить его в data-URL.
+async fn download_data_url(url: &str) -> std::result::Result<String, String> {
+    // некоторые файлы CDN отдаёт только с заголовком Accept
+    let response = reqwest::Client::new()
+        .get(url)
+        .header(reqwest::header::ACCEPT, "*/*")
+        .send()
+        .await
+        .map_err(|error| format!("не удалось скачать файл: {error}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!("файл недоступен: HTTP {}", status.as_u16()));
     }
 
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .unwrap_or("image/png")
-        .to_string();
+        .map(str::to_string)
+        .unwrap_or_else(|| guess_content_type(url).to_string());
 
     let bytes = response
         .bytes()
         .await
-        .map_err(|error| CommandError::new("network", format!("файл не дочитан: {error}")))?;
+        .map_err(|error| format!("файл не дочитан: {error}"))?;
 
     // защита от случайно огромных файлов в памяти интерфейса
     if bytes.len() > 12 * 1024 * 1024 {
-        return Err(CommandError::new("too_large", "файл больше 12 МБ"));
+        return Err("файл больше 12 МБ".into());
     }
 
     use base64::Engine as _;
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    let data_url = format!("data:{content_type};base64,{encoded}");
+    Ok(format!("data:{content_type};base64,{encoded}"))
+}
 
-    state.media.write().await.insert(url, data_url.clone());
-    Ok(data_url)
+/// Тип содержимого по расширению: CDN не всегда его присылает.
+fn guess_content_type(url: &str) -> &'static str {
+    let path = url.split('?').next().unwrap_or(url);
+    if path.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".webp") {
+        "image/webp"
+    } else if path.ends_with(".gif") {
+        "image/gif"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+/// Адрес аватара пользователя.
+///
+/// В сообщениях автор часто приходит без файла аватара, поэтому адрес
+/// берём у самого пользователя и запоминаем в кэше.
+#[tauri::command]
+async fn user_avatar(
+    user_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Option<String>> {
+    let (http, cdn) = {
+        let guard = state.http.read().await;
+        let client = guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?;
+        (client, state.cdn_url.read().await.clone())
+    };
+
+    let user = http.fetch_user(&user_id).await?;
+    state.cache.insert_user(user.clone()).await;
+    Ok(user
+        .avatar
+        .as_ref()
+        .and_then(|file| views::file_url(file, cdn.as_deref())))
+}
+
+/// Скачать картинку эмодзи из статики Stoat.
+///
+/// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
+/// поэтому пробуем по очереди и запоминаем удачный.
+#[tauri::command]
+async fn fetch_emoji(
+    codepoint: String,
+    pack: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<String> {
+    if !codepoint
+        .chars()
+        .all(|symbol| symbol.is_ascii_hexdigit() || symbol == '-')
+    {
+        return Err(CommandError::new("bad_emoji", "некорректный код эмодзи"));
+    }
+
+    let mut packs: Vec<String> = Vec::new();
+    if let Some(pack) = pack.filter(|pack| !pack.trim().is_empty()) {
+        packs.push(pack);
+    }
+    for fallback in ["twemoji", "noto"] {
+        if !packs.iter().any(|pack| pack == fallback) {
+            packs.push(fallback.to_string());
+        }
+    }
+
+    let mut last = String::from("эмодзи не найдено");
+    for pack in packs {
+        let url = views::emoji_url(&pack, &codepoint);
+        match download_data_url(&url).await {
+            Ok(data) => return Ok(data),
+            Err(error) => last = error,
+        }
+    }
+    Err(CommandError::new("not_found", last))
 }
 
 /// Узнать адрес файлового сервиса у инстанса (нужен для аватаров).
@@ -827,6 +920,8 @@ pub fn run() {
             connect_gateway,
             workspace,
             fetch_media,
+            fetch_emoji,
+            user_avatar,
             channel_history,
             send_message,
             edit_message,

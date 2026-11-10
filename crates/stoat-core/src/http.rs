@@ -161,6 +161,32 @@ impl HttpClient {
         .await
     }
 
+    /// `HEAD /` — проверить, существует ли файл на файловом сервисе.
+    ///
+    /// Файл может быть помечен как удалённый, или CDN уже вычистил его:
+    /// тогда лучше не показывать «сломанную» картинку.
+    pub async fn media_exists(&self, url: &Url) -> Result<bool> {
+        let response = self
+            .http
+            .head(url.clone())
+            .send()
+            .await
+            .map_err(Error::Network)?;
+        let status = response.status();
+        if status.is_success() || status == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+            // 405 значит «HEAD не поддерживается», но файл, скорее всего, есть
+            return Ok(true);
+        }
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(false);
+        }
+        Err(Error::Api {
+            kind: format!("Http{}", status.as_u16()),
+            message: String::new(),
+            status: status.as_u16(),
+        })
+    }
+
     /// `POST /sync/settings/fetch` — прочитать настройки синхронизации.
     ///
     /// Именно здесь хранится порядок серверов и каналов, который пользователь

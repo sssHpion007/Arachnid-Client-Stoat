@@ -321,7 +321,49 @@ button { font: inherit; color: inherit; cursor: pointer; }
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.msg-text a { color: #7aa7ff; }
+.msg-text a { color: #7aa7ff; text-decoration: none; }
+.msg-text a:hover { text-decoration: underline; }
+
+/* оформление сообщений, разобранное в ядре */
+.md-bold { font-weight: 700; }
+.md-italic { font-style: italic; }
+.md-strike { text-decoration: line-through; }
+.md-code {
+  background: #0a0c10;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+}
+.md-codeblock {
+  background: #0a0c10;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin: 5px 0;
+  overflow-x: auto;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.md-spoiler {
+  background: #2a2f3a;
+  border-radius: 4px;
+  color: transparent;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.md-spoiler:hover { background: transparent; color: inherit; }
+
+/* эмодзи из статики Stoat */
+.emoji { display: inline; }
+.emoji-img {
+  width: 22px;
+  height: 22px;
+  vertical-align: -4px;
+  display: inline-block;
+}
 .msg.system { opacity: .75; font-style: italic; }
 .msg.optimistic { opacity: .55; }
 
