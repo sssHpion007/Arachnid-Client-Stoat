@@ -94,7 +94,23 @@ type CmdResult<T> = Result<T, CommandError>;
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
-/// Определить каталог данных: портативный режim важнее системного.
+/// Каталог для журналов: рядом с exe (portable) либо `%LOCALAPPDATA%\Tauri-Stoat\logs`.
+fn log_directory() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("TAURI_STOAT_DIR") {
+        return Some(PathBuf::from(dir).join("logs"));
+    }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+        && parent.join("config.toml").exists()
+    {
+        return Some(parent.join("logs"));
+    }
+    std::env::var_os("LOCALAPPDATA")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(|base| PathBuf::from(base).join("Tauri-Stoat").join("logs"))
+}
+
+/// Определить каталог данных: портативный режим важнее системного.
 ///
 /// Порядок:
 /// 1. переменная `TAURI_STOAT_DIR` (её выставляет запуск из бутстрапа);
