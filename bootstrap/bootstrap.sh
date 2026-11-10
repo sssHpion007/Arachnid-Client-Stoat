@@ -100,9 +100,14 @@ download() {
   local url="$1" dest="$2"
   mkdir -p "$(dirname "$dest")"
   local -a auth=()
-  # ассеты приватного репозитория отдаются только с токеном
-  if [ -n "${GH_TOKEN}" ] && [ "${url#https://github.com/}" != "$url" ]; then
-    auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/octet-stream")
+  # ассеты приватного репозитория отдаются только с токеном:
+  # либо через api.github.com/.../releases/assets/<id>, либо через github.com
+  if [ -n "${GH_TOKEN}" ]; then
+    if [ "${url#https://api.github.com/}" != "$url" ]; then
+      auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/octet-stream")
+    elif [ "${url#https://github.com/}" != "$url" ]; then
+      auth=(-H "Authorization: Bearer ${GH_TOKEN}")
+    fi
   fi
   if have curl; then
     curl -fsSL --retry 3 --connect-timeout 15 "${auth[@]}" -o "$dest" "$url"
@@ -130,6 +135,13 @@ fetch_text() {
   else
     return 1
   fi
+}
+
+
+# Достать значение строкового поля из плоского JSON-объекта.
+extract_json_field() {
+  local key="$1"
+  sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -n1
 }
 
 # ─────────────────────────────── структура ──────────────────────────────────
@@ -281,48 +293,87 @@ fetch_client() {
     return 0
   fi
 
-  # имя файла релиза под текущую платформу
-  local pattern
-  case "$PLATFORM" in
-    linux) pattern="linux" ;;
-    macos) pattern="macos" ;;
-    windows) pattern="windows" ;;
-  esac
 
-  local url name
-  url="$(printf '%s' "$json" \
-    | tr -d '\n' \
-    | sed -n "s/.*\"browser_download_url\"[[:space:]]*:[[:space:]]*\"\([^\"]*${ARCH}[^\"]*${pattern}[^\"]*\.\(tar\.gz\|zip\|dmg\|msi\|exe\)\)\".*/\1/p" \
-    | head -n1)"
-  if [ -z "$url" ]; then
-    url="$(printf '%s' "$json" \
-      | tr -d '\n' \
-      | sed -n "s/.*\"browser_download_url\"[[:space:]]*:[[:space:]]*\"\([^\"]*${pattern}[^\"]*\)\".*/\1/p" \
-      | head -n1)"
-  fi
-
-  if [ -z "$url" ]; then
-    warn "в релизе $tag нет файла для ${PLATFORM}/${ARCH}"
-    warn "доступные файлы: откройте https://github.com/${TAURI_STOAT_REPO}/releases"
+  # разбираем список ассетов: python3 или jq, что найдётся
+  local asset_json
+  if have python3; then
+    asset_json="$(printf '%s' "$json" | python3 -c '
+import json, sys
+platform, arch = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+assets = data.get("assets", [])
+def score(a):
+    n = a.get("name", "").lower()
+    if platform not in n and not (platform == "windows" and n.endswith(".msi")):
+        return -1
+    return 2 if arch.lower() in n else 1
+best = max(assets, key=score, default=None)
+if best is not None and score(best) > 0:
+    print(json.dumps({"name": best["name"], "api": best["url"], "browser": best["browser_download_url"]}))
+' "$PLATFORM" "$ARCH")"
+  elif have jq; then
+    asset_json="$(printf '%s' "$json" | jq -c --arg p "$PLATFORM" --arg a "$ARCH" '
+      [.assets[] | select(.name | ascii_downcase | contains($p))]
+      | sort_by(if (.name | ascii_downcase | contains($a)) then 0 else 1 end)
+      | first | if . then {name, api: .url, browser: .browser_download_url} else empty end')"
+  else
+    warn "нужен python3 или jq, чтобы разобрать список релизов"
     return 0
   fi
 
-  name="$(basename "$url")"
+  if [ -z "$asset_json" ]; then
+    warn "в релизе $tag нет файла для ${PLATFORM}/${ARCH}"
+    warn "доступные файлы: https://github.com/${TAURI_STOAT_REPO}/releases"
+    return 0
+  fi
+
+  name="$(printf '%s' "$asset_json" | extract_json_field name)"
+  local api_url browser_url
+  api_url="$(printf '%s' "$asset_json" | extract_json_field api)"
+  browser_url="$(printf '%s' "$asset_json" | extract_json_field browser)"
+
+  # приватный репозиторий: browser_download_url отдаёт 404, работает только API
+  if [ -n "${GH_TOKEN}" ] && [ -n "$api_url" ]; then
+    url="$api_url"
+  else
+    url="$browser_url"
+  fi
+
   info "клиент" "версия $tag → $name"
   if download "$url" "$INSTALL_DIR/vendor/$name"; then
     ok "скачано: vendor/$name ($(du -h "$INSTALL_DIR/vendor/$name" | cut -f1))"
     case "$name" in
-      *.tar.gz)
+      *.tar.gz|*.zip)
         info "клиент" "распаковываю"
-        tar xzf "$INSTALL_DIR/vendor/$name" -C "$INSTALL_DIR"
-        ok "распаковано в $INSTALL_DIR"
-        ;;
-      *.zip)
-        if have unzip; then
-          unzip -qo "$INSTALL_DIR/vendor/$name" -d "$INSTALL_DIR" && ok "распаковано в $INSTALL_DIR"
+        local stage="$INSTALL_DIR/vendor/unpack"
+        rm -rf "$stage" && mkdir -p "$stage"
+        case "$name" in
+          *.tar.gz) tar xzf "$INSTALL_DIR/vendor/$name" -C "$stage" ;;
+          *.zip)
+            if have unzip; then
+              unzip -qo "$INSTALL_DIR/vendor/$name" -d "$stage"
+            else
+              warn "нет unzip — распакуйте vendor/$name вручную в эту папку"
+              return 0
+            fi
+            ;;
+        esac
+
+        # в архиве клиент лежит в подпапке (Tauri-Stoat/) — поднимаем содержимое наверх
+        local inner
+        inner="$(find "$stage" -mindepth 1 -maxdepth 1 -type d | head -n1)"
+        if [ -n "$inner" ] && [ "$(find "$stage" -mindepth 1 -maxdepth 1 | wc -l)" = "1" ]; then
+          cp -R "$inner"/. "$INSTALL_DIR"/
         else
-          warn "нет unzip — распакуйте vendor/$name вручную в эту папку"
+          cp -R "$stage"/. "$INSTALL_DIR"/
         fi
+        rm -rf "$stage"
+
+        chmod +x "$INSTALL_DIR"/tauri-stoat* 2>/dev/null || true
+        ok "распаковано в $INSTALL_DIR"
         ;;
       *.AppImage)
         chmod +x "$INSTALL_DIR/$name" && ok "сделан исполняемым: $name"
