@@ -55,6 +55,38 @@ pub struct UserView {
     pub display_name: Option<String>,
 }
 
+/// Цвет роли участника.
+///
+/// В Stoat ник красится цветом роли с наибольшим приоритетом, а не первой
+/// попавшейся: роли приходят списком id, и порядок в нём ничего не значит.
+pub fn role_colour(roles: &[String], server_roles: &HashMap<String, v0::Role>) -> Option<String> {
+    roles
+        .iter()
+        .filter_map(|id| server_roles.get(id))
+        .filter_map(|role| role.colour.clone().map(|colour| (role.rank, colour)))
+        .max_by_key(|(rank, _)| *rank)
+        .map(|(_, colour)| colour)
+}
+
+/// Участник сервера в том виде, который нужен интерфейсу.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberView {
+    /// Id пользователя
+    pub id: String,
+    /// Имя: ник на сервере, иначе имя профиля
+    pub name: String,
+    /// Имя пользователя без серверного ника
+    pub username: String,
+    /// Аватар: свой у участника или из профиля
+    pub avatar: Option<String>,
+    /// Цвет ника из роли
+    pub colour: Option<String>,
+    /// Названия ролей сверху вниз
+    pub roles: Vec<String>,
+    /// В сети
+    pub online: bool,
+}
+
 impl UserView {
     /// Имя для показа: отображаемое, иначе `ник#0001`.
     pub fn label(&self) -> String {
@@ -419,12 +451,71 @@ pub struct ChatMessage {
     pub attachments: Vec<AttachmentView>,
     /// Оформление текста по кускам
     pub segments: Segments,
-    /// Эмодзи сервера из текста: имя → адрес картинки
+    /// Эмодзи сервера из текста: код `:id:` → адрес картинки
     pub emoji: HashMap<String, String>,
+    /// Ник без серверного (для подсказки)
+    pub username: Option<String>,
+    /// Названия ролей автора сверху вниз
+    pub roles: Vec<String>,
+    /// Упоминания `<@id>` из текста
+    pub mentions: Vec<String>,
     /// Цвет ника из роли или маски
     pub colour: Option<String>,
     /// Встраивания: превью ссылок, картинки, видео
     pub embeds: Vec<EmbedView>,
+}
+
+/// Собрать список участников сервера для правой панели.
+///
+/// Онлайн-участники идут первыми, дальше по алфавиту — как в браузерном клиенте.
+pub fn members_of(
+    server: &v0::Server,
+    members: &[v0::Member],
+    users: &HashMap<String, v0::User>,
+    cdn: Option<&str>,
+) -> Vec<MemberView> {
+    let mut list: Vec<MemberView> = members
+        .iter()
+        .filter_map(|member| {
+            let user = users.get(&member.id.user)?;
+            let avatar = member
+                .avatar
+                .as_ref()
+                .and_then(|file| file_url(file, cdn))
+                .or_else(|| user.avatar.as_ref().and_then(|file| file_url(file, cdn)));
+            let mut roles: Vec<&v0::Role> = member
+                .roles
+                .iter()
+                .filter_map(|id| server.roles.get(id))
+                .collect();
+            // как в клиенте: сначала старшие роли
+            roles.sort_by(|a, b| b.rank.cmp(&a.rank));
+            Some(MemberView {
+                id: member.id.user.clone(),
+                name: user_label_with(user, Some(member)),
+                username: format!("{}#{}", user.username, user.discriminator),
+                avatar,
+                colour: role_colour(&member.roles, &server.roles),
+                roles: roles.iter().map(|role| role.name.clone()).collect(),
+                online: user.online,
+            })
+        })
+        .collect();
+
+    list.sort_by(|a, b| {
+        b.online
+            .cmp(&a.online)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    list
+}
+
+/// Имя пользователя с учётом серверного ника.
+pub fn user_label_with(user: &v0::User, member: Option<&v0::Member>) -> String {
+    member
+        .and_then(|member| member.nickname.clone())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| display_name(user))
 }
 
 /// Встраиваемое содержимое сообщения.
@@ -484,6 +575,26 @@ pub fn emoji_names(text: &str) -> HashMap<String, String> {
     out
 }
 
+/// Упоминания `<@id>` из текста (в Stoat упоминание — это ULID пользователя).
+pub fn mentioned_users(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (index, _) in text.match_indices("<@") {
+        let rest = &text[index + 2..];
+        let end = rest.find('>').unwrap_or(0);
+        let candidate = &rest[..end];
+        // ULID: 26 символов из алфавита base32
+        if candidate.len() == 26
+            && candidate
+                .chars()
+                .all(|symbol| symbol.is_ascii_alphanumeric())
+            && !out.iter().any(|known| known == candidate)
+        {
+            out.push(candidate.to_string());
+        }
+    }
+    out
+}
+
 impl ChatMessage {
     /// Собрать сообщение для показа.
     ///
@@ -492,6 +603,11 @@ impl ChatMessage {
     pub fn build(
         message: v0::Message,
         authors: &HashMap<String, UserView>,
+        server_roles: &HashMap<String, v0::Role>,
+        // ники участников сервера по id пользователя (в сообщении их часто нет)
+        member_nickname: &HashMap<String, String>,
+        // цвет роли участника по id пользователя
+        member_colour: &HashMap<String, String>,
         cdn: Option<&str>,
     ) -> Self {
         // Порядок как в клиенте Stoat: маска сообщения важнее всего, затем
@@ -502,8 +618,16 @@ impl ChatMessage {
         let author = masquerade
             .and_then(|mask| mask.name.clone())
             .or_else(|| webhook.map(|hook| hook.name.clone()))
-            .or_else(|| message.member.as_ref().and_then(|m| m.nickname.clone()))
+            .or_else(|| {
+                message
+                    .member
+                    .as_ref()
+                    .and_then(|member| member.nickname.clone())
+                    .filter(|name| !name.trim().is_empty())
+            })
             .or_else(|| message.user.as_ref().map(display_name))
+            // в сообщениях из шлюза участник приходит без ника — берём из кэша
+            .or_else(|| member_nickname.get(&message.author).cloned())
             .or_else(|| authors.get(&message.author).map(UserView::label))
             .unwrap_or_else(|| message.author.clone());
 
@@ -530,7 +654,31 @@ impl ChatMessage {
                     .and_then(|file| file_url(file, cdn))
             });
 
-        let colour = masquerade.and_then(|mask| mask.colour.clone());
+        // ник без серверного — для подсказки при наведении
+        let username = message
+            .user
+            .as_ref()
+            .map(|user| format!("{}#{}", user.username, user.discriminator))
+            .or_else(|| authors.get(&message.author).map(UserView::label));
+
+        let member_roles = message.member.as_ref().map(|member| member.roles.clone());
+        let roles: Vec<String> = member_roles
+            .clone()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|id| server_roles.get(id))
+            .map(|role| role.name.clone())
+            .collect();
+
+        // маска сообщения важнее роли, иначе нику достаётся цвет главной роли
+        let colour = masquerade
+            .and_then(|mask| mask.colour.clone())
+            .or_else(|| {
+                member_roles
+                    .as_ref()
+                    .and_then(|member_roles| role_colour(member_roles, server_roles))
+            })
+            .or_else(|| member_colour.get(&message.author).cloned());
         let system = message.system.is_some();
 
         let attachments = message
@@ -549,6 +697,7 @@ impl ChatMessage {
 
         let content = message.content.unwrap_or_default();
         let emoji = emoji_names(&content);
+        let mentions = mentioned_users(&content);
 
         Self {
             timestamp: ulid_time_ms(&message.id)
@@ -567,6 +716,9 @@ impl ChatMessage {
             colour,
             embeds,
             emoji,
+            username,
+            roles,
+            mentions,
         }
     }
 }
