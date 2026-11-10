@@ -613,6 +613,16 @@ fn guess_content_type(url: &str) -> &'static str {
     }
 }
 
+/// Адрес сообщения, чтобы можно было скопировать ссылку.
+#[tauri::command]
+async fn message_link(
+    server: Option<String>,
+    channel: String,
+    message: String,
+) -> CmdResult<String> {
+    Ok(views::message_link(server.as_deref(), &channel, &message))
+}
+
 /// Адрес аватара пользователя.
 ///
 /// В сообщениях автор часто приходит без файла аватара, поэтому адрес
@@ -919,6 +929,7 @@ pub fn run() {
             fetch_media,
             fetch_emoji,
             user_avatar,
+            message_link,
             channel_history,
             send_message,
             edit_message,

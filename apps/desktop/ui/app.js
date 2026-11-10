@@ -622,16 +622,19 @@ function messageNode(message, grouped) {
   return row;
 }
 
-function messageLink(message) {
-  const server = state.serverId;
-  const base = "https://stoat.chat";
-  return server
-    ? `${base}/server/${server}/channel/${message.channel}/${message.id}`
-    : `${base}/channel/${message.channel}/${message.id}`;
-}
-
+// Адрес сообщения собирает ядро (там же, где ссылки для плагинов),
+// интерфейс только копирует его в буфер обмена.
 async function copyMessageLink(message) {
-  const link = messageLink(message);
+  let link;
+  try {
+    link = await call("message_link", {
+      server: state.serverId,
+      channel: message.channel,
+      message: message.id,
+    });
+  } catch (error) {
+    return toast("Не удалось собрать ссылку: " + describe(error), "err");
+  }
   try {
     await navigator.clipboard.writeText(link);
     toast("Ссылка на сообщение скопирована", "ok");
