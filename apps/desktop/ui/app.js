@@ -623,6 +623,10 @@ function renderRail() {
       });
     }
     button.onclick = () => selectServer(server.id);
+    button.oncontextmenu = (event) => {
+      event.preventDefault();
+      openServerMenu(event, server);
+    };
     railList.appendChild(button);
   }
 }
@@ -709,6 +713,10 @@ function channelButton(channel) {
   button.appendChild(name);
 
   button.onclick = () => openChannel(channel);
+  button.oncontextmenu = (event) => {
+    event.preventDefault();
+    openChannelMenu(event, channel);
+  };
   return button;
 }
 
@@ -775,11 +783,13 @@ async function openChannel(channel) {
   el("chat-hash").textContent = channel.kind === "voice" ? "🔊" : channel.kind === "dm" ? "@" : "#";
   channelIconNode(channel, el("chat-hash"));
   inputEl.disabled = false;
+  sendBtn.disabled = false; // без этого сообщение нельзя было отправить вообще
   inputEl.placeholder = "Написать в #" + channel.name;
   inputEl.focus();
 
   toggleEmojiPicker(false);
   if (state.serverId !== null) loadServerEmoji(state.serverId);
+  loadMembers(state.serverId);
 
   messagesEl.textContent = "";
   const loading = document.createElement("div");
@@ -993,11 +1003,10 @@ function messageNode(message, grouped) {
     body.appendChild(box);
   }
 
-  // ссылка на сообщение: копируется по правому клику, как в браузере
-  row.title = "Правый клик — скопировать ссылку на сообщение";
+  // правый клик — меню как в официальном клиенте
   row.addEventListener("contextmenu", (event) => {
     event.preventDefault();
-    copyMessageLink(message);
+    openMessageMenu(event, message);
   });
 
   // действия: изменить и удалить можно только свои
@@ -1246,6 +1255,7 @@ async function onGateway(payload) {
 
   if (type === "Ready") {
     setConn("ok", "подключено");
+    membersCache.clear();
     await loadWorkspace();
     return;
   }
@@ -1288,55 +1298,233 @@ async function onGateway(payload) {
 // ───────────────────── выбор эмодзи сервера у строки ввода ─────────────────
 
 let emojiFilter = "";
+let emojiHover = null;
 
-// Нарисовать панель: список эмодзи текущего сервера с поиском.
+// Эмодзи всех серверов, доступных пользователю: id сервера → список.
+const serverEmojiAll = new Map();
+
+// ── данные для панели ───────────────────────────────────────────────────────
+
+// Все юникод-эмодзи из комплекта, по коду: для панели «Все эмодзи».
+function unicodeEmojis() {
+  if (unicodeEmojis.cache) return unicodeEmojis.cache;
+  const map = window.EMOJI_MAP || {};
+  const list = Object.keys(map).map((code) => ({
+    code,
+    kind: "unicode",
+    name: code,
+    text: codeToSymbol(code),
+  }));
+  unicodeEmojis.cache = list;
+  return list;
+}
+
+function codeToSymbol(code) {
+  try {
+    return code
+      .split("-")
+      .map((part) => String.fromCodePoint(parseInt(part, 16)))
+      .join("");
+  } catch {
+    return "";
+  }
+}
+
+// Загрузить эмодзи сервера (для панели и для `:id:` в сообщениях).
+async function loadServerEmoji(serverId) {
+  if (serverId === null || serverEmojiAll.has(serverId)) return serverEmojiAll.get(serverId);
+  const task = call("server_emojis", { serverId })
+    .then((list) => {
+      serverEmojiAll.set(serverId, list || []);
+      serverEmojiData.set(serverId, list || []);
+      return list || [];
+    })
+    .catch((error) => {
+      console.warn("не удалось получить эмодзи сервера:", error);
+      serverEmojiAll.set(serverId, []);
+      return [];
+    });
+  serverEmojiAll.set(serverId, []);
+  return task;
+}
+
+// ── отрисовка панели ────────────────────────────────────────────────────────
+
 function renderEmojiPicker() {
   const list = el("emoji-list");
-  if (!list) return;
-  list.textContent = "";
+  const rail = el("emoji-servers");
+  if (!list || !rail) return;
 
-  const serverId = state.serverId;
-  if (serverId === null) {
-    list.appendChild(note("Эмодзи есть только на серверах, в личных сообщениях их нет"));
-    return;
-  }
-  const emojis = serverEmojiData.get(serverId) || [];
-  if (!emojis.length) {
-    list.appendChild(note("На этом сервере пока нет эмодзи"));
-    return;
-  }
+  list.textContent = "";
+  rail.textContent = "";
 
   const needle = emojiFilter.trim().toLowerCase();
-  const shown = needle
-    ? emojis.filter((item) => item.name.toLowerCase().includes(needle))
-    : emojis;
-  if (!shown.length) {
-    list.appendChild(note("Ничего не найдено"));
+  const servers = (state.workspace?.servers || []).filter(
+    (server) => (serverEmojiAll.get(server.id) || []).length > 0,
+  );
+  const currentId = state.serverId;
+
+  if (needle) {
+    // поиск сразу по всем серверам и по юникоду, как в оригинале
+    const found = [];
+    for (const server of servers) {
+      for (const emoji of serverEmojiAll.get(server.id) || []) {
+        if (emoji.name.toLowerCase().includes(needle)) {
+          found.push({ kind: "server", emoji, server });
+        }
+      }
+    }
+    for (const emoji of unicodeEmojis()) {
+      if (emoji.code.includes(needle) || emoji.text.includes(needle)) {
+        found.push({ kind: "unicode", emoji });
+      }
+    }
+    if (!found.length) {
+      list.appendChild(note("Ничего не найдено"));
+      renderEmojiPreview(null);
+      return;
+    }
+    list.appendChild(sectionTitle("Результаты поиска"));
+    for (const item of found.slice(0, 240)) list.appendChild(emojiButton(item));
+    renderEmojiPreview(found[0]);
     return;
   }
 
-  for (const emoji of shown) {
+  // рельс серверов слева — как в официальном клиенте
+  for (const server of servers) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "emoji-item";
-    button.title = ":" + emoji.name + ":";
-    button.dataset.name = emoji.name;
-    const label = document.createElement("span");
-    label.className = "emoji-item-name";
-    label.textContent = emoji.name;
-    if (emoji.url) {
-      mediaUrl(emoji.url).then((data) => {
+    button.className = "emoji-server" + (server.id === currentId ? " active" : "");
+    button.title = server.name;
+    const mark = document.createElement("span");
+    mark.textContent = server.initial || server.name.charAt(0).toUpperCase();
+    if (server.icon) {
+      mediaUrl(server.icon).then((data) => {
+        if (!data) return;
+        const img = document.createElement("img");
+        img.alt = server.name;
+        img.src = data;
+        button.replaceChildren(img);
+      });
+    }
+    button.appendChild(mark);
+    button.onclick = (event) => {
+      event.stopPropagation();
+      el("emoji-list").querySelector(`[data-server="${server.id}"]`)?.scrollIntoView({ block: "start" });
+    };
+    rail.appendChild(button);
+  }
+
+  const first = state.workspace?.servers?.find((server) => (serverEmojiAll.get(server.id) || []).length);
+  let any = false;
+  for (const server of servers) {
+    const head = sectionTitle(server.name);
+    head.dataset.server = server.id;
+    list.appendChild(head);
+    for (const emoji of serverEmojiAll.get(server.id) || []) {
+      list.appendChild(emojiButton({ kind: "server", emoji, server }));
+    }
+    any = true;
+  }
+
+  list.appendChild(sectionTitle("Все эмодзи"));
+  for (const emoji of unicodeEmojis()) {
+    list.appendChild(emojiButton({ kind: "unicode", emoji }));
+  }
+
+  const fallback = servers.length
+    ? { kind: "server", emoji: serverEmojiAll.get(servers[0].id)[0], server: servers[0] }
+    : { kind: "unicode", emoji: unicodeEmojis()[0] };
+  renderEmojiPreview(first ? fallback : fallback);
+  if (!any) {
+    // серверных эмодзи нет — это нормально, показываем хотя бы юникод
+  }
+}
+
+function sectionTitle(text) {
+  const node = document.createElement("div");
+  node.className = "emoji-section";
+  node.textContent = text;
+  return node;
+}
+
+function emojiButton(item) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "emoji-item";
+  if (item.kind === "server") {
+    button.title = ":" + item.emoji.name + ":";
+    button.dataset.name = item.emoji.name;
+    if (item.emoji.url) {
+      mediaUrl(item.emoji.url).then((data) => {
         if (!data) return;
         const img = document.createElement("img");
         img.className = "emoji-img";
-        img.alt = ":" + emoji.name + ":";
+        img.alt = ":" + item.emoji.name + ":";
         img.src = data;
-        button.replaceChildren(img);
-        button.appendChild(label);
+        button.appendChild(img);
+      });
+    } else {
+      button.textContent = ":" + item.emoji.name + ":";
+    }
+    button.onclick = () => insertEmoji(":" + item.emoji.name + ":");
+  } else {
+    button.title = item.emoji.text;
+    const symbol = document.createElement("span");
+    symbol.className = "emoji-symbol";
+    symbol.textContent = item.emoji.text;
+    button.appendChild(symbol);
+    spriteUrl(item.emoji.code).then((data) => {
+      if (!data) return;
+      const img = document.createElement("img");
+      img.className = "emoji-img";
+      img.alt = item.emoji.text;
+      img.src = data;
+      button.replaceChildren(img);
+    });
+    button.onclick = () => insertEmoji(item.emoji.text);
+  }
+  button.onmouseenter = () => renderEmojiPreview(item);
+  return button;
+}
+
+// Нижняя строка: что за эмодзи и откуда он — как в оригинале.
+function renderEmojiPreview(item) {
+  const img = el("emoji-preview-img");
+  const name = el("emoji-preview-name");
+  const from = el("emoji-preview-from");
+  if (!img) return;
+  img.textContent = "";
+  if (!item) {
+    name.textContent = "";
+    from.textContent = "";
+    return;
+  }
+  if (item.kind === "server") {
+    name.textContent = ":" + item.emoji.name + ":";
+    from.textContent = item.server ? "с сервера " + item.server.name : "";
+    if (item.emoji.url) {
+      mediaUrl(item.emoji.url).then((data) => {
+        if (!data) return;
+        const node = document.createElement("img");
+        node.className = "emoji-img";
+        node.src = data;
+        img.replaceChildren(node);
       });
     }
-    button.onclick = () => insertEmoji(emoji.name);
-    list.appendChild(button);
+  } else {
+    name.textContent = item.emoji.text;
+    from.textContent = "юникод";
+    const symbol = document.createElement("span");
+    symbol.textContent = item.emoji.text;
+    img.appendChild(symbol);
+    spriteUrl(item.emoji.code).then((data) => {
+      if (!data) return;
+      const node = document.createElement("img");
+      node.className = "emoji-img";
+      node.src = data;
+      img.replaceChildren(node);
+    });
   }
 }
 
@@ -1347,14 +1535,12 @@ function note(text) {
   return node;
 }
 
-// Вставить `:имя:` в текст на месте курсора.
-function insertEmoji(name) {
-  const token = `:${name}:`;
+// Вставить текст на месте курсора.
+function insertEmoji(token) {
   const start = inputEl.selectionStart ?? inputEl.value.length;
   const end = inputEl.selectionEnd ?? inputEl.value.length;
   const before = inputEl.value.slice(0, start);
   const after = inputEl.value.slice(end);
-  // пробел перед эмодзи, если его приклеивают к слову
   const glue = before && !/\s$/.test(before) ? " " : "";
   inputEl.value = before + glue + token + after;
   const caret = (before + glue + token).length;
@@ -1366,12 +1552,207 @@ function toggleEmojiPicker(force) {
   const picker = el("emoji-picker");
   const open = force ?? picker.classList.contains("hidden");
   picker.classList.toggle("hidden", !open);
+  el("btn-emoji").classList.toggle("active", open);
   if (!open) return;
   el("emoji-search").value = "";
   emojiFilter = "";
   renderEmojiPicker();
-  if (state.serverId !== null) loadServerEmoji(state.serverId);
   el("emoji-search").focus();
+  // эмодзи серверов догружаем по одному и перерисовываем панель
+  const ids = (state.workspace?.servers || []).map((server) => server.id);
+  for (const id of ids) {
+    loadServerEmoji(id).then(() => renderEmojiPicker());
+  }
+  if (state.serverId !== null) loadServerEmoji(state.serverId);
+}
+
+// ── список участников справа ────────────────────────────────────────────────
+
+const membersCache = new Map(); // id сервера → участники
+
+async function loadMembers(serverId) {
+  if (serverId === null) {
+    el("members").classList.add("hidden");
+    return;
+  }
+  const panel = el("members");
+  panel.classList.remove("hidden");
+  const list = el("members-list");
+
+  if (!membersCache.has(serverId)) {
+    list.textContent = "";
+    list.appendChild(note("Загружаю участников…"));
+    try {
+      const members = await call("server_members", { serverId });
+      membersCache.set(serverId, members || []);
+    } catch (error) {
+      membersCache.set(serverId, []);
+      console.warn("не удалось получить участников:", error);
+    }
+  }
+  if (state.serverId !== serverId) return;
+  renderMembers();
+}
+
+function renderMembers() {
+  const list = el("members-list");
+  if (!list) return;
+  list.textContent = "";
+  const serverId = state.serverId;
+  if (serverId === null) {
+    el("members").classList.add("hidden");
+    return;
+  }
+  const members = membersCache.get(serverId) || [];
+  el("members").classList.remove("hidden");
+  el("members-count").textContent = members.length ? String(members.length) : "";
+
+  if (!members.length) {
+    list.appendChild(note("Участники не загрузились"));
+    return;
+  }
+
+  const online = members.filter((member) => member.online);
+  const offline = members.filter((member) => !member.online);
+
+  if (online.length) list.appendChild(sectionTitle(`В сети — ${online.length}`));
+  for (const member of online) list.appendChild(memberRow(member));
+  if (offline.length) list.appendChild(sectionTitle(`Не в сети — ${offline.length}`));
+  for (const member of offline) list.appendChild(memberRow(member));
+}
+
+function memberRow(member) {
+  const row = document.createElement("div");
+  row.className = "member" + (member.online ? "" : " offline");
+  row.dataset.id = member.id;
+  row.title = member.roles.length
+    ? `${member.username}\n${member.roles.join(", ")}`
+    : member.username;
+
+  const avatar = avatarEl(member.avatar, member.name, 32);
+  avatar.classList.add("member-avatar");
+  row.appendChild(avatar);
+
+  const text = document.createElement("div");
+  text.className = "member-text";
+  const name = document.createElement("div");
+  name.className = "member-name";
+  name.textContent = member.name;
+  if (member.colour) name.style.color = colourCss(member.colour);
+  text.appendChild(name);
+  row.appendChild(text);
+
+  row.oncontextmenu = (event) => {
+    event.preventDefault();
+    openUserMenu(event, member);
+  };
+  row.onclick = () => {
+    el("input").focus();
+    insertEmoji(member.username);
+  };
+  return row;
+}
+
+
+// ───────────────────────── контекстные меню (ПКМ) ──────────────────────────
+
+const ctxMenu = () => el("ctx-menu");
+
+function closeContextMenu() {
+  ctxMenu().classList.add("hidden");
+  ctxMenu().textContent = "";
+}
+
+// Показать меню рядом с курсором, не вылезая за край окна.
+function openContextMenu(event, items) {
+  const menu = ctxMenu();
+  menu.textContent = "";
+  for (const item of items) {
+    if (item.separator) {
+      const line = document.createElement("div");
+      line.className = "ctx-sep";
+      menu.appendChild(line);
+      continue;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ctx-item" + (item.danger ? " danger" : "");
+    button.textContent = item.label;
+    button.onclick = async () => {
+      closeContextMenu();
+      try {
+        await item.action();
+      } catch (error) {
+        toast(describe(error), "err");
+      }
+    };
+    menu.appendChild(button);
+  }
+
+  menu.classList.remove("hidden");
+  const { innerWidth, innerHeight } = window;
+  const box = menu.getBoundingClientRect();
+  const x = Math.min(event.clientX, innerWidth - box.width - 8);
+  const y = Math.min(event.clientY, innerHeight - box.height - 8);
+  menu.style.left = Math.max(8, x) + "px";
+  menu.style.top = Math.max(8, y) + "px";
+}
+
+// Меню сообщения — как в официальном клиенте.
+function openMessageMenu(event, message) {
+  const link = () => call("message_link", {
+    server: state.serverId,
+    channel: message.channel || state.channelId,
+    message: message.id,
+  });
+
+  openContextMenu(event, [
+    { label: "Ответить", action: () => { inputEl.value = "> " + message.content.split("\n")[0].slice(0, 80) + "\n"; inputEl.focus(); } },
+    { label: "Копировать текст", action: () => copyText(message.content) },
+    { label: "Копировать ссылку на сообщение", action: async () => { await copyText(await link()); toast("Ссылка скопирована"); } },
+    { label: "Копировать id сообщения", action: () => copyText(message.id) },
+    { separator: true },
+    ...(message.mine
+      ? [
+          { label: "Изменить", action: () => startEdit(message) },
+          { label: "Удалить", danger: true, action: () => removeMessage(message) },
+        ]
+      : []),
+    { label: "Пожаловаться", action: () => toast("Жалоба отправляется через браузерный клиент") },
+  ]);
+}
+
+// Меню участника.
+function openUserMenu(event, member) {
+  openContextMenu(event, [
+    { label: member.name, action: () => copyText(member.username) },
+    { separator: true },
+    { label: "Скопировать имя", action: () => copyText(member.username) },
+    { label: "Скопировать id", action: () => copyText(member.id) },
+    { label: "Упомянуть", action: () => { insertEmoji(`<@${member.id}>`); } },
+    { label: "Написать в личные", action: () => toast("Личные сообщения появятся в следующей сборке") },
+  ]);
+}
+
+// Меню канала.
+function openChannelMenu(event, channel) {
+  openContextMenu(event, [
+    { label: "Отметить как прочитанное", action: () => toast("Скоро") },
+    { label: "Копировать название", action: () => copyText(channel.name) },
+    { label: "Копировать id", action: () => copyText(channel.id) },
+    { separator: true },
+    { label: "Свернуть категорию", action: () => toast("Скоро") },
+  ]);
+}
+
+// Меню сервера в рельсе.
+function openServerMenu(event, server) {
+  openContextMenu(event, [
+    { label: "Копировать название", action: () => copyText(server.name) },
+    { label: "Копировать id", action: () => copyText(server.id) },
+    { separator: true },
+    { label: "Настройки сервера", action: () => toast("Скоро") },
+  ]);
 }
 
 // ─────────────────────────── меню аккаунта ────────────────────────────────
@@ -1433,6 +1814,15 @@ async function boot() {
   });
   el("emoji-picker").addEventListener("click", (event) => event.stopPropagation());
   document.addEventListener("click", () => toggleEmojiPicker(false));
+  document.addEventListener("click", () => closeContextMenu());
+  document.addEventListener("contextmenu", (event) => {
+    // клик мимо меню закрывает его, но своё меню открывается как обычно
+    if (!ctxMenu().contains(event.target)) closeContextMenu();
+  });
+  window.addEventListener("resize", () => closeContextMenu());
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeContextMenu();
+  });
 
   el("btn-logout").onclick = logout;
   el("menu-logout").onclick = logout;

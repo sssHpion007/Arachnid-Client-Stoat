@@ -60,12 +60,33 @@
             <button class="send" id="btn-send" disabled title="Отправить">➤</button>
           </div>
           <div class="emoji-picker hidden" id="emoji-picker">
-            <input id="emoji-search" type="text" placeholder="Поиск эмодзи" autocomplete="off" />
-            <div class="emoji-list" id="emoji-list"></div>
+            <input id="emoji-search" type="search" placeholder="Поиск эмодзи…" autocomplete="off" />
+            <div class="emoji-body">
+              <div class="emoji-servers" id="emoji-servers"></div>
+              <div class="emoji-scroll">
+                <div class="emoji-list" id="emoji-list"></div>
+              </div>
+            </div>
+            <div class="emoji-preview" id="emoji-preview">
+              <span class="emoji-preview-img" id="emoji-preview-img"></span>
+              <span class="emoji-preview-text">
+                <b id="emoji-preview-name"></b>
+                <small id="emoji-preview-from"></small>
+              </span>
+            </div>
           </div>
           <div class="composer-hint" id="composer-hint"></div>
         </footer>
       </main>
+
+      <!-- участники сервера -->
+      <aside class="members hidden" id="members">
+        <div class="members-head">
+          <span>Участники</span>
+          <span class="members-count" id="members-count"></span>
+        </div>
+        <div class="members-list" id="members-list"></div>
+      </aside>
     </div>
 
     <!-- меню аккаунта -->
@@ -75,6 +96,9 @@
       <button class="menu-item" id="menu-switch">Сменить аккаунт</button>
       <button class="menu-item danger" id="menu-logout">Выйти</button>
     </div>
+
+    <!-- контекстные меню (ПКМ) -->
+    <div class="ctx hidden" id="ctx-menu"></div>
 
     <div class="toast hidden" id="toast"></div>
 
