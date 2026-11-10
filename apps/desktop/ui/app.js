@@ -860,6 +860,10 @@ function markMine(list) {
 
 // Дозапрос профилей: в сообщении часто нет файла аватара, только автор.
 // Делаем это один раз на автора и параллельно, иначе лента «моргает» буквами.
+// Сколько раз пробовали получить аватар автора: неудача не должна
+// становиться приговором — на старте сеть часто ещё не готова.
+const avatarAttempts = new Map();
+
 function resolveAvatars() {
   const seen = new Set();
   const nodes = messagesEl.querySelectorAll(".msg-avatar [data-author]");
@@ -867,26 +871,71 @@ function resolveAvatars() {
     const authorId = node.dataset.author;
     if (!authorId || seen.has(authorId)) continue;
     seen.add(authorId);
-    const key = "avatar:" + authorId;
-    const name = node.dataset.name || "?";
-    const apply = (data) => {
-      if (data) fillAvatar(node, data, name);
-    };
-    if (state.media.has(key)) {
-      const known = state.media.get(key);
-      if (known) mediaUrl(known).then(apply);
-      continue;
+    resolveAvatar(authorId, node.dataset.name || "?");
+  }
+}
+
+function resolveAvatar(authorId, name) {
+  const key = "avatar:" + authorId;
+  const apply = (data) => {
+    if (!data) return false;
+    for (const node of messagesEl.querySelectorAll(`.msg-avatar [data-author="${authorId}"]`)) {
+      fillAvatar(node, data, name);
     }
+    return true;
+  };
+
+  const known = state.media.get(key);
+  if (known) {
+    mediaUrl(known).then((data) => {
+      if (apply(data)) return;
+      // адрес аватара известен, но файл не скачался — пробуем ещё раз
+      if ((avatarAttempts.get(authorId) || 0) >= 4) return;
+      state.media.delete(known);
+      retryAvatar(authorId, name, false);
+    });
+    return;
+  }
+  retryAvatar(authorId, name, true);
+}
+
+// Запросить адрес аватара и файл; при сбое — повторить с паузой.
+function retryAvatar(authorId, name, askUrl) {
+  const attempt = (avatarAttempts.get(authorId) || 0) + 1;
+  avatarAttempts.set(authorId, attempt);
+  const again = () => {
+    if (attempt < 4) setTimeout(() => retryAvatar(authorId, name, true), 1500 * attempt);
+  };
+
+  if (!askUrl) {
+    // адрес уже известен — заново тянем сам файл
     call("user_avatar", { userId: authorId })
       .then((url) => {
-        state.media.set(key, url || null);
-        if (!url) return null;
-        return mediaUrl(url);
+        if (!url) return again();
+        return mediaUrl(url).then((data) => {
+          if (!data) return again();
+          fillAvatars(authorId, data, name);
+        });
       })
-      .then((data) => {
-        if (data) apply(data);
-      })
-      .catch(() => state.media.set(key, null));
+      .catch(again);
+    return;
+  }
+
+  call("user_avatar", { userId: authorId })
+    .then((url) => {
+      state.media.set("avatar:" + authorId, url || null);
+      if (!url) return again();
+      return mediaUrl(url).then((data) => {
+        if (!data) return again();
+        fillAvatars(authorId, data, name);
+      });
+    })
+    .catch(again);
+}
+
+function fillAvatars(authorId, data, name) {
+  for (const node of messagesEl.querySelectorAll(`.msg-avatar [data-author="${authorId}"]`)) {
+    fillAvatar(node, data, name);
   }
 }
 
@@ -1077,6 +1126,21 @@ async function removeMessage(message) {
   }
 }
 
+// Найти канал по id в загруженном состоянии.
+function channelById(id) {
+  const ws = state.workspace;
+  if (!ws || !id) return null;
+  for (const dm of ws.dms) if (dm.id === id) return dm;
+  for (const server of ws.servers) {
+    for (const category of server.categories) {
+      for (const channel of category.channels) {
+        if (channel.id === id) return channel;
+      }
+    }
+  }
+  return null;
+}
+
 function currentChannel() {
   const ws = state.workspace;
   if (!ws || !state.channelId) return null;
@@ -1186,15 +1250,17 @@ async function loadWorkspace() {
   renderRail();
   renderChannels();
 
-  // открываем канал: прошлый выбор или первый доступный
-  const keep = state.channelId && currentChannel();
+  // открываем канал: прошлый выбор или тот, где пользователь был в прошлый раз
+  const keep = state.channelId ? currentChannel() : null;
   if (keep) {
     openChannel(keep);
   } else if (ws.last_channel) {
     state.serverId = serverOfChannel(ws.last_channel);
     renderRail();
     renderChannels();
-    const channel = currentChannel();
+    // ищем именно тот канал, а не «текущий»: до openChannel state.channelId
+    // ещё пуст, и клиент открывался вообще без канала
+    const channel = channelById(ws.last_channel);
     if (channel) openChannel(channel);
     else closeChannel();
   } else if (ws.servers.length) {
@@ -1262,8 +1328,16 @@ async function onGateway(payload) {
     return;
   }
   if (type === "Error") {
-    setConn("err", "ошибка подключения");
-    toast("Gateway: " + (source.type || "ошибка"), "err");
+    const kind = source.type || source.error || "ошибка";
+    // эти коды сервер присылает на отдельный запрос, живое соединение не рвётся:
+    // пугать пользователя плашкой «нет подключения» из-за них нельзя
+    const fatal = ["InvalidSession", "Logout", "SessionExpired"].includes(kind);
+    setConn(fatal ? "err" : "ok", fatal ? "сессия завершена" : "подключено");
+    if (fatal) {
+      toast("Сессия завершена, войдите заново", "err");
+    } else {
+      console.warn("gateway:", kind, source.location || "");
+    }
     return;
   }
 
@@ -1392,7 +1466,8 @@ function renderEmojiPicker() {
   for (const server of servers) {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "emoji-server" + (server.id === currentId ? " active" : "");
+    const active = emojiActiveServer !== null ? server.id === emojiActiveServer : server.id === currentId;
+    button.className = "emoji-server" + (active ? " active" : "");
     button.title = server.name;
     const mark = document.createElement("span");
     mark.textContent = server.initial || server.name.charAt(0).toUpperCase();
@@ -1408,7 +1483,7 @@ function renderEmojiPicker() {
     button.appendChild(mark);
     button.onclick = (event) => {
       event.stopPropagation();
-      el("emoji-list").querySelector(`[data-server="${server.id}"]`)?.scrollIntoView({ block: "start" });
+      selectEmojiServer(button, server.id);
     };
     rail.appendChild(button);
   }
@@ -1437,6 +1512,37 @@ function renderEmojiPicker() {
   if (!any) {
     // серверных эмодзи нет — это нормально, показываем хотя бы юникод
   }
+}
+
+let emojiActiveServer = null;
+
+// Прокрутить список к секции сервера.
+//
+// Важно считать позицию от самого прокручиваемого контейнера (`.emoji-scroll`),
+// а не от заголовка: раньше заголовок «прилипал» к верху, и `scrollIntoView`
+// считал его уже видимым — список оставался на месте, и к первому серверу
+// приходилось листать руками.
+function scrollEmojiTo(serverId) {
+  const box = document.querySelector(".emoji-scroll");
+  if (!box) return;
+
+  const head = el("emoji-list").querySelector(`[data-server="${serverId}"]`);
+  // сервера нет в списке (например, открыт поиск) — прокручивать некуда
+  if (!head) return;
+
+  // координаты заголовка считаем относительно самого контейнера: у вложенных
+  // элементов offsetTop отсчитывается от своего родителя, и разница «в лоб»
+  // давала неверное положение
+  const top = head.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop;
+  box.scrollTop = Math.max(0, top - 2);
+}
+
+function selectEmojiServer(button, serverId) {
+  emojiActiveServer = serverId;
+  for (const node of el("emoji-servers").children) {
+    node.classList.toggle("active", node === button);
+  }
+  scrollEmojiTo(serverId);
 }
 
 function sectionTitle(text) {
@@ -1491,7 +1597,8 @@ function renderEmojiPreview(item) {
   const img = el("emoji-preview-img");
   const name = el("emoji-preview-name");
   const from = el("emoji-preview-from");
-  if (!img) return;
+  // панель могла ещё не отрисоваться — тогда превью просто нечего заполнять
+  if (!img || !name || !from) return;
   img.textContent = "";
   if (!item) {
     name.textContent = "";

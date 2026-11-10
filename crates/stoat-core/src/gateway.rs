@@ -555,6 +555,15 @@ async fn run_loop(
     }
 }
 
+/// Ошибка шлюза, после которой соединение заведомо бесполезно.
+///
+/// Остальные коды (`AlreadyAuthenticated`, `PayloadTooLarge`, `NotAuthenticated`
+/// на конкретный запрос и прочее) сервер присылает, не закрывая сокет, — на них
+/// нельзя прекращать приём событий.
+fn is_fatal_gateway_error(kind: &str) -> bool {
+    matches!(kind, "InvalidSession" | "Logout" | "SessionExpired")
+}
+
 /// Экспоненциальная задержка с потолком: 1s, 2s, 4s, … (но не больше `max`).
 fn backoff_delay(attempt: u32, max: Duration) -> Duration {
     let factor = 2u32.saturating_pow(attempt.min(6));
@@ -660,8 +669,23 @@ async fn session(
                             if matches!(event, GatewayEvent::Ready(_)) {
                                 let _ = state.send(ConnectionState::Ready);
                             }
-                            // ошибка протокола — тоже терминальное состояние: сервер закроет сокет
-                            if matches!(event, GatewayEvent::Error(_)) {
+                            // Код из `Error` — это часто НЕ повод рвать соединение:
+                            // сервер присылает `AlreadyAuthenticated`, `PayloadTooLarge`,
+                            // жалобы на конкретный пакет и т.п., а сессия после них жива.
+                            // Раньше любая такая ошибка объявлялась терминальной — и шлюз
+                            // отключался, из-за чего после отправки сообщения пропадали
+                            // живые события (новые сообщения, участники).
+                            if let GatewayEvent::Error(error) = &event
+                                && !is_fatal_gateway_error(error.message())
+                            {
+                                tracing::info!(
+                                    kind = error.message(),
+                                    "gateway: ошибка протокола, соединение продолжает работать"
+                                );
+                            }
+                            if let GatewayEvent::Error(error) = &event
+                                && is_fatal_gateway_error(error.message())
+                            {
                                 terminal = true;
                             }
                             if matches!(event, GatewayEvent::Logout) {
@@ -892,5 +916,20 @@ mod tests {
 
     mod tk {
         pub use tokio::task::yield_now;
+    }
+}
+
+#[cfg(test)]
+mod fatal_tests {
+    use super::*;
+
+    #[test]
+    fn only_session_errors_stop_the_gateway() {
+        assert!(is_fatal_gateway_error("InvalidSession"));
+        assert!(is_fatal_gateway_error("Logout"));
+        // эти коды приходят на конкретный пакет, соединение после них живёт
+        assert!(!is_fatal_gateway_error("AlreadyAuthenticated"));
+        assert!(!is_fatal_gateway_error("PayloadTooLarge"));
+        assert!(!is_fatal_gateway_error("NotFound"));
     }
 }

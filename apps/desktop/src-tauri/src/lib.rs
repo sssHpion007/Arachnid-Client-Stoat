@@ -33,9 +33,43 @@ pub struct AppState {
     /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
     pub cdn_url: RwLock<Option<String>>,
     /// Что уже скачано для показа: адрес → data-URL (`None` — файла нет)
-    pub media: RwLock<std::collections::HashMap<String, Option<String>>>,
+    pub media: RwLock<MediaCache>,
     /// Эмодзи серверов: id сервера → список (меняется редко)
     pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
+}
+
+/// Кэш скачанных картинок.
+///
+/// Успех хранится до выхода из программы, неудача — недолго. Иначе один
+/// неудачный запрос (сеть на старте ещё не поднялась, сервер ответил 429)
+/// навсегда оставлял аватар буквой: клиент больше не пробовал его скачать.
+#[derive(Default)]
+pub struct MediaCache {
+    items: std::collections::HashMap<String, (Option<String>, std::time::Instant)>,
+}
+
+/// Сколько помним неудачную попытку, прежде чем сходить в сеть снова.
+const MEDIA_FAILURE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
+
+impl MediaCache {
+    /// Готовый data-URL, если он уже скачан.
+    fn get(&self, url: &str) -> Option<String> {
+        let (data, _) = self.items.get(url)?;
+        data.clone()
+    }
+
+    /// Известно ли, что файла нет (и недавно ли это выяснили).
+    fn failed_recently(&self, url: &str) -> bool {
+        match self.items.get(url) {
+            Some((None, at)) => at.elapsed() < MEDIA_FAILURE_TTL,
+            _ => false,
+        }
+    }
+
+    /// Запомнить результат загрузки.
+    fn store(&mut self, url: String, data: Option<String>) {
+        self.items.insert(url, (data, std::time::Instant::now()));
+    }
 }
 
 impl AppState {
@@ -47,7 +81,7 @@ impl AppState {
             gateway: Mutex::new(None),
             data_dir,
             cdn_url: RwLock::new(None),
-            media: RwLock::new(std::collections::HashMap::new()),
+            media: RwLock::new(MediaCache::default()),
             emojis: RwLock::new(std::collections::HashMap::new()),
         }
     }
@@ -655,17 +689,19 @@ async fn fetch_media(url: String, state: State<'_, Arc<AppState>>) -> CmdResult<
     }
 
     // повторный показ аватара не должен снова ходить в сеть
-    if let Some(cached) = state.media.read().await.get(&url) {
-        return match cached {
-            Some(data) => Ok(data.clone()),
-            None => Err(CommandError::new("not_found", "файл недоступен")),
-        };
+    {
+        let cache = state.media.read().await;
+        if let Some(data) = cache.get(&url) {
+            return Ok(data);
+        }
+        if cache.failed_recently(&url) {
+            return Err(CommandError::new("not_found", "файл недоступен"));
+        }
     }
 
     let result = download_data_url(&url).await;
-    // запоминаем и неудачу, чтобы не дёргать сеть на каждую отрисовку
     let stored = result.as_ref().ok().cloned();
-    state.media.write().await.insert(url, stored);
+    state.media.write().await.store(url, stored);
 
     result.map_err(|message| CommandError::new("media", message))
 }
