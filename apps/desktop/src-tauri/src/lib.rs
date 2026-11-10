@@ -483,10 +483,7 @@ async fn send_message(
 /// UI не разбирает модели Stoat напрямую: здесь уже готовые к показу
 /// серверы с категориями, каналы, личные сообщения и участники.
 #[tauri::command]
-async fn workspace(
-    app: tauri::AppHandle,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<WorkspaceView> {
+async fn workspace(state: State<'_, Arc<AppState>>) -> CmdResult<WorkspaceView> {
     let snapshot = state.cache.snapshot().await;
     let mut cdn = state.cdn_url.read().await.clone();
     if cdn.is_none() {
