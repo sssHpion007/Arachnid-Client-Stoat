@@ -29,7 +29,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "6"
 # прокси медиа: аватары и вложения скачивает Rust, а не webview
 base64 = "0.22"
-reqwest = { version = "0.13", default-features = false, features = ["rustls-tls", "json"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 
 [[bin]]
 name = "tauri-stoat"
