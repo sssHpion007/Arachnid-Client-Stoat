@@ -32,8 +32,8 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
     pub cdn_url: RwLock<Option<String>>,
-    /// Что уже скачано для показа (адрес → data-URL)
-    pub media: RwLock<std::collections::HashMap<String, String>>,
+    /// Что уже скачано для показа: адрес → data-URL (`None` — файла нет)
+    pub media: RwLock<std::collections::HashMap<String, Option<String>>>,
 }
 
 impl AppState {
@@ -544,9 +544,10 @@ async fn fetch_media(url: String, state: State<'_, Arc<AppState>>) -> CmdResult<
 
     // повторный показ аватара не должен снова ходить в сеть
     if let Some(cached) = state.media.read().await.get(&url) {
-        return cached
-            .clone()
-            .ok_or_else(|| CommandError::new("not_found", "файл недоступен"));
+        return match cached {
+            Some(data) => Ok(data.clone()),
+            None => Err(CommandError::new("not_found", "файл недоступен")),
+        };
     }
 
     let result = download_data_url(&url).await;
@@ -643,11 +644,7 @@ async fn user_avatar(
 /// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
 /// поэтому пробуем по очереди и запоминаем удачный.
 #[tauri::command]
-async fn fetch_emoji(
-    codepoint: String,
-    pack: Option<String>,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<String> {
+async fn fetch_emoji(codepoint: String, pack: Option<String>) -> CmdResult<String> {
     if !codepoint
         .chars()
         .all(|symbol| symbol.is_ascii_hexdigit() || symbol == '-')
