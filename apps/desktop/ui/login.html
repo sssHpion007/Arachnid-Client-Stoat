@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tauri-Stoat — вход</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0d0f13;
+        --card: #16191f;
+        --line: #262a33;
+        --text: #e8eaf0;
+        --muted: #8d93a1;
+        --accent: #5865f2;
+        --accent-dim: #4752c4;
+        --ok: #3ba55d;
+        --warn: #faa61a;
+        --err: #ed4245;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(1200px 600px at 50% -10%, #1b2033 0%, var(--bg) 60%);
+        color: var(--text);
+      }
+      .card {
+        width: 420px;
+        max-width: calc(100vw - 32px);
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 28px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+      }
+      .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
+      .logo {
+        width: 40px; height: 40px; border-radius: 12px;
+        background: linear-gradient(135deg, var(--accent), #8b5cf6);
+        display: grid; place-items: center; font-weight: 700; font-size: 18px;
+      }
+      h1 { font-size: 19px; margin: 0; }
+      .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
+      label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; letter-spacing: .02em; }
+      input {
+        width: 100%;
+        font: inherit;
+        color: var(--text);
+        background: #101319;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 11px 13px;
+        outline: none;
+        transition: border-color .12s, box-shadow .12s;
+      }
+      input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88, 101, 242, .18); }
+      input:disabled { opacity: .6; }
+      button {
+        font: inherit;
+        cursor: pointer;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #1d212a;
+        color: var(--text);
+        padding: 11px 14px;
+        transition: background .12s, filter .12s;
+      }
+      button:hover:not(:disabled) { background: #242a35; }
+      button.primary {
+        width: 100%;
+        margin-top: 18px;
+        background: var(--accent);
+        border-color: transparent;
+        font-weight: 600;
+      }
+      button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+      button:disabled { opacity: .5; cursor: default; }
+      .row { display: flex; gap: 8px; }
+      .row > button { flex: 1; }
+      .link {
+        background: none; border: none; padding: 0; color: var(--accent);
+        font-size: 12px; cursor: pointer; text-decoration: underline;
+      }
+      .msg { margin-top: 14px; font-size: 13px; line-height: 1.45; min-height: 18px; }
+      .msg.err { color: var(--err); }
+      .msg.ok { color: var(--ok); }
+      .msg.warn { color: var(--warn); }
+      .hidden { display: none !important; }
+      .mfa-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+      .footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+      .footer summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+      .footer .inner { margin-top: 12px; }
+      .spinner {
+        display: inline-block; width: 13px; height: 13px; margin-right: 8px;
+        border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+        border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      .instance { font-size: 11px; color: var(--muted); margin-top: 14px; }
+      .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+      .checkbox input { width: auto; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="brand">
+        <div class="logo">S</div>
+        <div>
+          <h1>Вход в Stoat</h1>
+          <div class="sub">Tauri-Stoat · <span id="instance-name">stoat.chat</span></div>
+        </div>
+      </div>
+
+      <!-- Шаг 1: почта и пароль -->
+      <form id="form-password" autocomplete="on">
+        <label for="email">Почта</label>
+        <input id="email" type="email" name="email" autocomplete="username"
+               placeholder="you@example.com" required />
+
+        <label for="password">Пароль</label>
+        <input id="password" type="password" name="password" autocomplete="current-password"
+               placeholder="••••••••" required />
+
+        <div class="checkbox">
+          <input id="remember" type="checkbox" checked />
+          <label for="remember" style="margin:0">Запомнить сессию на этом устройстве</label>
+        </div>
+
+        <button class="primary" type="submit" id="submit-password">Войти</button>
+      </form>
+
+      <!-- Шаг 2: второй фактор -->
+      <form id="form-mfa" class="hidden" autocomplete="off">
+        <label for="mfa-value" id="mfa-label">Код подтверждения</label>
+        <input id="mfa-value" type="text" inputmode="numeric" autocomplete="one-time-code"
+               placeholder="000000" />
+        <div class="mfa-hint" id="mfa-hint"></div>
+        <button class="primary" type="submit" id="submit-mfa">Подтвердить</button>
+        <div class="row" style="margin-top: 10px">
+          <button type="button" id="mfa-back">Назад</button>
+        </div>
+      </form>
+
+      <div class="msg" id="msg"></div>
+
+      <div class="footer">
+        <details>
+          <summary>Войти по токену сессии</summary>
+          <div class="inner">
+            <label for="token">Токен (Stoat → Настройки → Сессии)</label>
+            <input id="token" type="password" placeholder="вставьте токен" autocomplete="off" />
+            <button class="primary" type="button" id="submit-token" style="margin-top: 10px">Войти с токеном</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="instance" id="instance-info">инстанс: проверяю…</div>
+    </div>
+
+    <script>
+      const invoke = window.__TAURI__?.core?.invoke;
+      const msg = document.getElementById("msg");
+      const formPassword = document.getElementById("form-password");
+      const formMfa = document.getElementById("form-mfa");
+      const btnPassword = document.getElementById("submit-password");
+      const btnMfa = document.getElementById("submit-mfa");
+      const mfaLabel = document.getElementById("mfa-label");
+      const mfaHint = document.getElementById("mfa-hint");
+      const mfaValue = document.getElementById("mfa-value");
+
+      let ticket = null;
+      let methods = [];
+
+      const METHOD_TITLES = {
+        Totp: "Код из приложения-аутентификатора",
+        Password: "Пароль от аккаунта",
+        Recovery: "Код восстановления",
+      };
+      const METHOD_PLACEHOLDERS = {
+        Totp: "000000",
+        Password: "пароль от аккаунта",
+        Recovery: "xxxx-xxxx-xxxx",
+      };
+
+      function setMsg(text, kind = "") {
+        msg.className = "msg " + kind;
+        msg.innerHTML = text || "";
+      }
+
+      function busy(button, on, text) {
+        button.disabled = on;
+        button.innerHTML = on ? `<span class="spinner"></span>${text}` : text;
+      }
+
+      // человекочитаемые ошибки вместо кодов API
+      function describe(error) {
+        const raw = (error && (error.message || error.toString())) || "";
+        const text = String(raw);
+        if (text.includes("InvalidCredentials")) return "Неверная почта или пароль.";
+        if (text.includes("AccountDisabled")) return "Аккаунт отключён. Обратитесь в поддержку Stoat.";
+        if (text.includes("EmailNotVerified")) return "Почта не подтверждена — проверьте письмо от Stoat.";
+        if (text.includes("Banned")) return "Аккаунт заблокирован.";
+        if (text.includes("RateLimited") || text.includes("лимит")) return "Слишком много попыток. Подождите минуту.";
+        if (text.includes("network") || text.includes("сетевая")) return "Нет связи с сервером. Проверьте интернет.";
+        if (text.includes("mfa") || text.includes("MFA")) return "Код не подошёл. Проверьте и попробуйте снова.";
+        return text || "Неизвестная ошибка.";
+      }
+
+      async function init() {
+        if (!invoke) {
+          setMsg("Открыто вне Tauri: форма работает только в приложении.", "warn");
+          return;
+        }
+        try {
+          const info = await invoke("instance_info");
+          document.getElementById("instance-name").textContent = info.name || "stoat.chat";
+          document.getElementById("instance-info").textContent =
+            `инстанс: ${info.api_url}${info.version ? " · API " + info.version : ""}`;
+        } catch {
+          document.getElementById("instance-info").textContent = "инстанс недоступен";
+        }
+
+        // если сессия уже есть — сразу в приложение
+        try {
+          const session = await invoke("session_state");
+          if (session && session.logged_in) {
+            location.replace("app.html");
+          }
+        } catch { /* первый запуск */ }
+      }
+
+      function showMfa(step) {
+        ticket = step.ticket;
+        methods = step.methods || [];
+        const method = methods[0] || "Totp";
+        mfaLabel.textContent = METHOD_TITLES[method] || "Код подтверждения";
+        mfaValue.placeholder = METHOD_PLACEHOLDERS[method] || "код";
+        mfaValue.type = method === "Password" ? "password" : "text";
+        mfaValue.inputMode = method === "Totp" ? "numeric" : "text";
+        mfaHint.textContent =
+          methods.length > 1
+            ? "Доступно: " + methods.map((m) => METHOD_TITLES[m] || m).join(", ")
+            : "Введите " + (METHOD_TITLES[method] || "код").toLowerCase() + ".";
+        formPassword.classList.add("hidden");
+        formMfa.classList.remove("hidden");
+        setMsg("Нужен второй фактор.", "warn");
+        mfaValue.focus();
+      }
+
+      function onSuccess(result) {
+        setMsg("Вход выполнен. Открываю клиент…", "ok");
+        if (result && result.token && document.getElementById("remember").checked) {
+          // токен в конфиг не пишем: кладём в хранилище приложения (localStorage webview)
+          try { localStorage.setItem("stoat.session.token", result.token); } catch {}
+        }
+        setTimeout(() => location.replace("app.html"), 400);
+      }
+
+      formPassword.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+        if (!email || !password) return;
+
+        busy(btnPassword, true, "Вхожу…");
+        setMsg("");
+        try {
+          const step = await invoke("login_password", { email, password });
+          if (step.status === "Success") onSuccess(step);
+          else if (step.status === "Mfa") showMfa(step);
+          else if (step.status === "Disabled") setMsg("Аккаунт отключён.", "err");
+        } catch (error) {
+          setMsg(describe(error), "err");
+        } finally {
+          busy(btnPassword, false, "Войти");
+        }
+      });
+
+      formMfa.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const value = mfaValue.value.trim();
+        if (!value || !ticket) return;
+        const method = (methods[0] || "Totp");
+
+        busy(btnMfa, true, "Проверяю…");
+        try {
+          const step = await invoke("login_mfa", { ticket, method, value });
+          if (step.status === "Success") onSuccess(step);
+          else if (step.status === "Mfa") showMfa(step);
+        } catch (error) {
+          setMsg(describe(error), "err");
+        } finally {
+          busy(btnMfa, false, "Подтвердить");
+        }
+      });
+
+      document.getElementById("mfa-back").addEventListener("click", () => {
+        ticket = null;
+        formMfa.classList.add("hidden");
+        formPassword.classList.remove("hidden");
+        mfaValue.value = "";
+        setMsg("");
+      });
+
+      document.getElementById("submit-token").addEventListener("click", async () => {
+        const token = document.getElementById("token").value.trim();
+        if (!token) return setMsg("Нужен токен.", "warn");
+        const button = document.getElementById("submit-token");
+        busy(button, true, "Проверяю…");
+        try {
+          const user = await invoke("login_with_token", { token });
+          setMsg(`Вошли как ${user.username}#${user.discriminator}`, "ok");
+          try { localStorage.setItem("stoat.session.token", token); } catch {}
+          setTimeout(() => location.replace("app.html"), 500);
+        } catch (error) {
+          setMsg(describe(error), "err");
+        } finally {
+          busy(button, false, "Войти с токеном");
+        }
+      });
+
+      init();
+    </script>
+  </body>
+</html>

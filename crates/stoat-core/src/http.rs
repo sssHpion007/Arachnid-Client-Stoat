@@ -128,6 +128,39 @@ impl HttpClient {
             .await
     }
 
+    /// `POST /auth/session/login` — вход по почте и паролю.
+    ///
+    /// Возвращает [`v0::ResponseLogin`]: успех с сессией, запрос MFA или
+    /// «аккаунт отключён». Капча на вход не требуется (только на регистрацию).
+    pub async fn login_password(
+        &self,
+        email: &str,
+        password: &str,
+        friendly_name: Option<String>,
+    ) -> Result<v0::ResponseLogin> {
+        self.login(v0::DataLogin::Email {
+            email: email.to_string(),
+            password: password.to_string(),
+            friendly_name: friendly_name.or_else(|| Some(self.app_name.clone())),
+        })
+        .await
+    }
+
+    /// `POST /auth/session/login` — завершить вход по MFA-тикету.
+    pub async fn login_mfa(
+        &self,
+        ticket: &str,
+        response: v0::MFAResponse,
+        friendly_name: Option<String>,
+    ) -> Result<v0::ResponseLogin> {
+        self.login(v0::DataLogin::MFA {
+            mfa_ticket: ticket.to_string(),
+            mfa_response: Some(response),
+            friendly_name: friendly_name.or_else(|| Some(self.app_name.clone())),
+        })
+        .await
+    }
+
     /// `POST /auth/session/logout` — завершить текущую сессию.
     pub async fn logout(&self) -> Result<()> {
         let url = self.endpoint("/auth/session/logout")?;
@@ -392,11 +425,6 @@ impl HttpClient {
     async fn parse_error(response: reqwest::Response) -> Error {
         let status = response.status();
         let code = status.as_u16();
-
-        if status == StatusCode::UNAUTHORIZED {
-            return Error::Unauthorized;
-        }
-
         let body = response.text().await.unwrap_or_default();
         let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
 
@@ -404,8 +432,19 @@ impl HttpClient {
             .as_ref()
             .and_then(|value| value.get("type"))
             .and_then(|value| value.as_str())
-            .unwrap_or("Unknown")
-            .to_string();
+            .map(str::to_string)
+            // 401 без пояснения сервера — это «сессия не годится»
+            .unwrap_or_else(|| {
+                if status == StatusCode::UNAUTHORIZED {
+                    "Unauthorized".to_string()
+                } else {
+                    "Unknown".to_string()
+                }
+            });
+
+        if kind == "Unauthorized" {
+            return Error::Unauthorized;
+        }
 
         let message = parsed
             .as_ref()

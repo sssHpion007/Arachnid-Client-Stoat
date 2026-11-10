@@ -204,6 +204,118 @@ async fn login_with_token(token: String, state: State<'_, Arc<AppState>>) -> Cmd
     Ok(UserView::from(me))
 }
 
+/// Результат шага входа, который видит форма.
+#[derive(Debug, Serialize)]
+#[serde(tag = "status")]
+pub enum LoginStep {
+    /// Вход выполнен
+    Success {
+        /// Профиль пользователя
+        user: UserView,
+        /// Токен сессии, чтобы UI мог сохранить его в системное хранилище
+        token: String,
+    },
+    /// Нужен второй фактор
+    Mfa {
+        /// Тикет, который нужно передать на следующем шаге
+        ticket: String,
+        /// Разрешённые способы: Password, Totp, Recovery
+        methods: Vec<String>,
+    },
+    /// Аккаунт отключён
+    Disabled {
+        /// Id пользователя
+        user_id: String,
+    },
+}
+
+/// Вход по почте и паролю.
+#[tauri::command]
+async fn login_password(
+    email: String,
+    password: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<LoginStep> {
+    let instance = state.instance.read().await.clone();
+    let mut client = HttpClient::new(instance.api_url.clone());
+    client.set_app_name(instance.app_name.clone());
+
+    let response = client
+        .login_password(&email, &password, Some(instance.app_name.clone()))
+        .await?;
+
+    finish_login(response, client, state).await
+}
+
+/// Второй шаг входа: пароль, TOTP или код восстановления.
+#[tauri::command]
+async fn login_mfa(
+    ticket: String,
+    method: String,
+    value: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<LoginStep> {
+    use revolt_models::v0::MFAResponse;
+
+    let mfa = match method.as_str() {
+        "Password" | "password" => MFAResponse::Password { password: value },
+        "Totp" | "totp" => MFAResponse::Totp { totp_code: value },
+        "Recovery" | "recovery" => MFAResponse::Recovery {
+            recovery_code: value,
+        },
+        other => {
+            return Err(CommandError::new(
+                "mfa",
+                format!("неизвестный способ подтверждения: {other}"),
+            ));
+        }
+    };
+
+    let instance = state.instance.read().await.clone();
+    let mut client = HttpClient::new(instance.api_url.clone());
+    client.set_app_name(instance.app_name.clone());
+
+    let response = client
+        .login_mfa(&ticket, mfa, Some(instance.app_name.clone()))
+        .await?;
+
+    finish_login(response, client, state).await
+}
+
+/// Общая часть входа: разобрать ответ и, если успех, поднять сессию.
+async fn finish_login(
+    response: revolt_models::v0::ResponseLogin,
+    mut client: HttpClient,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<LoginStep> {
+    use revolt_models::v0::ResponseLogin;
+
+    match response {
+        ResponseLogin::Success(session) => {
+            client.set_token(Some(Token::Session(session.token.clone())));
+            let me = client.fetch_self().await?;
+            state.cache.set_me(me.clone()).await;
+            *state.http.write().await = Some(client);
+
+            Ok(LoginStep::Success {
+                user: UserView::from(me),
+                token: session.token,
+            })
+        }
+        ResponseLogin::MFA {
+            ticket,
+            allowed_methods,
+        } => Ok(LoginStep::Mfa {
+            ticket,
+            methods: allowed_methods
+                .into_iter()
+                .map(|method| format!("{method:?}"))
+                .collect(),
+        }),
+        ResponseLogin::Disabled { user_id } => Ok(LoginStep::Disabled { user_id }),
+    }
+}
+
 /// Отключиться: закрыть gateway и удалить сессию на сервере.
 #[tauri::command]
 async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
@@ -510,6 +622,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             instance_info,
+            login_password,
+            login_mfa,
             login_with_token,
             logout,
             session_state,

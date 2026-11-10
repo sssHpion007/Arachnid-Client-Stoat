@@ -75,4 +75,12 @@ impl Error {
         matches!(self, Self::Unauthorized)
             || matches!(self, Self::Api { status, .. } if *status == 401)
     }
+
+    /// Код ошибки из API (`InvalidCredentials`, `AccountDisabled`, …), если он есть.
+    pub fn api_kind(&self) -> Option<&str> {
+        match self {
+            Self::Api { kind, .. } => Some(kind.as_str()),
+            _ => None,
+        }
+    }
 }
