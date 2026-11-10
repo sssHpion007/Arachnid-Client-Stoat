@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use stoat_core::cache::Cache;
 use stoat_core::gateway::{self, GatewayConfig, GatewayEvent, GatewayHandle};
 use stoat_core::http::{HttpClient, Token};

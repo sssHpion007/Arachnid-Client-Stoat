@@ -599,13 +599,11 @@ mod tests {
 
     #[test]
     fn message_view_has_author_and_time() {
-        // id начинается с ULID, кодирующего 2026-11-10T00:00:00Z
-        let id = format!("{:010}", (1_794_268_800_000u128).to_string());
-        let message: v0::Message = serde_json::from_str(&format!(
-            r#"{{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"u1",
-                 "content":"привет",
-                 "user":{{"_id":"u1","username":"me","discriminator":"0001","display_name":"Я","relationship":"User","online":true}}}}"#
-        ))
+        let message: v0::Message = serde_json::from_str(
+            r#"{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"u1",
+                "content":"привет",
+                "user":{"_id":"u1","username":"me","discriminator":"0001","display_name":"Я","relationship":"User","online":true}}"#,
+        )
         .unwrap();
 
         let view = ChatMessage::build(message, &HashMap::new(), None);
@@ -614,6 +612,5 @@ mod tests {
         assert!(!view.edited);
         assert!(!view.system);
         assert!(view.timestamp.ends_with('Z'), "время должно быть ISO-8601");
-        assert!(id.len() >= 10);
     }
 }
