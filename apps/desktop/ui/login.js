@@ -47,17 +47,22 @@
 
       // Достаём из ошибки команды её вид: ядро кладёт его в message
       // («API вернул ошибку InvalidCredentials: …») или в само поле kind.
+      const KNOWN_CODES = [
+        "InvalidCredentials", "AccountDisabled", "EmailNotVerified", "Banned",
+        "RateLimited", "Unauthorized", "MissingPermission", "NotFound",
+      ];
+
       function errorKind(error) {
-        const direct = error && (error.kind || error.message);
-        if (typeof direct === "string" && direct && !direct.includes(" ")) return direct;
-        const text = String((error && (error.message || error)) || "");
-        const known = [
-          "InvalidCredentials", "AccountDisabled", "EmailNotVerified", "Banned",
-          "RateLimited", "Unauthorized", "MissingPermission", "NotFound",
-        ];
-        for (const code of known) {
+        const text = String(
+          (error && (error.message || error.kind || error)) || ""
+        );
+        // сначала ищем точный код API в тексте: поле kind может содержать
+        // лишь общий вид ошибки («api»), и тогда причина потерялась бы
+        for (const code of KNOWN_CODES) {
           if (text.includes(code)) return code;
         }
+        const direct = error && error.kind;
+        if (typeof direct === "string" && direct && !direct.includes(" ")) return direct;
         return "";
       }
 
