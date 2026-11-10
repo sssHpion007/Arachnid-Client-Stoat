@@ -136,7 +136,7 @@ impl WorkspaceView {
                     v0::Channel::DirectMessage { .. } | v0::Channel::Group { .. }
                 )
             })
-            .map(|channel| ChannelView::build(channel, &snapshot.users, None, cdn.as_deref()))
+            .map(|channel| ChannelView::build(channel, &snapshot.users, None))
             .collect();
         dms.sort_by(|a, b| {
             b.last_message_id
@@ -207,7 +207,7 @@ impl ServerView {
                 .filter_map(|channel_id| {
                     let channel = own.iter().find(|c| id_of(c) == channel_id)?;
                     placed.push(channel_id.clone());
-                    Some(ChannelView::build(channel, &[], Some(&members), cdn))
+                    Some(ChannelView::build(channel, &[], Some(&members)))
                 })
                 .collect();
             if !list.is_empty() {
@@ -225,7 +225,7 @@ impl ServerView {
         let mut rest: Vec<ChannelView> = own
             .iter()
             .filter(|channel| !placed.contains(&id_of(channel).to_string()))
-            .map(|channel| ChannelView::build(channel, &[], Some(&members), cdn))
+            .map(|channel| ChannelView::build(channel, &[], Some(&members)))
             .collect();
 
         if !rest.is_empty() {
@@ -292,12 +292,7 @@ pub struct ChannelView {
 }
 
 impl ChannelView {
-    fn build(
-        channel: &v0::Channel,
-        users: &[v0::User],
-        members: Option<&Vec<v0::Member>>,
-        cdn: Option<&str>,
-    ) -> Self {
+    fn build(channel: &v0::Channel, users: &[v0::User], members: Option<&Vec<v0::Member>>) -> Self {
         match channel {
             v0::Channel::TextChannel {
                 id,
@@ -312,7 +307,7 @@ impl ChannelView {
                 name: name.clone(),
                 kind: if voice.is_some() { "voice" } else { "text" }.into(),
                 description: description.clone(),
-                emoji: icon.as_ref().and_then(|file| emoji_of(file)),
+                emoji: icon.as_ref().and_then(emoji_of),
                 last_message_id: last_message_id.clone(),
                 voice: voice.is_some(),
             },
@@ -342,7 +337,7 @@ impl ChannelView {
                 name: name.clone(),
                 kind: "group".into(),
                 description: description.clone(),
-                emoji: icon.as_ref().and_then(|file| emoji_of(file)),
+                emoji: icon.as_ref().and_then(emoji_of),
                 last_message_id: last_message_id.clone(),
                 voice: false,
             },
@@ -544,14 +539,6 @@ impl EmbedView {
             v0::Embed::None => None,
         }
     }
-}
-
-/// Цвет ника: маска сообщения важнее роли участника.
-fn colour_of(message: &v0::Message) -> Option<String> {
-    message
-        .masquerade
-        .as_ref()
-        .and_then(|mask| mask.colour.clone())
 }
 
 /// Текст текстового эмбеда: в модели это `content`, а не `description`.
