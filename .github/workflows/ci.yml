@@ -9,7 +9,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
+  core:
+    name: ядро и плагины
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,9 +24,36 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
 
-      # приложение (tauri) тянет GTK/WebKit, поэтому проверяем только крейты ядра
+      # ядро не тянет GTK/WebKit, поэтому проверяется без системных пакетов
       - name: clippy
         run: cargo clippy -p stoat-core -p stoat-plugin-api --all-targets -- -D warnings
 
       - name: test
         run: cargo test -p stoat-core -p stoat-plugin-api
+
+  desktop:
+    name: приложение (типы и тесты)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: системные библиотеки Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+
+      # ловит ошибки в командах и представлениях ещё до сборки установщика
+      - name: clippy приложения
+        run: cargo clippy -p tauri-stoat --all-targets -- -D warnings
+
+      - name: тесты приложения
+        run: cargo test -p tauri-stoat

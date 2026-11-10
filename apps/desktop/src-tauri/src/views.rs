@@ -1,0 +1,619 @@
+//! Представления для интерфейса.
+//!
+//! UI не разбирает модели Stoat напрямую: здесь они превращаются в плоские
+//! структуры, которые удобно рисовать. Модуль сознательно не зависит от Tauri,
+//! поэтому его поведение проверяется тестами без сборки GUI.
+
+use std::collections::HashMap;
+
+use revolt_models::v0;
+use serde::{Deserialize, Serialize};
+use stoat_core::cache::{Snapshot, channel_id as id_of};
+
+/// Пользователь в том виде, который удобен UI.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserView {
+    /// Id
+    pub id: String,
+    /// Ник
+    pub username: String,
+    /// Дискриминатор
+    pub discriminator: String,
+    /// Отображаемое имя
+    pub display_name: Option<String>,
+}
+
+impl UserView {
+    /// Имя для показа: отображаемое, иначе `ник#0001`.
+    pub fn label(&self) -> String {
+        self.display_name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| format!("{}#{}", self.username, self.discriminator))
+    }
+}
+
+impl From<v0::User> for UserView {
+    fn from(user: v0::User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            discriminator: user.discriminator,
+            display_name: user.display_name,
+        }
+    }
+}
+
+// ───────────────────────────── дерево серверов ──────────────────────────────
+
+/// Всё, что нужно для отрисовки списка серверов и каналов.
+#[derive(Debug, Serialize)]
+pub struct WorkspaceView {
+    /// Кто вошёл
+    pub me: Option<UserView>,
+    /// Серверы с категориями и каналами
+    pub servers: Vec<ServerView>,
+    /// Личные сообщения и группы
+    pub dms: Vec<ChannelView>,
+    /// Канал, который стоит открыть по умолчанию
+    pub last_channel: Option<String>,
+    /// Базовый URL файлов (аватары, вложения)
+    pub cdn: Option<String>,
+}
+
+impl WorkspaceView {
+    /// Собрать дерево из снимка кэша.
+    pub fn build(snapshot: Snapshot, cdn: Option<String>) -> Self {
+        let channels: Vec<&v0::Channel> = snapshot.channels.iter().collect();
+
+        let mut servers: Vec<ServerView> = snapshot
+            .servers
+            .iter()
+            .map(|server| {
+                ServerView::build(
+                    server,
+                    &channels,
+                    snapshot.members.get(&server.id),
+                    cdn.as_deref(),
+                )
+            })
+            .collect();
+        servers.sort_by_key(|server| server.name.to_lowercase());
+
+        let mut dms: Vec<ChannelView> = channels
+            .iter()
+            .filter(|channel| {
+                matches!(
+                    channel,
+                    v0::Channel::DirectMessage { .. } | v0::Channel::Group { .. }
+                )
+            })
+            .map(|channel| ChannelView::build(channel, &snapshot.users, None, cdn.as_deref()))
+            .collect();
+        dms.sort_by(|a, b| {
+            b.last_message_id
+                .cmp(&a.last_message_id)
+                .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        });
+
+        // по умолчанию открываем первый текстовый канал первого сервера
+        let last_channel = servers
+            .iter()
+            .flat_map(|server| server.categories.iter())
+            .flat_map(|category| category.channels.iter())
+            .find(|channel| channel.kind == "text")
+            .map(|channel| channel.id.clone())
+            .or_else(|| dms.first().map(|channel| channel.id.clone()));
+
+        Self {
+            me: snapshot.me.map(UserView::from),
+            servers,
+            dms,
+            last_channel,
+            cdn,
+        }
+    }
+}
+
+/// Сервер в том виде, в котором его рисует интерфейс.
+#[derive(Debug, Serialize)]
+pub struct ServerView {
+    /// Id
+    pub id: String,
+    /// Название
+    pub name: String,
+    /// Первая буква имени — для «иконки»
+    pub initial: String,
+    /// Иконка, если она есть
+    pub icon: Option<String>,
+    /// Категории с каналами (в порядке сервера)
+    pub categories: Vec<CategoryView>,
+}
+
+impl ServerView {
+    fn build(
+        server: &v0::Server,
+        channels: &[&v0::Channel],
+        members: Option<&Vec<v0::Member>>,
+        cdn: Option<&str>,
+    ) -> Self {
+        let members = members.cloned().unwrap_or_default();
+
+        // только текстовые каналы этого сервера
+        let own: Vec<&&v0::Channel> = channels
+            .iter()
+            .filter(|channel| match channel {
+                v0::Channel::TextChannel { server: owner, .. } => owner == &server.id,
+                _ => false,
+            })
+            .collect();
+
+        let mut categories = Vec::new();
+        let mut placed: Vec<String> = Vec::new();
+
+        for category in server.categories.iter().flatten() {
+            let list: Vec<ChannelView> = category
+                .channels
+                .iter()
+                .filter_map(|channel_id| {
+                    let channel = own.iter().find(|c| id_of(c) == channel_id)?;
+                    placed.push(channel_id.clone());
+                    Some(ChannelView::build(channel, &[], Some(&members), cdn))
+                })
+                .collect();
+            if !list.is_empty() {
+                categories.push(CategoryView {
+                    id: category.id.clone(),
+                    title: category.title.clone(),
+                    channels: list,
+                });
+            }
+        }
+
+        // каналы, не попавшие ни в одну категорию
+        let mut rest: Vec<ChannelView> = own
+            .iter()
+            .filter(|channel| !placed.contains(&id_of(channel).to_string()))
+            .map(|channel| ChannelView::build(channel, &[], Some(&members), cdn))
+            .collect();
+        if !rest.is_empty() {
+            rest.sort_by_key(|channel| channel.name.to_lowercase());
+            categories.push(CategoryView {
+                id: "none".into(),
+                title: "Каналы".into(),
+                channels: rest,
+            });
+        }
+
+        Self {
+            id: server.id.clone(),
+            initial: initial_of(&server.name),
+            name: server.name.clone(),
+            icon: server.icon.as_ref().and_then(|file| file_url(file, cdn)),
+            categories,
+        }
+    }
+}
+
+/// Категория каналов.
+#[derive(Debug, Serialize)]
+pub struct CategoryView {
+    /// Id
+    pub id: String,
+    /// Заголовок
+    pub title: String,
+    /// Каналы категории
+    pub channels: Vec<ChannelView>,
+}
+
+/// Канал (текстовый, личные сообщения или группа).
+#[derive(Debug, Serialize)]
+pub struct ChannelView {
+    /// Id
+    pub id: String,
+    /// Название, уже с учётом собеседника для ЛС
+    pub name: String,
+    /// `text`, `dm`, `group`, `voice`, `notes`
+    pub kind: String,
+    /// Описание, если есть
+    pub description: Option<String>,
+    /// Иконка с CDN
+    pub icon: Option<String>,
+    /// Id последнего сообщения — для сортировки ЛС
+    pub last_message_id: Option<String>,
+    /// Идёт ли голосовая сессия
+    pub voice: bool,
+}
+
+impl ChannelView {
+    fn build(
+        channel: &v0::Channel,
+        users: &[v0::User],
+        members: Option<&Vec<v0::Member>>,
+        cdn: Option<&str>,
+    ) -> Self {
+        match channel {
+            v0::Channel::TextChannel {
+                id,
+                name,
+                description,
+                icon,
+                last_message_id,
+                voice,
+                ..
+            } => Self {
+                id: id.clone(),
+                name: name.clone(),
+                kind: if voice.is_some() { "voice" } else { "text" }.into(),
+                description: description.clone(),
+                icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
+                last_message_id: last_message_id.clone(),
+                voice: voice.is_some(),
+            },
+            v0::Channel::DirectMessage {
+                id,
+                recipients,
+                last_message_id,
+                ..
+            } => Self {
+                id: id.clone(),
+                name: recipient_name(recipients, users, members),
+                kind: "dm".into(),
+                description: None,
+                icon: None,
+                last_message_id: last_message_id.clone(),
+                voice: false,
+            },
+            v0::Channel::Group {
+                id,
+                name,
+                description,
+                icon,
+                last_message_id,
+                ..
+            } => Self {
+                id: id.clone(),
+                name: name.clone(),
+                kind: "group".into(),
+                description: description.clone(),
+                icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
+                last_message_id: last_message_id.clone(),
+                voice: false,
+            },
+            v0::Channel::SavedMessages { id, .. } => Self {
+                id: id.clone(),
+                name: "Избранное".into(),
+                kind: "notes".into(),
+                description: None,
+                icon: None,
+                last_message_id: None,
+                voice: false,
+            },
+        }
+    }
+}
+
+// ─────────────────────────────── сообщения ─────────────────────────────────
+
+/// Сообщение, готовое к показу в чате.
+#[derive(Debug, Serialize)]
+pub struct ChatMessage {
+    /// Id
+    pub id: String,
+    /// Id канала
+    pub channel: String,
+    /// Id автора
+    pub author_id: String,
+    /// Имя автора
+    pub author: String,
+    /// Ссылка на аватар
+    pub avatar: Option<String>,
+    /// Текст
+    pub content: String,
+    /// Время отправки, ISO-8601 (UTC)
+    pub timestamp: String,
+    /// Отредактировано
+    pub edited: bool,
+    /// Системное сообщение (вход, выход, закрепление)
+    pub system: bool,
+    /// Файлы
+    pub attachments: Vec<AttachmentView>,
+}
+
+impl ChatMessage {
+    /// Собрать сообщение для показа.
+    ///
+    /// В моделях Stoat у сообщения нет поля времени: время закодировано в
+    /// ULID-идентификаторе (первые 10 символов — миллисекунды эпохи).
+    pub fn build(
+        message: v0::Message,
+        authors: &HashMap<String, UserView>,
+        cdn: Option<&str>,
+    ) -> Self {
+        let author = message
+            .user
+            .as_ref()
+            .map(display_name)
+            .or_else(|| message.member.as_ref().and_then(|m| m.nickname.clone()))
+            .or_else(|| authors.get(&message.author).map(UserView::label))
+            .unwrap_or_else(|| message.author.clone());
+
+        let avatar = message
+            .user
+            .as_ref()
+            .and_then(|user| user.avatar.as_ref())
+            .or_else(|| {
+                message
+                    .member
+                    .as_ref()
+                    .and_then(|member| member.avatar.as_ref())
+            })
+            .and_then(|file| file_url(file, cdn));
+
+        let system = message.system.is_some();
+        let attachments = message
+            .attachments
+            .iter()
+            .flatten()
+            .map(|file| AttachmentView::build(file, cdn))
+            .collect();
+
+        Self {
+            timestamp: ulid_time_ms(&message.id)
+                .map(iso_from_ms)
+                .unwrap_or_default(),
+            id: message.id,
+            channel: message.channel,
+            author_id: message.author,
+            author,
+            avatar,
+            content: message.content.unwrap_or_default(),
+            edited: message.edited.is_some(),
+            system,
+            attachments,
+        }
+    }
+}
+
+/// Файл в сообщении.
+#[derive(Debug, Serialize)]
+pub struct AttachmentView {
+    /// Имя файла
+    pub name: String,
+    /// Ссылка
+    pub url: Option<String>,
+    /// `image`, `video`, `audio`, `text`, `file`
+    pub kind: String,
+    /// Размер в байтах
+    pub size: i64,
+}
+
+impl AttachmentView {
+    fn build(file: &v0::File, cdn: Option<&str>) -> Self {
+        let kind = match &file.metadata {
+            v0::Metadata::Image { .. } => "image",
+            v0::Metadata::Video { .. } => "video",
+            v0::Metadata::Audio => "audio",
+            v0::Metadata::Text => "text",
+            v0::Metadata::File => "file",
+        };
+        Self {
+            name: file.filename.clone(),
+            url: file_url(file, cdn),
+            kind: kind.into(),
+            size: file.size as i64,
+        }
+    }
+}
+
+/// История канала.
+#[derive(Debug, Serialize)]
+pub struct HistoryView {
+    /// Сообщения по возрастанию времени
+    pub messages: Vec<ChatMessage>,
+    /// Есть ли ещё более старая история
+    pub has_more: bool,
+}
+
+// ─────────────────────────────── помощники ─────────────────────────────────
+
+/// Первая буква для «иконки» сервера.
+pub fn initial_of(name: &str) -> String {
+    name.trim()
+        .chars()
+        .next()
+        .map(|c| c.to_uppercase().to_string())
+        .unwrap_or_else(|| "#".into())
+}
+
+/// Имя собеседника для личных сообщений.
+pub fn recipient_name(
+    recipients: &[String],
+    users: &[v0::User],
+    members: Option<&Vec<v0::Member>>,
+) -> String {
+    let names: Vec<String> = recipients
+        .iter()
+        .filter_map(|id| {
+            if let Some(user) = users.iter().find(|user| &user.id == id) {
+                return Some(display_name(user));
+            }
+            members
+                .and_then(|list| list.iter().find(|member| &member.id.user == id))
+                .and_then(|member| member.nickname.clone())
+        })
+        .collect();
+
+    if names.is_empty() {
+        "Личные сообщения".into()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// Имя пользователя для показа.
+pub fn display_name(user: &v0::User) -> String {
+    user.display_name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| format!("{}#{}", user.username, user.discriminator))
+}
+
+/// Адрес файла на CDN Stoat: `<cdn>/<tag>/<id>`.
+pub fn file_url(file: &v0::File, cdn: Option<&str>) -> Option<String> {
+    if file.deleted == Some(true) {
+        return None;
+    }
+    let base = cdn?.trim_end_matches('/');
+    Some(format!("{base}/{}/{}", file.tag, file.id))
+}
+
+/// Время из ULID: первые 10 символов — миллисекунды эпохи.
+///
+/// Stoat не присылает время у сообщений, поэтому берём его из id.
+pub fn ulid_time_ms(id: &str) -> Option<u64> {
+    const ALPHABET: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    if id.len() < 10 {
+        return None;
+    }
+    let mut value: u64 = 0;
+    for byte in id.as_bytes().iter().take(10) {
+        let upper = byte.to_ascii_uppercase();
+        let index = ALPHABET.iter().position(|symbol| *symbol == upper)? as u64;
+        value = value * 32 + index;
+    }
+    Some(value)
+}
+
+/// Миллисекунды эпохи в ISO-8601 (UTC) — формат, который понимает `new Date()`.
+pub fn iso_from_ms(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    let (hour, minute, second) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+
+    // civil_from_days — перевод дней от эпохи в дату без внешних зависимостей
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let year = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn iso_from_ms_is_correct() {
+        assert_eq!(iso_from_ms(1_794_268_800_000), "2026-11-10T00:00:00Z");
+        assert_eq!(iso_from_ms(0), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn ulid_time_is_decoded() {
+        // 01K9Z6R0B0 — правдоподобный ULID; проверяем, что время растёт
+        let first = ulid_time_ms("01ARZ3NDEKTSV4RRFFQ69G5FAV").unwrap();
+        let second = ulid_time_ms("01ARZ4NDEKTSV4RRFFQ69G5FAV").unwrap();
+        assert!(
+            second > first,
+            "более новый ULID должен давать большее время"
+        );
+        assert_eq!(ulid_time_ms("коротко"), None);
+    }
+
+    #[test]
+    fn file_url_uses_cdn() {
+        let file: v0::File = serde_json::from_str(
+            r#"{"_id":"abc","tag":"avatars","filename":"a.png",
+                "metadata":{"type":"Image","width":10,"height":10},
+                "content_type":"image/png","size":10}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            file_url(&file, Some("https://cdn.example/")),
+            Some("https://cdn.example/avatars/abc".to_string())
+        );
+        assert_eq!(file_url(&file, None), None);
+    }
+
+    #[test]
+    fn workspace_groups_channels_by_category() {
+        let snapshot = Snapshot {
+            users: serde_json::from_str(
+                r#"[{"_id":"u1","username":"me","discriminator":"0001","display_name":"Я","relationship":"User","online":true}]"#,
+            )
+            .unwrap(),
+            servers: serde_json::from_str(
+                r#"[{"_id":"s1","owner":"u1","name":"Мой сервер",
+                     "channels":["c1","c2"],
+                     "categories":[{"id":"cat1","title":"Основное","channels":["c1"]}],
+                     "roles":{},"default_permissions":0,"flags":0,"nsfw":false,
+                     "analytics":false,"discoverable":false,
+                     "approximate_member_count":1}]"#,
+            )
+            .unwrap(),
+            channels: serde_json::from_str(
+                r#"[{"channel_type":"TextChannel","_id":"c1","server":"s1",
+                     "name":"общий","role_permissions":{}},
+                    {"channel_type":"TextChannel","_id":"c2","server":"s1",
+                     "name":"флуд","role_permissions":{}}]"#,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
+
+        let workspace = WorkspaceView::build(snapshot, Some("https://cdn".into()));
+        assert_eq!(workspace.servers.len(), 1);
+
+        let server = &workspace.servers[0];
+        assert_eq!(server.name, "Мой сервер");
+        assert_eq!(server.initial, "М");
+        assert_eq!(server.categories.len(), 2, "категория сервера + остаток");
+        assert_eq!(server.categories[0].title, "Основное");
+        assert_eq!(server.categories[0].channels[0].name, "общий");
+        assert_eq!(server.categories[1].channels[0].name, "флуд");
+        assert_eq!(workspace.last_channel.as_deref(), Some("c1"));
+    }
+
+    #[test]
+    fn dm_name_comes_from_recipient() {
+        let users: Vec<v0::User> =
+            serde_json::from_str(r#"[{"_id":"u2","username":"friend","discriminator":"0002","relationship":"Friend","online":false}]"#)
+                .unwrap();
+        assert_eq!(
+            recipient_name(&["u2".to_string()], &users, None),
+            "friend#0002"
+        );
+        assert_eq!(
+            recipient_name(&["нет".to_string()], &users, None),
+            "Личные сообщения"
+        );
+    }
+
+    #[test]
+    fn message_view_has_author_and_time() {
+        // id начинается с ULID, кодирующего 2026-11-10T00:00:00Z
+        let id = format!("{:010}", (1_794_268_800_000u128).to_string());
+        let message: v0::Message = serde_json::from_str(&format!(
+            r#"{{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"u1",
+                 "content":"привет",
+                 "user":{{"_id":"u1","username":"me","discriminator":"0001","display_name":"Я","relationship":"User","online":true}}}}"#
+        ))
+        .unwrap();
+
+        let view = ChatMessage::build(message, &HashMap::new(), None);
+        assert_eq!(view.content, "привет");
+        assert_eq!(view.author, "Я");
+        assert!(!view.edited);
+        assert!(!view.system);
+        assert!(view.timestamp.ends_with('Z'), "время должно быть ISO-8601");
+        assert!(id.len() >= 10);
+    }
+}

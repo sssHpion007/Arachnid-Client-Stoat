@@ -4344,7 +4344,11 @@ dependencies = [
 
 [[package]]
 name = "stoat-core"
+<<<<<<< HEAD
 version = "0.2.1"
+=======
+version = "0.3.0"
+>>>>>>> 3a7b08d (feat(ui): полноценный интерфейс — серверы, каналы, чат)
 dependencies = [
  "futures-util",
  "iso8601-timestamp",
@@ -4362,7 +4366,11 @@ dependencies = [
 
 [[package]]
 name = "stoat-plugin-api"
+<<<<<<< HEAD
 version = "0.2.1"
+=======
+version = "0.3.0"
+>>>>>>> 3a7b08d (feat(ui): полноценный интерфейс — серверы, каналы, чат)
 dependencies = [
  "serde",
  "serde_json",
@@ -4824,7 +4832,11 @@ dependencies = [
 
 [[package]]
 name = "tauri-stoat"
+<<<<<<< HEAD
 version = "0.2.1"
+=======
+version = "0.3.0"
+>>>>>>> 3a7b08d (feat(ui): полноценный интерфейс — серверы, каналы, чат)
 dependencies = [
  "directories",
  "revolt-models",

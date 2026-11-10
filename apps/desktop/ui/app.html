@@ -4,140 +4,74 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tauri-Stoat</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #101216;
-        --panel: #16181e;
-        --line: #24272f;
-        --text: #e6e8ee;
-        --muted: #8b909c;
-        --accent: #5865f2;
-        --ok: #3ba55d;
-        --warn: #faa61a;
-        --err: #ed4245;
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        background: var(--bg);
-        color: var(--text);
-        height: 100vh;
-        display: grid;
-        grid-template-columns: 260px 1fr;
-      }
-      aside {
-        border-right: 1px solid var(--line);
-        background: var(--panel);
-        padding: 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
-        overflow-y: auto;
-      }
-      h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
-      .badge {
-        font-size: 11px;
-        padding: 2px 7px;
-        border-radius: 999px;
-        background: #22252d;
-        color: var(--muted);
-      }
-      main { padding: 20px 24px; overflow-y: auto; }
-      section { margin-bottom: 22px; }
-      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
-      .row { display: flex; gap: 8px; align-items: center; }
-      input, button, textarea {
-        font: inherit;
-        color: var(--text);
-        background: #1b1e25;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 9px 11px;
-      }
-      input, textarea { width: 100%; }
-      button { cursor: pointer; background: #22262f; transition: background .12s; }
-      button:hover { background: #2b303a; }
-      button.primary { background: var(--accent); border-color: transparent; font-weight: 600; }
-      button.primary:hover { filter: brightness(1.08); }
-      button:disabled { opacity: .5; cursor: default; }
-      dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 13px; }
-      dt { color: var(--muted); }
-      dd { margin: 0; word-break: break-all; }
-      .log {
-        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
-        font-size: 12px;
-        background: #0c0e12;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 12px;
-        height: 240px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-      }
-      .status { font-size: 12px; color: var(--muted); }
-      .pill { display: inline-flex; align-items: center; gap: 6px; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-      .dot.ok { background: var(--ok); }
-      .dot.err { background: var(--err); }
-      .dot.warn { background: var(--warn); }
-      .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
-      code { background: #1b1e25; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
-    </style>
+    <link rel="stylesheet" href="app.css" />
   </head>
   <body>
-    <aside>
-      <h1>Tauri-Stoat</h1>
-      <div class="row">
-        <span class="badge" id="version">версия …</span>
-        <span class="pill status"><span class="dot" id="conn-dot"></span><span id="conn-text">не подключено</span></span>
-      </div>
+    <div class="app" id="app">
+      <!-- рельс серверов -->
+      <nav class="rail" id="rail">
+        <div class="rail-list" id="rail-list"></div>
+        <button class="rail-btn" id="rail-me" title="Аккаунт"></button>
+      </nav>
 
-      <section>
-        <h2>Инстанс</h2>
-        <dl>
-          <dt>API</dt><dd id="api">—</dd>
-          <dt>Gateway</dt><dd id="ws">—</dd>
-          <dt>Голос</dt><dd id="voice">—</dd>
-          <dt>Данные</dt><dd id="datadir">—</dd>
-        </dl>
-      </section>
+      <!-- список каналов -->
+      <aside class="sidebar">
+        <header class="sidebar-head">
+          <div class="sidebar-title" id="server-name">Загрузка…</div>
+          <div class="sidebar-actions">
+            <button class="icon-btn" id="btn-refresh" title="Обновить">⟳</button>
+          </div>
+        </header>
+        <div class="channels" id="channels"></div>
+        <footer class="me-bar" id="me-bar">
+          <div class="avatar" id="me-avatar"></div>
+          <div class="me-text">
+            <div class="me-name" id="me-name">…</div>
+            <div class="me-status" id="me-status">подключаюсь…</div>
+          </div>
+          <button class="icon-btn" id="btn-logout" title="Выйти">⎋</button>
+        </footer>
+      </aside>
 
-      <section>
-        <h2>Аккаунт</h2>
-        <div id="account" class="hint">Вход не выполнен.</div>
-      </section>
-    </aside>
+      <!-- чат -->
+      <main class="chat">
+        <header class="chat-head">
+          <div class="chat-hash" id="chat-hash">#</div>
+          <div>
+            <div class="chat-title" id="chat-title">Выберите канал</div>
+            <div class="chat-sub" id="chat-sub"></div>
+          </div>
+          <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">не подключено</span></div>
+        </header>
 
-    <main>
-      <section>
-        <h2>Сессия</h2>
-        <div class="row">
-          <button id="logout">Выйти из аккаунта</button>
-          <button id="back-to-login">Сменить аккаунт</button>
+        <div class="messages" id="messages">
+          <div class="empty" id="empty">
+            <div class="empty-icon">💬</div>
+            <div class="empty-title">Здесь пока пусто</div>
+            <div class="empty-text">Выберите канал слева, чтобы прочитать сообщения</div>
+          </div>
         </div>
-        <div class="status" id="login-status" style="margin-top: 8px"></div>
-      </section>
 
-      <section>
-        <h2>Канал</h2>
-        <div class="row">
-          <input id="channel" placeholder="id канала (например 01ABCDEF…)" />
-          <button id="connect">Подключить gateway</button>
-          <button id="load">Загрузить историю</button>
-        </div>
-        <div class="row" style="margin-top: 8px">
-          <input id="message" placeholder="сообщение" />
-          <button class="primary" id="send">Отправить</button>
-        </div>
-      </section>
+        <footer class="composer" id="composer">
+          <div class="composer-row">
+            <input id="input" type="text" placeholder="Выберите канал" disabled
+                   autocomplete="off" maxlength="2000" />
+            <button class="send" id="btn-send" disabled title="Отправить">➤</button>
+          </div>
+          <div class="composer-hint" id="composer-hint"></div>
+        </footer>
+      </main>
+    </div>
 
-      <section>
-        <h2>Журнал</h2>
-        <div class="log" id="log"></div>
-      </section>
-    </main>
+    <!-- меню аккаунта -->
+    <div class="menu hidden" id="account-menu">
+      <div class="menu-title" id="menu-name">…</div>
+      <div class="menu-sub" id="menu-id"></div>
+      <button class="menu-item" id="menu-switch">Сменить аккаунт</button>
+      <button class="menu-item danger" id="menu-logout">Выйти</button>
+    </div>
+
+    <div class="toast hidden" id="toast"></div>
 
     <script src="app.js" defer></script>
   </body>

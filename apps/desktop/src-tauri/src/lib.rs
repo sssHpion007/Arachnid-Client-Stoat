@@ -13,7 +13,10 @@ use stoat_core::gateway::{self, GatewayConfig, GatewayEvent, GatewayHandle};
 use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
+
+mod views;
 use tokio::sync::{Mutex, RwLock};
+use views::{ChatMessage, HistoryView, UserView, WorkspaceView};
 
 /// Состояние приложения, доступное командам.
 pub struct AppState {
@@ -27,6 +30,8 @@ pub struct AppState {
     pub gateway: Mutex<Option<GatewayHandle>>,
     /// Каталог установки (рядом с exe или выбранный бутстрапом)
     pub data_dir: PathBuf,
+    /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
+    pub cdn_url: RwLock<Option<String>>,
 }
 
 impl AppState {
@@ -37,6 +42,7 @@ impl AppState {
             cache: Cache::new(),
             gateway: Mutex::new(None),
             data_dir,
+            cdn_url: RwLock::new(None),
         }
     }
 }
@@ -449,7 +455,7 @@ async fn send_message(
     channel_id: String,
     content: String,
     state: State<'_, Arc<AppState>>,
-) -> CmdResult<MessageView> {
+) -> CmdResult<ChatMessage> {
     let http = {
         let guard = state.http.read().await;
         guard
@@ -463,17 +469,51 @@ async fn send_message(
     let key = Some(nonce());
     let message = http.send_message(&channel_id, data, key).await?;
     state.cache.insert_message(message.clone()).await;
-    Ok(MessageView::from(message))
+
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(ChatMessage::build(
+        message,
+        &std::collections::HashMap::new(),
+        cdn.as_deref(),
+    ))
 }
 
-/// История сообщений канала (страница).
+/// Полный снимок состояния для отрисовки интерфейса.
+///
+/// UI не разбирает модели Stoat напрямую: здесь уже готовые к показу
+/// серверы с категориями, каналы, личные сообщения и участники.
 #[tauri::command]
-async fn fetch_messages(
+async fn workspace(
+    app: tauri::AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<WorkspaceView> {
+    let snapshot = state.cache.snapshot().await;
+    let mut cdn = state.cdn_url.read().await.clone();
+    if cdn.is_none() {
+        cdn = fetch_cdn_url(&state).await;
+    }
+    Ok(WorkspaceView::build(snapshot, cdn))
+}
+
+/// Узнать адрес файлового сервиса у инстанса (нужен для аватаров).
+async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
+    let instance = state.instance.read().await.clone();
+    let mut client = HttpClient::new(instance.api_url.clone());
+    client.set_app_name(instance.app_name.clone());
+    let root = client.get_root().await.ok()?;
+    let url = root.autumn_url().map(str::to_string);
+    *state.cdn_url.write().await = url.clone();
+    url
+}
+
+/// История канала: сообщения с авторами и файлами, готовые к показу.
+#[tauri::command]
+async fn channel_history(
     channel_id: String,
     before: Option<String>,
     limit: Option<u32>,
     state: State<'_, Arc<AppState>>,
-) -> CmdResult<Vec<MessageView>> {
+) -> CmdResult<HistoryView> {
     let http = {
         let guard = state.http.read().await;
         guard
@@ -486,21 +526,94 @@ async fn fetch_messages(
         .fetch_messages(&channel_id, before.as_deref(), None, limit)
         .await?;
 
-    let (messages, users) = match response {
+    let (mut messages, users) = match response {
         revolt_models::v0::BulkMessageResponse::JustMessages(messages) => (messages, Vec::new()),
         revolt_models::v0::BulkMessageResponse::MessagesAndUsers {
             messages, users, ..
         } => (messages, users),
     };
 
+    // сервер отдаёт новые сверху — интерфейсу удобнее по возрастанию времени
+    messages.reverse();
+
+    let mut authors: std::collections::HashMap<String, UserView> = std::collections::HashMap::new();
     for user in users {
+        let view = UserView::from(user.clone());
+        authors.insert(view.id.clone(), view);
         state.cache.insert_user(user).await;
     }
     for message in &messages {
+        if let Some(user) = &message.user {
+            authors
+                .entry(user.id.clone())
+                .or_insert_with(|| UserView::from(user.clone()));
+        }
         state.cache.insert_message_no_event(message.clone()).await;
     }
 
-    Ok(messages.into_iter().map(MessageView::from).collect())
+    // имена авторов, которых не прислали в этом ответе, берём из кэша
+    for message in &messages {
+        if !authors.contains_key(&message.author)
+            && let Some(user) = state.cache.user(&message.author).await
+        {
+            authors.insert(message.author.clone(), UserView::from(user));
+        }
+    }
+
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(HistoryView {
+        messages: messages
+            .into_iter()
+            .map(|message| ChatMessage::build(message, &authors, cdn.as_deref()))
+            .collect(),
+        has_more: true,
+    })
+}
+
+/// Изменить текст своего сообщения.
+#[tauri::command]
+async fn edit_message(
+    channel_id: String,
+    message_id: String,
+    content: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<ChatMessage> {
+    let http = {
+        let guard = state.http.read().await;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
+    };
+
+    let data = v0::DataEditMessage {
+        content: Some(content),
+        embeds: None,
+    };
+    let message = http.edit_message(&channel_id, &message_id, data).await?;
+    state.cache.insert_message_no_event(message.clone()).await;
+
+    let cdn = state.cdn_url.read().await.clone();
+    let authors = std::collections::HashMap::new();
+    Ok(ChatMessage::build(message, &authors, cdn.as_deref()))
+}
+
+/// Удалить своё сообщение.
+#[tauri::command]
+async fn delete_message(
+    channel_id: String,
+    message_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<()> {
+    let http = {
+        let guard = state.http.read().await;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
+    };
+    http.delete_message(&channel_id, &message_id).await?;
+    Ok(())
 }
 
 /// Снимок кэша для первичной отрисовки.
@@ -520,57 +633,6 @@ async fn data_dir(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
 
 use revolt_models::v0;
 use tauri::Emitter;
-
-/// Пользователь в том виде, который удобен UI.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UserView {
-    /// Id
-    pub id: String,
-    /// Ник
-    pub username: String,
-    /// Дискриминатор
-    pub discriminator: String,
-    /// Отображаемое имя
-    pub display_name: Option<String>,
-}
-
-impl From<v0::User> for UserView {
-    fn from(user: v0::User) -> Self {
-        Self {
-            id: user.id,
-            username: user.username,
-            discriminator: user.discriminator,
-            display_name: user.display_name,
-        }
-    }
-}
-
-/// Сообщение для UI.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct MessageView {
-    /// Id
-    pub id: String,
-    /// Канал
-    pub channel: String,
-    /// Автор
-    pub author: String,
-    /// Текст
-    pub content: Option<String>,
-    /// Когда изменено
-    pub edited: Option<String>,
-}
-
-impl From<v0::Message> for MessageView {
-    fn from(message: v0::Message) -> Self {
-        Self {
-            id: message.id,
-            channel: message.channel,
-            author: message.author,
-            content: message.content,
-            edited: message.edited.map(|value| value.to_string()),
-        }
-    }
-}
 
 /// Состояние сессии для UI.
 #[derive(Debug, Serialize)]
@@ -675,8 +737,11 @@ pub fn run() {
             logout,
             session_state,
             connect_gateway,
+            workspace,
+            channel_history,
             send_message,
-            fetch_messages,
+            edit_message,
+            delete_message,
             cache_snapshot,
             data_dir,
         ])
