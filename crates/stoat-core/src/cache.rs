@@ -193,6 +193,31 @@ impl Cache {
         });
     }
 
+    /// Вставить пользователя (например, из ответа `BulkMessageResponse`).
+    pub async fn insert_user(&self, user: v0::User) {
+        let id = user.id.clone();
+        {
+            let mut state = self.state.write().await;
+            state.users.insert(id.clone(), user);
+        }
+        self.publish(CacheEvent::UserChanged(id));
+    }
+
+    /// Вставить сообщение без публикации события.
+    ///
+    /// Нужно при массовой загрузке истории: UI получает список целиком и не
+    /// должен перерисовываться на каждое сообщение.
+    pub async fn insert_message_no_event(&self, message: v0::Message) {
+        let channel = message.channel.clone();
+        let id = message.id.clone();
+        let mut state = self.state.write().await;
+        state
+            .messages
+            .entry(channel)
+            .or_default()
+            .insert(id, message);
+    }
+
     /// Вставить канал.
     pub async fn insert_channel(&self, channel: v0::Channel) {
         let id = channel_id(&channel).to_string();

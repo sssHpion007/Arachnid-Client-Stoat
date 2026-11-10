@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tauri-Stoat</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101216;
+        --panel: #16181e;
+        --line: #24272f;
+        --text: #e6e8ee;
+        --muted: #8b909c;
+        --accent: #5865f2;
+        --ok: #3ba55d;
+        --warn: #faa61a;
+        --err: #ed4245;
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        height: 100vh;
+        display: grid;
+        grid-template-columns: 260px 1fr;
+      }
+      aside {
+        border-right: 1px solid var(--line);
+        background: var(--panel);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow-y: auto;
+      }
+      h1 { font-size: 15px; margin: 0; letter-spacing: .2px; }
+      .badge {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: #22252d;
+        color: var(--muted);
+      }
+      main { padding: 20px 24px; overflow-y: auto; }
+      section { margin-bottom: 22px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; }
+      .row { display: flex; gap: 8px; align-items: center; }
+      input, button, textarea {
+        font: inherit;
+        color: var(--text);
+        background: #1b1e25;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 11px;
+      }
+      input, textarea { width: 100%; }
+      button { cursor: pointer; background: #22262f; transition: background .12s; }
+      button:hover { background: #2b303a; }
+      button.primary { background: var(--accent); border-color: transparent; font-weight: 600; }
+      button.primary:hover { filter: brightness(1.08); }
+      button:disabled { opacity: .5; cursor: default; }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 13px; }
+      dt { color: var(--muted); }
+      dd { margin: 0; word-break: break-all; }
+      .log {
+        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+        font-size: 12px;
+        background: #0c0e12;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        height: 240px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+      .status { font-size: 12px; color: var(--muted); }
+      .pill { display: inline-flex; align-items: center; gap: 6px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+      .dot.ok { background: var(--ok); }
+      .dot.err { background: var(--err); }
+      .dot.warn { background: var(--warn); }
+      .hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+      code { background: #1b1e25; padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>Tauri-Stoat</h1>
+      <div class="row">
+        <span class="badge" id="version">версия …</span>
+        <span class="pill status"><span class="dot" id="conn-dot"></span><span id="conn-text">не подключено</span></span>
+      </div>
+
+      <section>
+        <h2>Инстанс</h2>
+        <dl>
+          <dt>API</dt><dd id="api">—</dd>
+          <dt>Gateway</dt><dd id="ws">—</dd>
+          <dt>Голос</dt><dd id="voice">—</dd>
+          <dt>Данные</dt><dd id="datadir">—</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Аккаунт</h2>
+        <div id="account" class="hint">Вход не выполнен.</div>
+      </section>
+    </aside>
+
+    <main>
+      <section>
+        <h2>Вход по токену сессии</h2>
+        <div class="hint" style="margin-bottom: 10px">
+          Токен берётся в Stoat: Настройки → Сессии. Клиент не сохраняет его в конфиг —
+          держите его при себе.
+        </div>
+        <div class="row">
+          <input id="token" type="password" placeholder="вставьте session token" autocomplete="off" />
+          <button class="primary" id="login">Войти</button>
+          <button id="logout">Выйти</button>
+        </div>
+        <div class="status" id="login-status" style="margin-top: 8px"></div>
+      </section>
+
+      <section>
+        <h2>Канал</h2>
+        <div class="row">
+          <input id="channel" placeholder="id канала (например 01ABCDEF…)" />
+          <button id="connect">Подключить gateway</button>
+          <button id="load">Загрузить историю</button>
+        </div>
+        <div class="row" style="margin-top: 8px">
+          <input id="message" placeholder="сообщение" />
+          <button class="primary" id="send">Отправить</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Журнал</h2>
+        <div class="log" id="log"></div>
+      </section>
+    </main>
+
+    <script>
+      // Мост к ядру. В обычном браузере (без Tauri) интерфейс остаётся
+      // работоспособным как макет: вызовы логируются, но не падают.
+      const invoke = window.__TAURI__?.core?.invoke;
+      const listen = window.__TAURI__?.event?.listen;
+      const logEl = document.getElementById("log");
+
+      function log(text, kind = "info") {
+        const time = new Date().toLocaleTimeString();
+        const prefix = { info: "·", ok: "✓", err: "✗", warn: "!" }[kind] || "·";
+        logEl.textContent += `${time} ${prefix} ${text}\n`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function setConn(state, text) {
+        document.getElementById("conn-dot").className = "dot " + state;
+        document.getElementById("conn-text").textContent = text;
+      }
+
+      async function call(cmd, args = {}) {
+        if (!invoke) {
+          log(`${cmd}(${JSON.stringify(args)}) — вне Tauri, вызов пропущен`, "warn");
+          return null;
+        }
+        try {
+          return await invoke(cmd, args);
+        } catch (error) {
+          const message = error?.message || String(error);
+          log(`${cmd}: ${message}`, "err");
+          throw error;
+        }
+      }
+
+      async function refreshInstance() {
+        const info = await call("instance_info");
+        if (!info) {
+          document.getElementById("api").textContent = "— (не в Tauri)";
+          return;
+        }
+        document.getElementById("api").textContent = info.api_url;
+        document.getElementById("ws").textContent = info.ws_url;
+        document.getElementById("voice").textContent = info.voice ? "включён" : "выключен";
+        document.getElementById("version").textContent = "API " + (info.version || "?");
+        if (info.version) setConn("ok", "инстанс отвечает");
+      }
+
+      async function refreshSession() {
+        const session = await call("session_state");
+        if (!session) return;
+        const box = document.getElementById("account");
+        if (session.me) {
+          box.textContent = `${session.me.display_name || session.me.username}#${session.me.discriminator} · серверов: ${session.servers}, каналов: ${session.channels}`;
+          document.getElementById("login-status").textContent = "вход выполнен";
+        } else {
+          box.textContent = "Вход не выполнен.";
+        }
+      }
+
+      document.getElementById("login").onclick = async () => {
+        const token = document.getElementById("token").value.trim();
+        if (!token) return log("нужен токен", "warn");
+        document.getElementById("login-status").textContent = "проверяю…";
+        const user = await call("login_with_token", { token });
+        if (user) {
+          log(`вошли как ${user.username}#${user.discriminator}`, "ok");
+          document.getElementById("token").value = "";
+          document.getElementById("login-status").textContent = "вход выполнен";
+          await refreshSession();
+        }
+      };
+
+      document.getElementById("logout").onclick = async () => {
+        await call("logout");
+        setConn("", "не подключено");
+        log("вышли из аккаунта", "ok");
+        await refreshSession();
+      };
+
+      document.getElementById("connect").onclick = async () => {
+        setConn("warn", "подключаюсь…");
+        await call("connect_gateway");
+      };
+
+      document.getElementById("load").onclick = async () => {
+        const channel = document.getElementById("channel").value.trim();
+        if (!channel) return log("укажите id канала", "warn");
+        const messages = await call("fetch_messages", { channelId: channel, limit: 50 });
+        if (messages) log(`история: ${messages.length} сообщений`, "ok");
+      };
+
+      document.getElementById("send").onclick = async () => {
+        const channel = document.getElementById("channel").value.trim();
+        const content = document.getElementById("message").value.trim();
+        if (!channel || !content) return log("нужны канал и текст", "warn");
+        const sent = await call("send_message", { channelId: channel, content });
+        if (sent) {
+          log(`отправлено в ${channel}: ${sent.content}`, "ok");
+          document.getElementById("message").value = "";
+        }
+      };
+
+      (async function init() {
+        log(invoke ? "ядро подключено" : "открыто без Tauri: интерфейс в режиме макета", invoke ? "ok" : "warn");
+        await refreshInstance();
+        await refreshSession();
+        const dir = await call("data_dir");
+        if (dir) document.getElementById("datadir").textContent = dir;
+
+        if (listen) {
+          await listen("stoat:gateway", (event) => {
+            let parsed;
+            try {
+              parsed = JSON.parse(event.payload);
+            } catch {
+              return log(`событие: ${event.payload}`);
+            }
+            if (parsed.type === "Ready") {
+              setConn("ok", "подключено");
+              return log("gateway: Ready — состояние получено", "ok");
+            }
+            if (parsed.type === "Error") {
+              setConn("err", "ошибка авторизации");
+              return log(`gateway: ${parsed.kind || JSON.stringify(parsed)}`, "err");
+            }
+            if (parsed.type === "Message") {
+              return log(`сообщение в ${parsed.channel}: ${parsed.content || ""}`);
+            }
+            log(`gateway: ${parsed.type}`);
+          });
+        }
+      })();
+    </script>
+  </body>
+</html>

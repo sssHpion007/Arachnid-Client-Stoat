@@ -10,24 +10,50 @@
 | `crates/stoat-core` — REST, gateway, кэш, rate-limit | готово, 23 теста, проверено на живом API 0.16.3 |
 | `crates/stoat-plugin-api` — ABI плагинов и манифест прав | каркас |
 | `crates/stoat-plugin-host` — WASM-хост на `wasmi` | план |
-| `apps/desktop` — Tauri 2 + webview | план |
+| `apps/desktop` — Tauri 2 + webview | каркас: команды, интерфейс, конфиг, иконки |
+| `bootstrap/` — скачиваемый установщик | готово: `bootstrap.sh` и `bootstrap.ps1` |
 
 ## Структура
 
 ```
 crates/stoat-core/        транспорт и протокол (см. docs/stoat-core.md)
 crates/stoat-plugin-api/  ABI плагинов, манифест прав
-apps/desktop/             Tauri-приложение
+apps/desktop/             Tauri-приложение (src-tauri/ + ui/)
+bootstrap/                скачиваемые установщики: bootstrap.sh, bootstrap.ps1
 docs/                     документация по частям
 plugins/                  примеры плагинов
 ```
 
-## Быстрый старт
+## Установка в отдельную папку (без официального Stoat)
+
+Скачайте один файл и запустите — дальше он сам развернёт всё нужное:
+
+```powershell
+# Windows
+powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
+```
+
+```bash
+# Linux / macOS
+chmod +x bootstrap.sh && ./bootstrap.sh
+```
+
+По умолчанию ставит в `~/Tauri-Stoat` и создаёт `config.toml`, `cache/`,
+`plugins/`, `themes/`, `logs/`, `vendor/` (там `api-root.json`,
+`revolt-models-0.16.3.crate` и сама сборка клиента). Официальный Stoat при этом
+не задействован, перенос папки ничего не ломает. Подробности —
+[docs/install.md](docs/install.md).
+
+Варианты: `--dir <папка>`, `--check` (только проверки), `--github-token <PAT>`
+(для приватного репозитория).
+
+## Быстрый старт для разработки
 
 ```bash
 cargo test --workspace
 cargo run -p stoat-core --example probe            # проверка связи с инстансом
 cargo run -p stoat-core --example gateway_probe    # проверка gateway
+cargo build --release -p tauri-stoat               # клиент (см. docs/build.md)
 ```
 
 ## Принципы
@@ -42,6 +68,8 @@ cargo run -p stoat-core --example gateway_probe    # проверка gateway
 
 ## Документация
 
+- [docs/install.md](docs/install.md) — установка бутстрапом, структура папки, portable-режим
+- [docs/build.md](docs/build.md) — сборка из исходников и релизы
 - [docs/stoat-core.md](docs/stoat-core.md) — ядро: протокол, решения, что проверено
 - [docs/avia-setup-windows.md](docs/avia-setup-windows.md) — референс по Avia Client
   (темы/плагины в JS-клиенте, для сравнения подходов)

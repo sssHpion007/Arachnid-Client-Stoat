@@ -1,0 +1,431 @@
+#!/usr/bin/env bash
+# Tauri-Stoat: портативный бутстрап.
+#
+# Создаёт рядом с собой изолированный каталог (~/Tauri-Stoat по умолчанию),
+# скачивает в него нужные файлы и готовит всё для запуска клиента — так, чтобы
+# ничего не приходилось класть в папку с официальным Stoat.
+#
+# Использование:
+#   ./bootstrap.sh                  # установка/обновление в ~/Tauri-Stoat
+#   ./bootstrap.sh --dir ~/games/stoat --no-ui   # без интерактивных вопросов
+#   ./bootstrap.sh --check          # только проверить окружение, ничего не менять
+#
+# Скрипт идемпотентен: повторный запуск обновляет уже скачанное, а не ломает его.
+
+set -euo pipefail
+
+APP_NAME="Tauri-Stoat"
+DEFAULT_DIR="${HOME}/Tauri-Stoat"
+
+# ── изменение этих значений меняет только «что качать», не логику ────────────
+TAURI_STOAT_REPO="sssHpion007/Tauri-Stoat"
+REVOLT_MODELS_VERSION="0.16.3"
+
+INSTALL_DIR=""
+CHECK_ONLY=0
+INTERACTIVE=1
+TOKEN="${STOAT_TOKEN:-}"
+GH_TOKEN="${TAURI_STOAT_GH_TOKEN:-${GITHUB_TOKEN:-}}"
+
+# ────────────────────────────────── цвета ───────────────────────────────────
+if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
+  B=$'\033[1m'; DIM=$'\033[2m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; N=$'\033[0m'
+else
+  B=""; DIM=""; G=""; Y=""; R=""; N=""
+fi
+
+info() { printf '%s\n' "${B}::$1${N} ${2:-}"; }
+ok()   { printf '   %s✓%s %s\n' "$G" "$N" "$1"; }
+warn() { printf '   %s!%s %s\n' "$Y" "$N" "$1"; }
+die()  { printf '%s✗ %s%s\n' "$R" "$1" "$N" >&2; exit 1; }
+
+usage() {
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+}
+
+# ─────────────────────────────── разбор аргументов ──────────────────────────
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dir) INSTALL_DIR="${2:-}"; shift 2 ;;
+    --dir=*) INSTALL_DIR="${1#*=}"; shift ;;
+    --check|--dry-run) CHECK_ONLY=1; shift ;;
+    --yes|-y|--no-ui) INTERACTIVE=0; shift ;;
+    --token) TOKEN="${2:-}"; shift 2 ;;
+    --token=*) TOKEN="${1#*=}"; shift ;;
+    --github-token) GH_TOKEN="${2:-}"; shift 2 ;;
+    --github-token=*) GH_TOKEN="${1#*=}"; shift ;;
+    -h|--help) usage ;;
+    *) die "неизвестный аргумент: $1 (см. --help)" ;;
+  esac
+done
+
+[ -n "$INSTALL_DIR" ] || INSTALL_DIR="$DEFAULT_DIR"
+# убираем хвостовой слеш, чтобы пути дальше были предсказуемы
+INSTALL_DIR="${INSTALL_DIR%/}"
+
+# ─────────────────────────────────── ОС ─────────────────────────────────────
+detect_platform() {
+  case "$(uname -s)" in
+    Linux*)
+      case "$(uname -m)" in
+        x86_64|amd64) PLATFORM="linux"; ARCH="x86_64" ;;
+        aarch64|arm64) PLATFORM="linux"; ARCH="aarch64" ;;
+        *) die "неизвестная архитектура: $(uname -m)" ;;
+      esac
+      ;;
+    Darwin*)
+      PLATFORM="macos"
+      case "$(uname -m)" in
+        arm64) ARCH="aarch64" ;;
+        x86_64) ARCH="x86_64" ;;
+        *) die "неизвестная архитектура: $(uname -m)" ;;
+      esac
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      PLATFORM="windows"; ARCH="x86_64"
+      warn "вы в Git Bash / MSYS. Рекомендуется запускать bootstrap.ps1 из PowerShell"
+      ;;
+    *)
+      die "неподдерживаемая ОС: $(uname -s). На Windows используйте bootstrap.ps1"
+      ;;
+  esac
+}
+
+# ──────────────────────────────── инструменты ───────────────────────────────
+have() { command -v "$1" >/dev/null 2>&1; }
+
+download() {
+  # download <url> <куда>
+  local url="$1" dest="$2"
+  mkdir -p "$(dirname "$dest")"
+  local -a auth=()
+  # ассеты приватного репозитория отдаются только с токеном
+  if [ -n "${GH_TOKEN}" ] && [ "${url#https://github.com/}" != "$url" ]; then
+    auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/octet-stream")
+  fi
+  if have curl; then
+    curl -fsSL --retry 3 --connect-timeout 15 "${auth[@]}" -o "$dest" "$url"
+  elif have wget; then
+    wget -q -O "$dest" --tries=3 "$url"
+  else
+    die "нужен curl или wget"
+  fi
+}
+
+fetch_text() {
+  local url="$1"
+  local -a auth=()
+  if [ -n "${GH_TOKEN}" ] && [ "${url#https://api.github.com/}" != "$url" ]; then
+    auth=(-H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json")
+  fi
+  if have curl; then
+    curl -fsSL --retry 2 --connect-timeout 15 "${auth[@]}" "$url"
+  elif have wget; then
+    if [ ${#auth[@]} -gt 0 ]; then
+      wget -q -O - --tries=2 --header="Authorization: Bearer ${GH_TOKEN}" "$url"
+    else
+      wget -q -O - --tries=2 "$url"
+    fi
+  else
+    return 1
+  fi
+}
+
+# ─────────────────────────────── структура ──────────────────────────────────
+create_layout() {
+  info "каталог" "$INSTALL_DIR"
+  mkdir -p \
+    "$INSTALL_DIR/cache/autumn" \
+    "$INSTALL_DIR/cache/embeds" \
+    "$INSTALL_DIR/plugins" \
+    "$INSTALL_DIR/themes" \
+    "$INSTALL_DIR/logs" \
+    "$INSTALL_DIR/vendor"
+  ok "созданы cache/, plugins/, themes/, logs/, vendor/"
+
+  # конфиг: не перезаписываем существующий
+  if [ ! -f "$INSTALL_DIR/config.toml" ]; then
+    cat > "$INSTALL_DIR/config.toml" <<'CFG'
+# Конфигурация Tauri-Stoat.
+# Токен сюда НЕ пишется: он хранится в системном хранилище секретов.
+
+[instance]
+# Официальный инстанс
+api_url = "https://api.stoat.chat"
+ws_url  = "wss://events.stoat.chat"
+# Свой сервер: раскомментируйте и укажите адреса
+# api_url = "https://stoat.example.com/api"
+# ws_url  = "wss://stoat.example.com/events"
+
+[app]
+# Имя, которое Stoat покажет в списке сессий
+name = "Tauri-Stoat"
+# Проверять обновления при запуске
+check_updates = true
+
+[plugins]
+# Плагины исполняются в песочнице WASM и получают только права из манифеста
+enabled = true
+# Каталог с плагинами относительно этой папки
+dir = "plugins"
+# Максимум памяти на плагин, МиБ
+memory_limit_mib = 64
+# Максимум времени на один вызов плагина, мс
+call_timeout_ms = 50
+
+[ui]
+# Тёмная (dark) или светлая (light) тема по умолчанию
+theme = "dark"
+# Плотность интерфейса: cozy | compact
+density = "cozy"
+
+[cache]
+# Ограничение кэша картинок/файлов, МиБ (старое удаляется автоматически)
+max_size_mib = 512
+CFG
+    ok "создан config.toml"
+  else
+    ok "config.toml уже есть — не трогаю"
+  fi
+
+  if [ ! -f "$INSTALL_DIR/README.txt" ]; then
+    cat > "$INSTALL_DIR/README.txt" <<'TXT'
+Tauri-Stoat — портативная установка
+===================================
+
+Что здесь лежит:
+  config.toml   настройки клиента (инстанс, плагины, кэш)
+  plugins/      плагины (.wasm + manifest.json), песочница с правами
+  themes/       темы оформления
+  cache/        кэш файлов и картинок, можно чистить целиком
+  logs/         журналы работы
+  vendor/       скачанные зависимости (модели API, версия для сверки)
+
+Запуск:
+  Windows:  Tauri-Stoat.exe  (или start.bat, если он есть)
+  Linux:    ./Tauri-Stoat
+  macOS:    открыть Tauri-Stoat.app
+
+Удаление: удалите всю эту папку. Ничего вне неё клиент не создаёт.
+
+Перенос: папку можно скопировать на флешку — путь нигде не прописан.
+TXT
+    ok "создан README.txt"
+  fi
+}
+
+# ──────────────────────────── интернет и инстанс ────────────────────────────
+check_instance() {
+  info "инстанс" "проверяю связь с API"
+  local api_root="${TAURI_STOAT_API_URL:-https://api.stoat.chat}"
+  local body
+  if body="$(fetch_text "${api_root}/")"; then
+    local version ws
+    version="$(printf '%s' "$body" | tr -d '\n' | sed -n 's/.*"stoat"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    ws="$(printf '%s' "$body" | tr -d '\n' | sed -n 's/.*"ws"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+    ok "API отвечает, версия ${version:-?}"
+    [ -n "$ws" ] && ok "gateway: $ws"
+    if [ "$CHECK_ONLY" = "1" ]; then
+      ok "ответ содержит конфигурацию (в режиме --check не сохраняю)"
+    else
+      mkdir -p "$INSTALL_DIR/vendor"
+      printf '%s\n' "$body" > "$INSTALL_DIR/vendor/api-root.json"
+    fi
+    if [ -n "$version" ] && [ "$version" != "$REVOLT_MODELS_VERSION" ]; then
+      warn "API $version, а модели в коде собраны под $REVOLT_MODELS_VERSION — если что-то не парсится, обновите клиент"
+    fi
+    return 0
+  fi
+  warn "API недоступен — установка продолжится, клиент проверит связь при запуске"
+  return 1
+}
+
+check_token() {
+  [ -n "$TOKEN" ] || return 0
+  info "аккаунт" "проверяю токен"
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' -H "x-session-token: ${TOKEN}" https://api.stoat.chat/users/@me 2>/dev/null || echo 000)"
+  case "$code" in
+    200) ok "токен принят, сессия рабочая" ;;
+    401|403) warn "токен отклонён (HTTP $code) — проверьте его в настройках Stoat" ;;
+    000) warn "не удалось проверить токен (нет сети)" ;;
+    *) warn "неожиданный ответ HTTP $code" ;;
+  esac
+}
+
+# ───────────────────────────── vendor: файлы для работы ─────────────────────
+# Что и зачем качается:
+#   api-root.json                 — конфигурация инстанса (адреса CDN, gateway, лимиты)
+#   revolt-models-<ver>.crate     — официальные модели API (MIT), ровно та версия,
+#                                   под которую собран клиент: нужна для сверки схем
+#                                   и для сборки ядра из исходников
+#   checksums.txt                 — контрольные суммы скачанного
+fetch_vendor() {
+  info "vendor" "скачиваю рабочие файлы"
+
+  local crate="vendor/revolt-models-${REVOLT_MODELS_VERSION}.crate"
+  if [ -f "$INSTALL_DIR/$crate" ]; then
+    ok "revolt-models ${REVOLT_MODELS_VERSION} уже скачан"
+  else
+    if download "https://static.crates.io/crates/revolt-models/revolt-models-${REVOLT_MODELS_VERSION}.crate" "$INSTALL_DIR/$crate"; then
+      ok "revolt-models ${REVOLT_MODELS_VERSION} ($(du -h "$INSTALL_DIR/$crate" | cut -f1))"
+    else
+      warn "не удалось скачать revolt-models — не критично, клиент работает и без него"
+    fi
+  fi
+
+  # контрольные суммы для того, что скачали
+  (
+    cd "$INSTALL_DIR" || exit 1
+    : > vendor/checksums.txt
+    for f in vendor/*.crate vendor/api-root.json; do
+      [ -f "$f" ] || continue
+      if have sha256sum; then
+        sha256sum "$f" >> vendor/checksums.txt
+      elif have shasum; then
+        shasum -a 256 "$f" >> vendor/checksums.txt
+      fi
+    done
+  )
+  [ -s "$INSTALL_DIR/vendor/checksums.txt" ] && ok "записаны checksums.txt"
+}
+
+# ───────────────────────────── сам клиент (релиз) ───────────────────────────
+fetch_client() {
+  info "клиент" "ищу сборку в релизах ${TAURI_STOAT_REPO}"
+
+  local api="https://api.github.com/repos/${TAURI_STOAT_REPO}/releases/latest"
+  local json
+  if ! json="$(fetch_text "$api")"; then
+    warn "не удалось получить список релизов"
+    if [ -z "${GH_TOKEN}" ]; then
+      warn "репозиторий приватный: передайте токен --github-token <PAT с правами repo>"
+      warn "или переменной окружения TAURI_STOAT_GH_TOKEN"
+    fi
+    warn "клиент можно собрать из исходников: см. docs/build.md"
+    return 0
+  fi
+
+  local tag
+  tag="$(printf '%s' "$json" | tr -d '\n' | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+  if [ -z "$tag" ]; then
+    warn "в релизах пока нет собранных версий"
+    warn "это ожидаемо: сборка клиента появится после первого CI-прогона"
+    warn "пока можно собрать локально: docs/build.md"
+    return 0
+  fi
+
+  # имя файла релиза под текущую платформу
+  local pattern
+  case "$PLATFORM" in
+    linux) pattern="linux" ;;
+    macos) pattern="macos" ;;
+    windows) pattern="windows" ;;
+  esac
+
+  local url name
+  url="$(printf '%s' "$json" \
+    | tr -d '\n' \
+    | sed -n "s/.*\"browser_download_url\"[[:space:]]*:[[:space:]]*\"\([^\"]*${ARCH}[^\"]*${pattern}[^\"]*\.\(tar\.gz\|zip\|dmg\|msi\|exe\)\)\".*/\1/p" \
+    | head -n1)"
+  if [ -z "$url" ]; then
+    url="$(printf '%s' "$json" \
+      | tr -d '\n' \
+      | sed -n "s/.*\"browser_download_url\"[[:space:]]*:[[:space:]]*\"\([^\"]*${pattern}[^\"]*\)\".*/\1/p" \
+      | head -n1)"
+  fi
+
+  if [ -z "$url" ]; then
+    warn "в релизе $tag нет файла для ${PLATFORM}/${ARCH}"
+    warn "доступные файлы: откройте https://github.com/${TAURI_STOAT_REPO}/releases"
+    return 0
+  fi
+
+  name="$(basename "$url")"
+  info "клиент" "версия $tag → $name"
+  if download "$url" "$INSTALL_DIR/vendor/$name"; then
+    ok "скачано: vendor/$name ($(du -h "$INSTALL_DIR/vendor/$name" | cut -f1))"
+    case "$name" in
+      *.tar.gz)
+        info "клиент" "распаковываю"
+        tar xzf "$INSTALL_DIR/vendor/$name" -C "$INSTALL_DIR"
+        ok "распаковано в $INSTALL_DIR"
+        ;;
+      *.zip)
+        if have unzip; then
+          unzip -qo "$INSTALL_DIR/vendor/$name" -d "$INSTALL_DIR" && ok "распаковано в $INSTALL_DIR"
+        else
+          warn "нет unzip — распакуйте vendor/$name вручную в эту папку"
+        fi
+        ;;
+      *.AppImage)
+        chmod +x "$INSTALL_DIR/$name" && ok "сделан исполняемым: $name"
+        ;;
+      *)
+        ok "файл установщика лежит в vendor/ — запустите его вручную"
+        ;;
+    esac
+    printf '%s\n' "$tag" > "$INSTALL_DIR/vendor/VERSION"
+  else
+    warn "не удалось скачать сборку"
+  fi
+}
+
+# ──────────────────────────────── проверки ──────────────────────────────────
+report_tools() {
+  info "проверка" "что есть в системе"
+  have curl && ok "curl" || warn "curl не найден (нужен для докачки файлов)"
+  have unzip && ok "unzip" || warn "unzip не найден (нужен для .zip релизов)"
+  have sha256sum || have shasum && ok "sha256" || warn "нет утилиты контрольных сумм"
+  have git && ok "git" || warn "git не найден (нужен только для сборки из исходников)"
+  have cargo && ok "cargo $(cargo --version 2>/dev/null | awk '{print $2}')" || warn "Rust не установлен (нужен только для сборки из исходников)"
+  have node && ok "node $(node --version 2>/dev/null)" || warn "Node.js не найден (нужен только для сборки UI)"
+}
+
+print_next_steps() {
+  cat <<NEXT
+
+${B}Готово.${N} Всё лежит в ${B}${INSTALL_DIR}${N} — официальный Stoat не задействован.
+
+Что дальше:
+  1. Откройте папку:            cd "${INSTALL_DIR}"
+  2. Настройте инстанс:         config.toml  (по умолчанию api.stoat.chat)
+  3. Запустите клиент:          ${LAUNCH_HINT}
+  4. Плагины кладите в:         ${INSTALL_DIR}/plugins (подпапка на плагин)
+
+Повторный запуск этого скрипта обновляет файлы и ничего не ломает.
+Удаление — просто удалить папку.
+
+NEXT
+}
+
+# ─────────────────────────────────── main ───────────────────────────────────
+detect_platform
+info "платформа" "${PLATFORM}/${ARCH}"
+[ "$PLATFORM" = "windows" ] && LAUNCH_HINT="Tauri-Stoat.exe"
+[ "$PLATFORM" = "linux" ] && LAUNCH_HINT="./Tauri-Stoat"
+[ "$PLATFORM" = "macos" ] && LAUNCH_HINT="open Tauri-Stoat.app"
+
+report_tools
+
+if [ "$CHECK_ONLY" = "1" ]; then
+  info "режим" "--check: ничего не меняю"
+  check_instance || true
+  check_token || true
+  exit 0
+fi
+
+if [ "$INTERACTIVE" = "1" ] && [ -t 0 ]; then
+  printf '%s\n' ""
+  printf '%s' "${B}Куда ставить?${N} [${INSTALL_DIR}]: "
+  read -r answer
+  [ -n "$answer" ] && INSTALL_DIR="${answer%/}"
+fi
+
+create_layout
+check_instance || true
+check_token || true
+fetch_vendor
+fetch_client
+print_next_steps

@@ -1,0 +1,102 @@
+name: release
+
+# Собирает установщики клиента и бутстрап-скрипты.
+# Запуск: тег вида v0.1.0 или вручную из вкладки Actions.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  bootstrap:
+    name: bootstrap-скрипты
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверка синтаксиса
+        run: |
+          bash -n bootstrap/bootstrap.sh
+          chmod +x bootstrap/bootstrap.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap
+          path: |
+            bootstrap/bootstrap.sh
+            bootstrap/bootstrap.ps1
+
+  desktop:
+    name: клиент (${{ matrix.platform }})
+    needs: bootstrap
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            args: ""
+            target: ""
+          - platform: ubuntu-22.04
+            args: ""
+            target: ""
+          - platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+            target: "aarch64-apple-darwin"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux-зависимости
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libgtk-3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+
+      - name: Тесты ядра
+        run: cargo test -p stoat-core
+
+      - name: Сборка клиента
+        run: cargo build --release -p tauri-stoat ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+      - name: Установщики (Tauri)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop/src-tauri
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('Tauri-Stoat {0}', github.ref_name) || '' }}
+          releaseBody: |
+            Сборка клиента Tauri-Stoat.
+
+            Установка без ручной возни: скачайте `bootstrap.sh` (Linux/macOS) или
+            `bootstrap.ps1` (Windows) — скрипт сам скачает нужный файл отсюда
+            и развернёт всё в отдельной папке.
+          releaseDraft: true
+          prerelease: false
+
+  publish-bootstrap:
+    name: приложить бутстрап к релизу
+    needs: [bootstrap, desktop]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: bootstrap
+          path: dist
+      - name: Загрузить скрипты в релиз
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" dist/bootstrap.sh dist/bootstrap.ps1 --clobber
