@@ -256,6 +256,13 @@ impl HttpClient {
             .await
     }
 
+    /// `GET /servers/{id}/emojis` — эмодзи сервера.
+    pub async fn fetch_emojis(&self, server_id: &str) -> Result<Vec<v0::Emoji>> {
+        let url = self.endpoint(&format!("/servers/{server_id}/emojis"))?;
+        self.request(Method::GET, url, None::<&()>, None, None)
+            .await
+    }
+
     /// `GET /channels/{id}` — канал.
     pub async fn fetch_channel(&self, channel_id: &str) -> Result<v0::Channel> {
         let url = self.endpoint(&format!("/channels/{channel_id}"))?;

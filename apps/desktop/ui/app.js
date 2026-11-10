@@ -178,72 +178,111 @@ function emojiNode(text) {
 
   call("fetch_emoji", { codepoint, pack: emojiPack })
     .then((data) => {
-      emojiCache.set(codepoint, data || "none");
+      // «не нашлось» не запоминаем навсегда: набор картинок мог ещё не
+      // определиться, иначе один промах ломал эмодзи до перезапуска
       if (!data) return;
-      const img = lazyImage(data, text, "emoji-img");
-      slot.replaceChildren(img);
+      emojiCache.set(codepoint, data);
+      if (!slot.isConnected) return;
+      slot.replaceChildren(lazyImage(data, text, "emoji-img"));
     })
-    .catch(() => {
-      emojiCache.set(codepoint, "none");
-    });
+    .catch(() => {});
   return slot;
 }
 
-// Иконка канала в Stoat — это эмодзи, а не «#».
-function channelIconNode(channel, target) {
-  const emoji = channel.emoji;
-  if (!emoji) return false;
-  const slot = document.createElement("span");
-  slot.className = "emoji channel-emoji";
-  slot.textContent = "💬";
-  target.replaceChildren(slot);
-  call("fetch_emoji", { codepoint: emoji, pack: emojiPack })
-    .then((data) => {
-      if (!data) throw new Error("нет картинки");
-      slot.replaceChildren(lazyImage(data, channel.name, "emoji-img"));
-    })
-    .catch(() => {
-      // если картинка недоступна — показываем сам эмодзи символом
-      slot.textContent = emojiSymbol(emoji);
-    });
-  return true;
+// ── 2. эмодзи сервера: приходят как `:имя:` и рисуются картинкой
+const serverEmojiCache = new Map();   // "сервер/имя" → адрес картинки
+const serverEmojiData = new Map();    // id сервера → список для выбора
+const SERVER_EMOJI_RE = /:([A-Za-z][A-Za-z0-9_]{1,31}):/;
+
+// Карта из сообщения: имена, которые ядро нашло в тексте.
+function serverEmojiUrl(name, map) {
+  return (map && map[name]) || null;
 }
 
-// `1f600` → сама пиктограмма, чтобы иконка не исчезала без интернета.
-function emojiSymbol(codepoint) {
+// Подставить адреса в карту сообщения из уже загруженного списка сервера.
+function fillServerEmoji(message) {
+  if (!message.emoji) return message.emoji;
+  const serverId = state.serverId;
+  if (serverId === null) return message.emoji;
+  const list = serverEmojiData.get(serverId);
+  if (!list) return message.emoji;
+  for (const name of Object.keys(message.emoji)) {
+    if (message.emoji[name]) continue;
+    const found = list.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (found) message.emoji[name] = found.url || "";
+  }
+  return message.emoji;
+}
+
+// Загрузить список эмодзи текущего сервера (один запрос на сервер).
+async function loadServerEmoji(serverId) {
+  if (serverId === null || serverEmojiData.has(serverId)) return;
+  serverEmojiData.set(serverId, []);
   try {
-    return codepoint
-      .split("-")
-      .map((part) => String.fromCodePoint(parseInt(part, 16)))
-      .join("");
-  } catch {
-    return "#";
+    const list = await call("server_emojis", { serverId });
+    serverEmojiData.set(serverId, list || []);
+    renderEmojiPicker();
+    // догружаем картинки в уже показанные сообщения
+    renderMessages();
+  } catch (error) {
+    console.warn("не удалось получить эмодзи сервера:", error);
   }
 }
 
-// Текст с эмодзи и ссылками.
-function richText(text) {
+// Иконка канала в Stoat — обычная картинка-файл (`icon`), поэтому её
+// скачивает ядро и отдаёт готовой, как аватар.
+function channelIconNode(channel, target) {
+  if (!channel.icon) return false;
+  mediaUrl(channel.icon).then((data) => {
+    if (!data) return;
+    const img = document.createElement("img");
+    img.className = "channel-icon";
+    img.alt = "";
+    img.src = data;
+    target.replaceChildren(img);
+  });
+  return true;
+}
+
+// Текст с эмодзи и ссылками. `map` — эмодзи сервера из сообщения.
+function richText(text, map) {
   const frag = document.createDocumentFragment();
   let rest = text;
 
   while (rest.length) {
-    // ссылка
     URL_RE.lastIndex = 0;
     const linkMatch = URL_RE.exec(rest);
-    // эмодзи
     EMOJI_RE.lastIndex = 0;
     const emojiMatch = EMOJI_RE.exec(rest);
+    const serverMatch = SERVER_EMOJI_RE.exec(rest);
 
-    const linkAt = linkMatch ? linkMatch.index : Infinity;
-    const emojiAt = emojiMatch ? emojiMatch.index : Infinity;
+    let serverHit = null;
+    if (serverMatch) {
+      const name = serverMatch[1];
+      const url = serverEmojiUrl(name, map);
+      // без картинки `:имя:` остаётся текстом, как в браузерном клиенте
+      if (url) serverHit = { index: serverMatch.index, name, url };
+    }
 
-    if (linkAt === Infinity && emojiAt === Infinity) {
+    const positions = [
+      linkMatch ? linkMatch.index : Infinity,
+      emojiMatch ? emojiMatch.index : Infinity,
+      serverHit ? serverHit.index : Infinity,
+    ];
+    const nearest = Math.min(...positions);
+    if (nearest === Infinity) {
       frag.appendChild(document.createTextNode(rest));
       break;
     }
 
-    if (linkAt <= emojiAt) {
-      if (linkAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, linkAt)));
+    if (nearest > 0) frag.appendChild(document.createTextNode(rest.slice(0, nearest)));
+
+    if (serverHit && nearest === serverHit.index) {
+      frag.appendChild(serverEmojiNode(serverHit.url, serverHit.name));
+      rest = rest.slice(serverHit.index + serverHit.name.length + 2);
+      continue;
+    }
+    if (linkMatch && nearest === linkMatch.index) {
       const info = messageLinkInfo(linkMatch[0]);
       if (info) {
         frag.appendChild(messageLinkNode(info, linkMatch[0]));
@@ -255,18 +294,35 @@ function richText(text) {
         link.rel = "noreferrer";
         frag.appendChild(link);
       }
-      rest = rest.slice(linkAt + linkMatch[0].length);
-    } else {
-      if (emojiAt > 0) frag.appendChild(document.createTextNode(rest.slice(0, emojiAt)));
-      frag.appendChild(emojiNode(emojiMatch[0]));
-      rest = rest.slice(emojiAt + emojiMatch[0].length);
+      rest = rest.slice(nearest + linkMatch[0].length);
+      continue;
     }
+    frag.appendChild(emojiNode(emojiMatch[0]));
+    rest = rest.slice(nearest + emojiMatch[0].length);
   }
   return frag;
 }
 
+// Эмодзи сервера картинкой; если файл не скачался — остаётся текст `:имя:`.
+function serverEmojiNode(url, name) {
+  const slot = document.createElement("span");
+  slot.className = "emoji server-emoji";
+  slot.title = ":" + name + ":";
+  slot.textContent = ":" + name + ":";
+  mediaUrl(url).then((data) => {
+    if (!data || !slot.isConnected) return;
+    const img = document.createElement("img");
+    img.className = "emoji-img";
+    img.alt = ":" + name + ":";
+    img.src = data;
+    slot.replaceChildren(img);
+  });
+  return slot;
+}
+
 // Оформление сообщения по узлам от ядра (жирный, код, ссылка, спойлер).
 function segmentsNode(message) {
+  const map = message.emoji || null;
   const wrap = document.createDocumentFragment();
   const parts = message.segments && message.segments.length
     ? message.segments
@@ -274,7 +330,7 @@ function segmentsNode(message) {
 
   for (const part of parts) {
     if (part.kind === "text") {
-      wrap.appendChild(richText(part.text));
+      wrap.appendChild(richText(part.text, map));
       continue;
     }
     if (part.kind === "link") {
@@ -297,7 +353,7 @@ function segmentsNode(message) {
     if (part.kind === "codeblock") {
       node.textContent = part.text;
     } else {
-      node.appendChild(richText(part.text));
+      node.appendChild(richText(part.text, map));
     }
     wrap.appendChild(node);
   }
@@ -682,6 +738,9 @@ async function openChannel(channel) {
   inputEl.placeholder = "Написать в #" + channel.name;
   inputEl.focus();
 
+  toggleEmojiPicker(false);
+  if (state.serverId !== null) loadServerEmoji(state.serverId);
+
   messagesEl.textContent = "";
   const loading = document.createElement("div");
   loading.className = "empty";
@@ -691,7 +750,10 @@ async function openChannel(channel) {
   try {
     const history = await call("channel_history", { channelId: channel.id, limit: 50 });
     if (state.channelId !== channel.id) return; // пользователь уже ушёл в другой канал
-    state.messages = markMine(history.messages || []);
+    state.messages = markMine(history.messages || []).map((m) => {
+      fillServerEmoji(m);
+      return m;
+    });
     state.reachedStart = history.has_more === false || !state.messages.length;
     renderMessages(true);
     resolveAvatars();
@@ -1124,6 +1186,7 @@ function addIncoming(message) {
     return;
   }
   markMine([message]);
+  fillServerEmoji(message);
   const nearBottom =
     messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 160;
   state.messages.push(message);
@@ -1181,6 +1244,96 @@ async function onGateway(payload) {
   }
 }
 
+
+// ───────────────────── выбор эмодзи сервера у строки ввода ─────────────────
+
+let emojiFilter = "";
+
+// Нарисовать панель: список эмодзи текущего сервера с поиском.
+function renderEmojiPicker() {
+  const list = el("emoji-list");
+  if (!list) return;
+  list.textContent = "";
+
+  const serverId = state.serverId;
+  if (serverId === null) {
+    list.appendChild(note("Эмодзи есть только на серверах, в личных сообщениях их нет"));
+    return;
+  }
+  const emojis = serverEmojiData.get(serverId) || [];
+  if (!emojis.length) {
+    list.appendChild(note("На этом сервере пока нет эмодзи"));
+    return;
+  }
+
+  const needle = emojiFilter.trim().toLowerCase();
+  const shown = needle
+    ? emojis.filter((item) => item.name.toLowerCase().includes(needle))
+    : emojis;
+  if (!shown.length) {
+    list.appendChild(note("Ничего не найдено"));
+    return;
+  }
+
+  for (const emoji of shown) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "emoji-item";
+    button.title = ":" + emoji.name + ":";
+    button.dataset.name = emoji.name;
+    const label = document.createElement("span");
+    label.className = "emoji-item-name";
+    label.textContent = emoji.name;
+    if (emoji.url) {
+      mediaUrl(emoji.url).then((data) => {
+        if (!data) return;
+        const img = document.createElement("img");
+        img.className = "emoji-img";
+        img.alt = ":" + emoji.name + ":";
+        img.src = data;
+        button.replaceChildren(img);
+        button.appendChild(label);
+      });
+    }
+    button.onclick = () => insertEmoji(emoji.name);
+    list.appendChild(button);
+  }
+}
+
+function note(text) {
+  const node = document.createElement("div");
+  node.className = "emoji-note";
+  node.textContent = text;
+  return node;
+}
+
+// Вставить `:имя:` в текст на месте курсора.
+function insertEmoji(name) {
+  const token = `:${name}:`;
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  const before = inputEl.value.slice(0, start);
+  const after = inputEl.value.slice(end);
+  // пробел перед эмодзи, если его приклеивают к слову
+  const glue = before && !/\s$/.test(before) ? " " : "";
+  inputEl.value = before + glue + token + after;
+  const caret = (before + glue + token).length;
+  inputEl.setSelectionRange(caret, caret);
+  inputEl.focus();
+}
+
+function toggleEmojiPicker(force) {
+  const picker = el("emoji-picker");
+  const open = force ?? picker.classList.contains("hidden");
+  picker.classList.toggle("hidden", !open);
+  if (!open) return;
+  el("emoji-search").value = "";
+  emojiFilter = "";
+  renderEmojiPicker();
+  if (state.serverId !== null) loadServerEmoji(state.serverId);
+  el("emoji-search").focus();
+}
+
 // ─────────────────────────── меню аккаунта ────────────────────────────────
 
 function toggleAccountMenu(event) {
@@ -1224,8 +1377,22 @@ async function boot() {
       event.preventDefault();
       submit();
     }
-    if (event.key === "Escape") stopEdit();
+    if (event.key === "Escape") {
+      stopEdit();
+      toggleEmojiPicker(false);
+    }
   });
+
+  el("btn-emoji").onclick = (event) => {
+    event.stopPropagation();
+    toggleEmojiPicker();
+  };
+  el("emoji-search").addEventListener("input", (event) => {
+    emojiFilter = event.target.value;
+    renderEmojiPicker();
+  });
+  el("emoji-picker").addEventListener("click", (event) => event.stopPropagation());
+  document.addEventListener("click", () => toggleEmojiPicker(false));
 
   el("btn-logout").onclick = logout;
   el("menu-logout").onclick = logout;

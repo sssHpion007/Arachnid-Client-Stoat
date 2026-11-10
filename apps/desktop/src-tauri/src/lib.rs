@@ -34,6 +34,8 @@ pub struct AppState {
     pub cdn_url: RwLock<Option<String>>,
     /// Что уже скачано для показа: адрес → data-URL (`None` — файла нет)
     pub media: RwLock<std::collections::HashMap<String, Option<String>>>,
+    /// Эмодзи серверов: id сервера → список (меняется редко)
+    pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
 }
 
 impl AppState {
@@ -46,6 +48,7 @@ impl AppState {
             data_dir,
             cdn_url: RwLock::new(None),
             media: RwLock::new(std::collections::HashMap::new()),
+            emojis: RwLock::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -700,6 +703,38 @@ async fn user_avatar(
         .and_then(|file| views::file_url(file, cdn.as_deref())))
 }
 
+/// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
+///
+/// Список меняется редко, поэтому кэшируется в памяти на время сеанса.
+#[tauri::command]
+async fn server_emojis(
+    server_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Vec<views::EmojiView>> {
+    if let Some(cached) = state.emojis.read().await.get(&server_id) {
+        return Ok(cached.clone());
+    }
+
+    let (http, cdn) = {
+        let guard = state.http.read().await;
+        let client = guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?;
+        (client, state.cdn_url.read().await.clone())
+    };
+
+    let list: Vec<views::EmojiView> = http
+        .fetch_emojis(&server_id)
+        .await?
+        .iter()
+        .map(|emoji| views::EmojiView::build(emoji, cdn.as_deref()))
+        .collect();
+
+    state.emojis.write().await.insert(server_id, list.clone());
+    Ok(list)
+}
+
 /// Скачать картинку эмодзи из статики Stoat.
 ///
 /// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
@@ -979,6 +1014,7 @@ pub fn run() {
             workspace,
             fetch_media,
             fetch_emoji,
+            server_emojis,
             user_avatar,
             message_link,
             channel_history,

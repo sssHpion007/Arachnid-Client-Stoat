@@ -56,7 +56,12 @@
           <div class="composer-row">
             <input id="input" type="text" placeholder="Выберите канал" disabled
                    autocomplete="off" maxlength="2000" />
+            <button class="emoji-btn" id="btn-emoji" type="button" title="Эмодзи сервера">☺</button>
             <button class="send" id="btn-send" disabled title="Отправить">➤</button>
+          </div>
+          <div class="emoji-picker hidden" id="emoji-picker">
+            <input id="emoji-search" type="text" placeholder="Поиск эмодзи" autocomplete="off" />
+            <div class="emoji-list" id="emoji-list"></div>
           </div>
           <div class="composer-hint" id="composer-hint"></div>
         </footer>

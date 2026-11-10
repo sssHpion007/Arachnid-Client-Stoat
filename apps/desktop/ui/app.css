@@ -435,7 +435,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 }
 
 /* ───────────── ввод ───────────── */
-.composer { padding: 0 16px 14px; }
+.composer { padding: 0 16px 14px; position: relative; }
 .composer-row {
   display: flex;
   align-items: center;
@@ -643,3 +643,98 @@ button { font: inherit; color: inherit; cursor: pointer; }
   0%, 40% { background: #2f3a5255; }
   100% { background: transparent; }
 }
+
+/* ───────────────────── кнопка и панель выбора эмодзи ────────────────────── */
+
+.emoji-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  align-self: stretch;
+}
+
+.emoji-btn:hover { color: var(--text); background: var(--hover); }
+.emoji-btn.active { color: var(--accent); }
+
+.emoji-picker {
+  position: absolute;
+  bottom: 64px;
+  right: 16px;
+  width: 360px;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: #12151b;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px #00000070;
+  z-index: 40;
+}
+
+.emoji-picker.hidden { display: none; }
+
+.emoji-picker input {
+  border: 1px solid var(--line);
+  background: #0d0f13;
+  color: var(--text);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.emoji-picker input:focus { border-color: var(--accent); }
+
+.emoji-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
+  gap: 4px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.emoji-list::-webkit-scrollbar { width: 8px; }
+.emoji-list::-webkit-scrollbar-thumb { background: #1c212b; border-radius: 4px; }
+
+.emoji-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 6px 4px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.emoji-item:hover { background: var(--hover); color: var(--text); }
+.emoji-item .emoji-img { width: 28px; height: 28px; object-fit: contain; }
+
+.emoji-item-name {
+  font-size: 10.5px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emoji-note {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: var(--dim);
+  padding: 6px 2px;
+}
+
+/* эмодзи сервера в тексте сообщения */
+.emoji.server-emoji .emoji-img { vertical-align: -0.25em; }
