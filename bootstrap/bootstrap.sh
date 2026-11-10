@@ -144,73 +144,38 @@ create_layout() {
     "$INSTALL_DIR/vendor"
   ok "созданы cache/, plugins/, themes/, logs/, vendor/"
 
-  # конфиг: не перезаписываем существующий
-  if [ ! -f "$INSTALL_DIR/config.toml" ]; then
-    cat > "$INSTALL_DIR/config.toml" <<'CFG'
-# Конфигурация Tauri-Stoat.
-# Токен сюда НЕ пишется: он хранится в системном хранилище секретов.
+  # конфиги берём из файлов рядом со скриптом; иначе пишем минимальный вариант
+  local here
+  here="$(cd "$(dirname "$0")" && pwd)"
 
+  if [ ! -f "$INSTALL_DIR/config.toml" ]; then
+    if [ -f "$here/config.toml" ]; then
+      cp "$here/config.toml" "$INSTALL_DIR/config.toml"
+    else
+      cat > "$INSTALL_DIR/config.toml" <<'CFG'
 [instance]
-# Официальный инстанс
 api_url = "https://api.stoat.chat"
 ws_url  = "wss://events.stoat.chat"
-# Свой сервер: раскомментируйте и укажите адреса
-# api_url = "https://stoat.example.com/api"
-# ws_url  = "wss://stoat.example.com/events"
 
 [app]
-# Имя, которое Stoat покажет в списке сессий
 name = "Tauri-Stoat"
-# Проверять обновления при запуске
-check_updates = true
 
 [plugins]
-# Плагины исполняются в песочнице WASM и получают только права из манифеста
 enabled = true
-# Каталог с плагинами относительно этой папки
 dir = "plugins"
-# Максимум памяти на плагин, МиБ
-memory_limit_mib = 64
-# Максимум времени на один вызов плагина, мс
-call_timeout_ms = 50
-
-[ui]
-# Тёмная (dark) или светлая (light) тема по умолчанию
-theme = "dark"
-# Плотность интерфейса: cozy | compact
-density = "cozy"
-
-[cache]
-# Ограничение кэша картинок/файлов, МиБ (старое удаляется автоматически)
-max_size_mib = 512
 CFG
+    fi
     ok "создан config.toml"
   else
     ok "config.toml уже есть — не трогаю"
   fi
 
   if [ ! -f "$INSTALL_DIR/README.txt" ]; then
-    cat > "$INSTALL_DIR/README.txt" <<'TXT'
-Tauri-Stoat — портативная установка
-===================================
-
-Что здесь лежит:
-  config.toml   настройки клиента (инстанс, плагины, кэш)
-  plugins/      плагины (.wasm + manifest.json), песочница с правами
-  themes/       темы оформления
-  cache/        кэш файлов и картинок, можно чистить целиком
-  logs/         журналы работы
-  vendor/       скачанные зависимости (модели API, версия для сверки)
-
-Запуск:
-  Windows:  Tauri-Stoat.exe  (или start.bat, если он есть)
-  Linux:    ./Tauri-Stoat
-  macOS:    открыть Tauri-Stoat.app
-
-Удаление: удалите всю эту папку. Ничего вне неё клиент не создаёт.
-
-Перенос: папку можно скопировать на флешку — путь нигде не прописан.
-TXT
+    if [ -f "$here/README.txt" ]; then
+      cp "$here/README.txt" "$INSTALL_DIR/README.txt"
+    else
+      printf 'Tauri-Stoat: запустите Tauri-Stoat.exe из этой папки.\n' > "$INSTALL_DIR/README.txt"
+    fi
     ok "создан README.txt"
   fi
 }

@@ -23,8 +23,9 @@ jobs:
       - name: fmt
         run: cargo fmt --all -- --check
 
+      # приложение (tauri) тянет GTK/WebKit, поэтому проверяем только крейты ядра
       - name: clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy -p stoat-core -p stoat-plugin-api --all-targets -- -D warnings
 
       - name: test
-        run: cargo test --workspace
+        run: cargo test -p stoat-core -p stoat-plugin-api

@@ -1,11 +1,16 @@
 name: release
 
-# Собирает установщики клиента и бутстрап-скрипты.
-# Запуск: тег вида v0.1.0 или вручную из вкладки Actions.
+# Собирает клиент и раскладывает файлы, которые скачивает бутстрап:
+#   * portable-архив (zip/tar.gz) — распаковал в папку и запустил .exe
+#   * установщики (msi/nsis, deb/appimage, dmg)
+# Запуск: тег v* или вручную из вкладки Actions.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   bootstrap:
@@ -14,9 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Проверка синтаксиса
-        run: |
-          bash -n bootstrap/bootstrap.sh
-          chmod +x bootstrap/bootstrap.sh
+        run: bash -n bootstrap/bootstrap.sh && chmod +x bootstrap/bootstrap.sh
       - uses: actions/upload-artifact@v4
         with:
           name: bootstrap
@@ -24,47 +27,92 @@ jobs:
             bootstrap/bootstrap.sh
             bootstrap/bootstrap.ps1
 
-  desktop:
-    name: клиент (${{ matrix.platform }})
-    needs: bootstrap
+  portable:
+    name: portable (${{ matrix.asset }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
-            args: ""
-            target: ""
-          - platform: ubuntu-22.04
-            args: ""
-            target: ""
-          - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
-            target: "aarch64-apple-darwin"
+          - os: windows-latest
+            asset: tauri-stoat-windows-x86_64
+            bin: target/release/tauri-stoat.exe
+            pack: zip
+          - os: ubuntu-22.04
+            asset: tauri-stoat-linux-x86_64
+            bin: target/release/tauri-stoat
+            pack: tar.gz
+          - os: macos-latest
+            asset: tauri-stoat-macos-aarch64
+            bin: target/release/tauri-stoat
+            pack: tar.gz
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Linux-зависимости
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf libssl-dev libgtk-3-dev
 
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.platform }}
+          key: portable-${{ matrix.os }}
 
       - name: Тесты ядра
         run: cargo test -p stoat-core
 
       - name: Сборка клиента
-        run: cargo build --release -p tauri-stoat ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+        run: cargo build --release -p tauri-stoat
+
+      - name: Собрать portable-архив
+        shell: bash
+        run: |
+          mkdir -p dist/Tauri-Stoat
+          cp "${{ matrix.bin }}" dist/Tauri-Stoat/
+          mkdir -p dist/Tauri-Stoat/{cache,plugins,themes,logs}
+          cp bootstrap/config.toml dist/Tauri-Stoat/ || true
+          cp bootstrap/README.txt dist/Tauri-Stoat/ || true
+          cd dist
+          if [ "${{ matrix.pack }}" = "zip" ]; then
+            (command -v 7z >/dev/null && 7z a -tzip "${{ matrix.asset }}.zip" Tauri-Stoat) \
+              || powershell -Command "Compress-Archive -Path Tauri-Stoat -DestinationPath '${{ matrix.asset }}.zip'"
+          else
+            tar czf "${{ matrix.asset }}.tar.gz" Tauri-Stoat
+          fi
+          ls -la
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+
+  installers:
+    name: установщики (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux-зависимости
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libgtk-3-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer-${{ matrix.os }}
 
       - name: Установщики (Tauri)
         uses: tauri-apps/tauri-action@v0
@@ -72,31 +120,37 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/desktop/src-tauri
-          args: ${{ matrix.args }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseName: ${{ github.ref_type == 'tag' && format('Tauri-Stoat {0}', github.ref_name) || '' }}
           releaseBody: |
-            Сборка клиента Tauri-Stoat.
+            ## Установка
 
-            Установка без ручной возни: скачайте `bootstrap.sh` (Linux/macOS) или
-            `bootstrap.ps1` (Windows) — скрипт сам скачает нужный файл отсюда
+            **Самое простое** — portable-архив: распакуйте в любую папку и запустите
+            `Tauri-Stoat.exe`. Рядом с ним уже лежат `config.toml` и каталоги
+            `cache/`, `plugins/`, `themes/`, `logs/` — официальный Stoat не нужен.
+
+            Либо установщик: `*-setup.exe` (NSIS) или `.msi`.
+
+            Бутстрап (`bootstrap.sh` / `bootstrap.ps1`) сам скачает portable-архив
             и развернёт всё в отдельной папке.
           releaseDraft: true
           prerelease: false
 
-  publish-bootstrap:
-    name: приложить бутстрап к релизу
-    needs: [bootstrap, desktop]
+  publish:
+    name: приложить файлы к релизу
+    needs: [bootstrap, portable, installers]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: bootstrap
-          path: dist
-      - name: Загрузить скрипты в релиз
+          path: artifacts
+      - name: Загрузить всё в релиз
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/bootstrap.sh dist/bootstrap.ps1 --clobber
+          gh release upload "${GITHUB_REF_NAME}" \
+            artifacts/bootstrap/bootstrap.sh \
+            artifacts/bootstrap/bootstrap.ps1 \
+            artifacts/*/*.zip artifacts/*/*.tar.gz --clobber

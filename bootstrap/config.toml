@@ -1,0 +1,27 @@
+# Конфигурация Tauri-Stoat.
+# Токен сюда НЕ пишется: он хранится в системном хранилище секретов.
+
+[instance]
+api_url = "https://api.stoat.chat"
+ws_url  = "wss://events.stoat.chat"
+# Свой сервер: раскомментируйте и укажите адреса
+# api_url = "https://stoat.example.com/api"
+# ws_url  = "wss://stoat.example.com/events"
+
+[app]
+name = "Tauri-Stoat"
+check_updates = true
+
+[plugins]
+# Плагины исполняются в песочнице WASM и получают только права из манифеста
+enabled = true
+dir = "plugins"
+memory_limit_mib = 64
+call_timeout_ms = 50
+
+[ui]
+theme = "dark"
+density = "cozy"
+
+[cache]
+max_size_mib = 512
