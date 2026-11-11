@@ -243,7 +243,7 @@ pub async fn user_profile(
     let profile = http.fetch_profile(&user.id).await.ok();
 
     let bot_owner = match user.bot.as_ref() {
-        Some(bot) => user_by_id(&state, &bot.owner)
+        Some(bot) => user_by_id(&state, &bot.owner_id)
             .await
             .ok()
             .map(|owner| UserView::build(owner, cdn)),
