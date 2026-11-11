@@ -14,6 +14,7 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod media;
 mod permissions;
 mod profile;
 mod server_admin;
@@ -36,8 +37,12 @@ pub struct AppState {
     pub data_dir: PathBuf,
     /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
     pub cdn_url: RwLock<Option<String>>,
-    /// Что уже скачано для показа: адрес → data-URL (`None` — файла нет)
-    pub media: RwLock<MediaCache>,
+    /// Прокси January для сторонних файлов во встраиваниях
+    pub proxy_url: RwLock<Option<String>>,
+    /// Порядок серверов из настроек синхронизации (до переподключения
+    /// или до `UserSettingsUpdate`): без него каждое обновление дерева
+    /// серверов ходило бы в сеть
+    pub ordering: RwLock<Option<views::Ordering>>,
     /// Эмодзи серверов: id сервера → список (меняется редко)
     pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
     /// Серверы, полный список участников которых уже получен в этом подключении
@@ -46,40 +51,6 @@ pub struct AppState {
     pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     /// Id текущей сессии, если известен (после входа или из запомненного)
     pub session_id: RwLock<Option<String>>,
-}
-
-/// Кэш скачанных картинок.
-///
-/// Успех хранится до выхода из программы, неудача — недолго. Иначе один
-/// неудачный запрос (сеть на старте ещё не поднялась, сервер ответил 429)
-/// навсегда оставлял аватар буквой: клиент больше не пробовал его скачать.
-#[derive(Default)]
-pub struct MediaCache {
-    items: std::collections::HashMap<String, (Option<String>, std::time::Instant)>,
-}
-
-/// Сколько помним неудачную попытку, прежде чем сходить в сеть снова.
-const MEDIA_FAILURE_TTL: std::time::Duration = std::time::Duration::from_secs(30);
-
-impl MediaCache {
-    /// Готовый data-URL, если он уже скачан.
-    fn get(&self, url: &str) -> Option<String> {
-        let (data, _) = self.items.get(url)?;
-        data.clone()
-    }
-
-    /// Известно ли, что файла нет (и недавно ли это выяснили).
-    fn failed_recently(&self, url: &str) -> bool {
-        match self.items.get(url) {
-            Some((None, at)) => at.elapsed() < MEDIA_FAILURE_TTL,
-            _ => false,
-        }
-    }
-
-    /// Запомнить результат загрузки.
-    fn store(&mut self, url: String, data: Option<String>) {
-        self.items.insert(url, (data, std::time::Instant::now()));
-    }
 }
 
 impl AppState {
@@ -91,7 +62,8 @@ impl AppState {
             gateway: Mutex::new(None),
             data_dir,
             cdn_url: RwLock::new(None),
-            media: RwLock::new(MediaCache::default()),
+            proxy_url: RwLock::new(None),
+            ordering: RwLock::new(None),
             emojis: RwLock::new(std::collections::HashMap::new()),
             members_synced: RwLock::new(std::collections::HashSet::new()),
             subscriptions: Mutex::new(std::collections::HashMap::new()),
@@ -493,6 +465,7 @@ async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     state.members_synced.write().await.clear();
     state.subscriptions.lock().await.clear();
     state.emojis.write().await.clear();
+    *state.ordering.write().await = None;
     Ok(())
 }
 
@@ -531,6 +504,7 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
         ReadyField::Servers,
         ReadyField::Channels,
         ReadyField::Members,
+        ReadyField::Emojis,
         ReadyField::ChannelUnreads,
     ]);
 
@@ -552,8 +526,22 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
                 // после переподключения списки участников и подписки собираются заново
                 app_state.members_synced.write().await.clear();
                 app_state.subscriptions.lock().await.clear();
+                *app_state.ordering.write().await = None;
+                app_state.emojis.write().await.clear();
             } else {
                 cache.apply(event.clone()).await;
+            }
+
+            match &event {
+                // порядок серверов поменяли в другом клиенте
+                GatewayEvent::UserSettingsUpdate { data, .. } if data.get("ordering").is_some() => {
+                    *app_state.ordering.write().await = None;
+                }
+                // список эмодзи теперь собирается из кэша заново
+                GatewayEvent::EmojiCreate(_) | GatewayEvent::EmojiDelete { .. } => {
+                    app_state.emojis.write().await.clear();
+                }
+                _ => {}
             }
 
             // Новое сообщение отдаём в том же виде, что и историю:
@@ -727,8 +715,18 @@ async fn workspace(state: State<'_, Arc<AppState>>) -> CmdResult<WorkspaceView> 
 
     // порядок серверов и каналов задан пользователем в браузерной версии:
     // без него рельс выглядел бы случайным
-    let ordering = fetch_ordering(&state).await;
-    Ok(WorkspaceView::build_ordered(snapshot, cdn, &ordering))
+    let cached = state.ordering.read().await.clone();
+    let ordering = match cached {
+        Some(ordering) => ordering,
+        None => {
+            let ordering = fetch_ordering(&state).await;
+            *state.ordering.write().await = Some(ordering.clone());
+            ordering
+        }
+    };
+    let mut view = WorkspaceView::build_ordered(snapshot, cdn, &ordering);
+    view.proxy = state.proxy_url.read().await.clone();
+    Ok(view)
 }
 
 /// Прочитать порядок серверов и категорий из настроек синхронизации.
@@ -759,42 +757,13 @@ async fn fetch_ordering(state: &State<'_, Arc<AppState>>) -> views::Ordering {
     }
 }
 
-/// Скачать картинку и отдать её интерфейсу как data-URL.
-///
-/// WebView2 блокирует сторонние изображения на встроенных страницах
-/// (`tauri://`), а политика безопасности запрещает внешние загрузки.
-/// Поэтому файл скачивает Rust и отдаёт уже готовые байты.
-#[tauri::command]
-async fn fetch_media(url: String, state: State<'_, Arc<AppState>>) -> CmdResult<String> {
-    if !url.starts_with("https://") {
-        return Err(CommandError::new(
-            "bad_url",
-            "адрес должен начинаться с https://",
-        ));
-    }
-
-    // повторный показ аватара не должен снова ходить в сеть
-    {
-        let cache = state.media.read().await;
-        if let Some(data) = cache.get(&url) {
-            return Ok(data);
-        }
-        if cache.failed_recently(&url) {
-            return Err(CommandError::new("not_found", "файл недоступен"));
-        }
-    }
-
-    let result = download_data_url(&url).await;
-    let stored = result.as_ref().ok().cloned();
-    state.media.write().await.store(url, stored);
-
-    result.map_err(|message| CommandError::new("media", message))
-}
-
 /// Скачать файл и превратить его в data-URL.
-async fn download_data_url(url: &str) -> std::result::Result<String, String> {
+async fn download_data_url(
+    client: &reqwest::Client,
+    url: &str,
+) -> std::result::Result<String, String> {
     // некоторые файлы CDN отдаёт только с заголовком Accept
-    let response = reqwest::Client::new()
+    let response = client
         .get(url)
         .header(reqwest::header::ACCEPT, "*/*")
         .send()
@@ -811,7 +780,7 @@ async fn download_data_url(url: &str) -> std::result::Result<String, String> {
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string)
-        .unwrap_or_else(|| guess_content_type(url).to_string());
+        .unwrap_or_else(|| media::guess_content_type(url).to_string());
 
     let bytes = response
         .bytes()
@@ -828,22 +797,42 @@ async fn download_data_url(url: &str) -> std::result::Result<String, String> {
     Ok(format!("data:{content_type};base64,{encoded}"))
 }
 
-/// Тип содержимого по расширению: CDN не всегда его присылает.
-fn guess_content_type(url: &str) -> &'static str {
-    let path = url.split('?').next().unwrap_or(url);
-    if path.ends_with(".svg") {
-        "image/svg+xml"
-    } else if path.ends_with(".png") {
-        "image/png"
-    } else if path.ends_with(".webp") {
-        "image/webp"
-    } else if path.ends_with(".gif") {
-        "image/gif"
-    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
-        "image/jpeg"
-    } else {
-        "application/octet-stream"
-    }
+/// Оформленный текст вне сообщений (описание сервера): куски разметки и
+/// адреса своих эмодзи — тем же разбором, что и сообщения.
+#[derive(Debug, Serialize)]
+struct RichTextView {
+    segments: views::Segments,
+    emoji: std::collections::HashMap<String, String>,
+}
+
+#[tauri::command]
+async fn rich_text(text: String, state: State<'_, Arc<AppState>>) -> CmdResult<RichTextView> {
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(RichTextView {
+        segments: views::segments(&text),
+        emoji: views::custom_emojis(&text, cdn.as_deref()),
+    })
+}
+
+/// Сохранить файл из сообщения в каталог «Загрузки» пользователя.
+///
+/// Webview не умеет скачивать файлы протокола `media:`, поэтому файл
+/// забирает Rust; возвращается полный путь, чтобы показать его в интерфейсе.
+#[tauri::command]
+async fn download_file(
+    url: String,
+    filename: String,
+    proxy: State<'_, Arc<media::MediaProxy>>,
+) -> CmdResult<String> {
+    let dir = directories::UserDirs::new()
+        .and_then(|dirs| dirs.download_dir().map(std::path::Path::to_path_buf))
+        .or_else(|| directories::UserDirs::new().map(|dirs| dirs.home_dir().join("Downloads")))
+        .ok_or_else(|| CommandError::new("download", "не найден каталог загрузок"))?;
+    let path = proxy
+        .download(&url, &filename, dir)
+        .await
+        .map_err(|message| CommandError::new("download", message))?;
+    Ok(path.display().to_string())
 }
 
 /// Адрес сообщения, чтобы можно было скопировать ссылку.
@@ -957,9 +946,41 @@ async fn subscribe_server(server_id: String, state: State<'_, Arc<AppState>>) ->
     Ok(())
 }
 
+/// Эмодзи всех серверов из кэша: `Ready` присылает их сразу, поэтому
+/// панель эмодзи и `:эмодзи:` в сообщениях работают без захода на сервер.
+async fn cached_emojis(
+    state: &AppState,
+) -> std::collections::HashMap<String, Vec<views::EmojiView>> {
+    let cdn = state.cdn_url.read().await.clone();
+    let mut index: std::collections::HashMap<String, Vec<views::EmojiView>> =
+        std::collections::HashMap::new();
+    for emoji in state.cache.emojis().await {
+        if let revolt_models::v0::EmojiParent::Server { id } = &emoji.parent {
+            index
+                .entry(id.clone())
+                .or_default()
+                .push(views::EmojiView::build(&emoji, cdn.as_deref()));
+        }
+    }
+    // порядок как в браузере: по времени добавления (id — ULID)
+    for list in index.values_mut() {
+        list.sort_by(|a, b| a.id.cmp(&b.id));
+    }
+    index
+}
+
+/// Эмодзи всех серверов разом: id сервера → список.
+#[tauri::command]
+async fn emoji_index(
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<std::collections::HashMap<String, Vec<views::EmojiView>>> {
+    Ok(cached_emojis(&state).await)
+}
+
 /// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
 ///
-/// Список меняется редко, поэтому кэшируется в памяти на время сеанса.
+/// Сначала из кэша (`Ready` и события шлюза); если кэш о сервере ничего
+/// не знает — запросом, и результат запоминается до переподключения.
 #[tauri::command]
 async fn server_emojis(
     server_id: String,
@@ -967,6 +988,9 @@ async fn server_emojis(
 ) -> CmdResult<Vec<views::EmojiView>> {
     if let Some(cached) = state.emojis.read().await.get(&server_id) {
         return Ok(cached.clone());
+    }
+    if let Some(list) = cached_emojis(&state).await.remove(&server_id) {
+        return Ok(list);
     }
 
     let (http, cdn) = {
@@ -994,7 +1018,11 @@ async fn server_emojis(
 /// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
 /// поэтому пробуем по очереди и запоминаем удачный.
 #[tauri::command]
-async fn fetch_emoji(codepoint: String, pack: Option<String>) -> CmdResult<String> {
+async fn fetch_emoji(
+    codepoint: String,
+    pack: Option<String>,
+    proxy: State<'_, Arc<media::MediaProxy>>,
+) -> CmdResult<String> {
     if !codepoint
         .chars()
         .all(|symbol| symbol.is_ascii_hexdigit() || symbol == '-')
@@ -1015,7 +1043,7 @@ async fn fetch_emoji(codepoint: String, pack: Option<String>) -> CmdResult<Strin
     let mut last = String::from("эмодзи не найдено");
     for pack in packs {
         let url = views::emoji_url(&pack, &codepoint);
-        match download_data_url(&url).await {
+        match download_data_url(proxy.client(), &url).await {
             Ok(data) => return Ok(data),
             Err(error) => last = error,
         }
@@ -1031,6 +1059,7 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
     let root = client.get_root().await.ok()?;
     let url = root.autumn_url().map(str::to_string);
     *state.cdn_url.write().await = url.clone();
+    *state.proxy_url.write().await = root.january_url().map(str::to_string);
     url
 }
 
@@ -1057,12 +1086,33 @@ async fn channel_history(
         .fetch_messages(&channel_id, before.as_deref(), None, limit)
         .await?;
 
-    let (mut messages, users) = match response {
-        revolt_models::v0::BulkMessageResponse::JustMessages(messages) => (messages, Vec::new()),
+    let (mut messages, users, members) = match response {
+        revolt_models::v0::BulkMessageResponse::JustMessages(messages) => {
+            (messages, Vec::new(), Vec::new())
+        }
         revolt_models::v0::BulkMessageResponse::MessagesAndUsers {
-            messages, users, ..
-        } => (messages, users),
+            messages,
+            users,
+            members,
+        } => (messages, users, members.unwrap_or_default()),
     };
+
+    // участники приходят вместе с историей: ники, роли и цвета авторов
+    // видны сразу, не дожидаясь полного списка участников сервера
+    let mut by_server: std::collections::HashMap<String, Vec<revolt_models::v0::Member>> =
+        std::collections::HashMap::new();
+    for member in members {
+        by_server
+            .entry(member.id.server.clone())
+            .or_default()
+            .push(member);
+    }
+    for (server, members) in by_server {
+        state
+            .cache
+            .insert_members(&server, members, Vec::new())
+            .await;
+    }
 
     // сервер отдаёт новые сверху — интерфейсу удобнее по возрастанию времени
     messages.reverse();
@@ -1299,6 +1349,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .manage(Arc::new(media::MediaProxy::new()))
+        // файлы для webview: картинки, видео и аудио с CDN (см. media.rs)
+        .register_asynchronous_uri_scheme_protocol(media::SCHEME, |ctx, request, responder| {
+            let proxy = ctx
+                .app_handle()
+                .state::<Arc<media::MediaProxy>>()
+                .inner()
+                .clone();
+            tauri::async_runtime::spawn(async move {
+                responder.respond(proxy.serve(request).await);
+            });
+        })
         .setup(|app| {
             // ошибка инициализации не должна убивать окно без следа
             let data_dir = resolve_data_dir(app.handle());
@@ -1321,8 +1383,10 @@ pub fn run() {
             session_state,
             connect_gateway,
             workspace,
-            fetch_media,
             fetch_emoji,
+            emoji_index,
+            download_file,
+            rich_text,
             server_emojis,
             server_members,
             subscribe_server,

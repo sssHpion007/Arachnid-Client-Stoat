@@ -352,6 +352,11 @@ impl Cache {
         self.state.read().await.channels.get(id).cloned()
     }
 
+    /// Эмодзи серверов, известные кэшу: из `Ready` и событий шлюза.
+    pub async fn emojis(&self) -> Vec<v0::Emoji> {
+        self.state.read().await.emojis.values().cloned().collect()
+    }
+
     /// Сервер по id.
     pub async fn server(&self, id: &str) -> Option<v0::Server> {
         self.state.read().await.servers.get(id).cloned()
@@ -727,6 +732,21 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
             // реакции приходят отдельными событиями; полное состояние подтянет UI
             // через повторную загрузку сообщения, кэш не пытается угадывать счётчики
         }
+        GatewayEvent::EmojiCreate(emoji) => {
+            if let v0::EmojiParent::Server { id } = &emoji.parent {
+                emitted.push(CacheEvent::ServerChanged(id.clone()));
+            }
+            state.emojis.insert(emoji.id.clone(), *emoji);
+        }
+        GatewayEvent::EmojiDelete { id } => {
+            if let Some(v0::Emoji {
+                parent: v0::EmojiParent::Server { id: server },
+                ..
+            }) = state.emojis.remove(&id)
+            {
+                emitted.push(CacheEvent::ServerChanged(server));
+            }
+        }
         GatewayEvent::UserSettingsUpdate { .. } => {}
         GatewayEvent::Authenticated
         | GatewayEvent::Ready(_)
@@ -831,6 +851,30 @@ mod tests {
         assert!(Unread::is_behind(Some(&read), Some("01C")));
         assert!(Unread::is_behind(None, Some("01A")));
         assert!(!Unread::is_behind(None, None));
+    }
+
+    #[tokio::test]
+    async fn emoji_events_update_cache() {
+        let cache = Cache::new();
+        let event: GatewayEvent = serde_json::from_value(json!({
+            "type": "EmojiCreate",
+            "_id": "01EMOJI",
+            "parent": { "type": "Server", "id": "s1" },
+            "creator_id": "01USER",
+            "name": "spider"
+        }))
+        .unwrap();
+        let emitted = cache.apply(event).await;
+        assert_eq!(emitted, vec![CacheEvent::ServerChanged("s1".into())]);
+        assert_eq!(cache.emojis().await.len(), 1);
+
+        let emitted = cache
+            .apply(GatewayEvent::EmojiDelete {
+                id: "01EMOJI".into(),
+            })
+            .await;
+        assert_eq!(emitted, vec![CacheEvent::ServerChanged("s1".into())]);
+        assert!(cache.emojis().await.is_empty());
     }
 
     #[tokio::test]

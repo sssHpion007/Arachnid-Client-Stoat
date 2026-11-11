@@ -248,6 +248,13 @@ pub enum GatewayEvent {
         /// Id роли
         role_id: String,
     },
+    /// Эмодзи добавлен на сервер
+    EmojiCreate(Box<v0::Emoji>),
+    /// Эмодзи удалён
+    EmojiDelete {
+        /// Id эмодзи
+        id: String,
+    },
     /// Пользователь обновил профиль
     UserUpdate {
         /// Id пользователя

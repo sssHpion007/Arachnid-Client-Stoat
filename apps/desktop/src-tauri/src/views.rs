@@ -198,6 +198,8 @@ pub struct WorkspaceView {
     pub last_channel: Option<String>,
     /// Базовый URL файлов (аватары, вложения)
     pub cdn: Option<String>,
+    /// Прокси January для сторонних картинок и видео во встраиваниях
+    pub proxy: Option<String>,
 }
 
 /// Порядок, который пользователь задал в браузерной версии Stoat.
@@ -328,6 +330,7 @@ impl WorkspaceView {
             notes,
             last_channel,
             cdn,
+            proxy: None,
         }
     }
 }
@@ -343,6 +346,12 @@ pub struct ServerView {
     pub initial: String,
     /// Иконка, если она есть
     pub icon: Option<String>,
+    /// Баннер: фон шапки боковой панели
+    pub banner: Option<String>,
+    /// Описание сервера (markdown)
+    pub description: Option<String>,
+    /// Значок: 1 — официальный сервер, 2 — проверенный
+    pub flags: u32,
     /// Категории с каналами (в порядке сервера)
     pub categories: Vec<CategoryView>,
     /// Есть ли непрочитанное хотя бы в одном канале
@@ -363,8 +372,6 @@ impl ServerView {
         ordering: &Ordering,
         cdn: Option<&str>,
     ) -> Self {
-        let members = members.cloned().unwrap_or_default();
-
         // только текстовые каналы этого сервера
         let own: Vec<&&v0::Channel> = channels
             .iter()
@@ -384,7 +391,7 @@ impl ServerView {
                 .filter_map(|channel_id| {
                     let channel = own.iter().find(|c| id_of(c) == channel_id)?;
                     placed.push(channel_id.clone());
-                    Some(ChannelView::build(channel, &[], Some(&members), None, cdn))
+                    Some(ChannelView::build(channel, &[], members, None, cdn))
                 })
                 .collect();
             if !list.is_empty() {
@@ -402,7 +409,7 @@ impl ServerView {
         let mut rest: Vec<ChannelView> = own
             .iter()
             .filter(|channel| !placed.contains(&id_of(channel).to_string()))
-            .map(|channel| ChannelView::build(channel, &[], Some(&members), None, cdn))
+            .map(|channel| ChannelView::build(channel, &[], members, None, cdn))
             .collect();
 
         if !rest.is_empty() {
@@ -433,6 +440,9 @@ impl ServerView {
             initial: initial_of(&server.name),
             name: server.name.clone(),
             icon: server.icon.as_ref().and_then(|file| file_url(file, cdn)),
+            banner: server.banner.as_ref().and_then(|file| file_url(file, cdn)),
+            description: server.description.clone(),
+            flags: server.flags,
             categories,
             unread: false,
             mentions: 0,
@@ -710,10 +720,37 @@ pub struct EmbedView {
     pub site: Option<String>,
     /// Картинка предпросмотра
     pub image: Option<String>,
-    /// Ширина картинки
+    /// Ширина картинки или видео
     pub width: Option<usize>,
-    /// Высота картинки
+    /// Высота картинки или видео
     pub height: Option<usize>,
+    /// Видео (у видео-встраиваний и GIF с Tenor/Giphy)
+    pub video: Option<String>,
+    /// Это GIF: проигрывается без звука по кругу, как в браузере
+    pub gif: bool,
+    /// Значок сайта
+    pub icon: Option<String>,
+    /// Цвет полоски слева
+    pub colour: Option<String>,
+}
+
+/// Сайты GIF, чьи файлы браузерный клиент показывает без прокси
+/// (`common/lib/gifs.ts`).
+const GIF_PROVIDERS: [&str; 3] = [
+    "https://tenor.com",
+    "https://giphy.com",
+    "https://gifbox.me",
+];
+
+/// Адрес с одного из сайтов GIF.
+fn from_gif_provider(url: Option<&str>) -> bool {
+    url.is_some_and(|url| {
+        GIF_PROVIDERS.iter().any(|origin| {
+            url.strip_prefix(origin).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with('/') || rest.starts_with('?')
+            })
+        })
+    })
 }
 
 /// Текст системного сообщения, как в браузерном клиенте.
@@ -933,54 +970,83 @@ impl ChatMessage {
 
 impl EmbedView {
     fn build(embed: &v0::Embed) -> Option<Self> {
+        let blank = Self {
+            kind: String::new(),
+            url: None,
+            title: None,
+            description: None,
+            site: None,
+            image: None,
+            width: None,
+            height: None,
+            video: None,
+            gif: false,
+            icon: None,
+            colour: None,
+        };
         match embed {
-            v0::Embed::Website(website) => Some(Self {
-                kind: "website".into(),
-                url: website.url.clone().or_else(|| website.original_url.clone()),
-                title: website.title.clone(),
-                description: website.description.clone(),
-                site: website.site_name.clone(),
-                image: website.image.as_ref().map(|image| image.url.clone()),
-                width: website.image.as_ref().map(|image| image.width),
-                height: website.image.as_ref().map(|image| image.height),
-            }),
+            v0::Embed::Website(website) => {
+                let page = website.original_url.as_deref().or(website.url.as_deref());
+                let gif =
+                    matches!(website.special, Some(v0::Special::GIF)) || from_gif_provider(page);
+                let (width, height) = website
+                    .video
+                    .as_ref()
+                    .map(|video| (video.width, video.height))
+                    .or_else(|| {
+                        website
+                            .image
+                            .as_ref()
+                            .map(|image| (image.width, image.height))
+                    })
+                    .unzip();
+                Some(Self {
+                    kind: "website".into(),
+                    url: website.url.clone().or_else(|| website.original_url.clone()),
+                    title: website.title.clone(),
+                    description: website.description.clone(),
+                    site: website.site_name.clone(),
+                    image: website.image.as_ref().map(|image| image.url.clone()),
+                    width,
+                    height,
+                    video: website.video.as_ref().map(|video| video.url.clone()),
+                    gif,
+                    icon: website.icon_url.clone(),
+                    colour: website.colour.clone(),
+                })
+            }
             v0::Embed::Image(image) => Some(Self {
                 kind: "image".into(),
                 url: Some(image.url.clone()),
-                title: None,
-                description: None,
-                site: None,
                 image: Some(image.url.clone()),
                 width: Some(image.width),
                 height: Some(image.height),
+                gif: from_gif_provider(Some(&image.url)),
+                ..blank
             }),
             v0::Embed::Video(video) => Some(Self {
                 kind: "video".into(),
                 url: Some(video.url.clone()),
-                title: None,
-                description: None,
-                site: None,
-                image: None,
                 width: Some(video.width),
                 height: Some(video.height),
+                video: Some(video.url.clone()),
+                gif: from_gif_provider(Some(&video.url)),
+                ..blank
             }),
             v0::Embed::Text(text) => Some(Self {
                 kind: "text".into(),
                 url: text.url.clone(),
                 title: text.title.clone(),
                 description: text.description.clone(),
-                site: None,
-                image: None,
-                width: None,
-                height: None,
+                icon: text.icon_url.clone(),
+                colour: text.colour.clone(),
+                ..blank
             }),
             v0::Embed::None => None,
         }
     }
 }
 
-/// Текст текстового эмбеда: в модели это `content`, а не `description`.
-///
 /// Адрес аватара вебхука: в сообщении приходит только id файла.
 pub fn webhook_avatar_url(id: &str, cdn: Option<&str>) -> Option<String> {
     let base = cdn?.trim_end_matches('/');
@@ -1003,6 +1069,14 @@ pub struct AttachmentView {
     pub kind: String,
     /// Размер в байтах
     pub size: i64,
+    /// Исходный файл без пережатия (для просмотра и скачивания)
+    pub original: Option<String>,
+    /// Ширина картинки или видео
+    pub width: Option<usize>,
+    /// Высота картинки или видео
+    pub height: Option<usize>,
+    /// MIME-тип
+    pub content_type: String,
 }
 
 impl AttachmentView {
@@ -1014,11 +1088,22 @@ impl AttachmentView {
             v0::Metadata::Text => "text",
             v0::Metadata::File => "file",
         };
+        let (width, height) = match &file.metadata {
+            v0::Metadata::Image { width, height, .. } | v0::Metadata::Video { width, height } => {
+                (Some(*width), Some(*height))
+            }
+            _ => (None, None),
+        };
+        let url = file_url(file, cdn);
         Self {
             name: file.filename.clone(),
-            url: file_url(file, cdn),
+            original: url.as_ref().map(|url| format!("{url}/original")),
+            url,
             kind: kind.into(),
             size: file.size as i64,
+            width,
+            height,
+            content_type: file.content_type.clone(),
         }
     }
 }

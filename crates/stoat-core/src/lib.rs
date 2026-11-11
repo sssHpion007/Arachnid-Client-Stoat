@@ -189,4 +189,14 @@ impl ApiRoot {
             .and_then(|v| v.get("url"))
             .and_then(|v| v.as_str())
     }
+
+    /// URL прокси January для сторонних картинок и видео из встраиваний,
+    /// если он включён на инстансе.
+    pub fn january_url(&self) -> Option<&str> {
+        let january = self.features.get("january")?;
+        if january.get("enabled").and_then(|v| v.as_bool()) == Some(false) {
+            return None;
+        }
+        january.get("url").and_then(|v| v.as_str())
+    }
 }
