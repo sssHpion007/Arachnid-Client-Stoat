@@ -33,18 +33,15 @@ jobs:
 
   desktop:
     name: приложение (типы и тесты)
-    runs-on: ubuntu-24.04
-    # зависшее зеркало apt не должно держать проверку часами
+    # Главная цель — Windows; там WebView2 уже есть, и не нужны системные
+    # пакеты GTK/WebKit, установка которых через apt зависала на раннерах Linux.
+    runs-on: windows-latest
     timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-
-      - name: системные библиотеки Tauri
-        timeout-minutes: 15
-        run: |
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: dtolnay/rust-toolchain@stable
         with:
