@@ -69,7 +69,7 @@ function h(tag, props = {}, children = []) {
     else if (key.startsWith("on")) node[key] = value;
     else node.setAttribute(key, value === true ? "" : value);
   }
-  for (const child of [].concat(children)) {
+  for (const child of [].concat(children).flat(Infinity)) {
     if (child === null || child === undefined || child === false) continue;
     node.append(typeof child === "string" ? document.createTextNode(child) : child);
   }
@@ -110,31 +110,40 @@ function toast(text, kind = "") {
   toastTimer = setTimeout(() => node.classList.add("hidden"), 3600);
 }
 
+/** Понятные описания частых ошибок API (msgid, переводятся при показе). */
 const KNOWN_ERRORS = {
-  RateLimited: "слишком часто — подождите немного",
-  rate_limited: "слишком часто — подождите немного",
-  MissingPermission: "нет прав на это действие",
-  NotFound: "не найдено (возможно, удалено)",
-  EmptyMessage: "пустое сообщение",
-  PayloadTooLarge: "слишком длинное сообщение",
-  TooManyReplies: "слишком много ответов в одном сообщении",
-  Unauthorized: "сессия истекла — войдите заново",
-  unauthorized: "сначала войдите в аккаунт",
-  InvalidSession: "сессия истекла — войдите заново",
+  RateLimited: /* i18n */ "too many requests — please wait a moment",
+  rate_limited: /* i18n */ "too many requests — please wait a moment",
+  MissingPermission: /* i18n */ "you do not have permission to do this",
+  NotFound: /* i18n */ "not found (it may have been deleted)",
+  EmptyMessage: /* i18n */ "empty message",
+  PayloadTooLarge: /* i18n */ "the message is too long",
+  TooManyReplies: /* i18n */ "too many replies in one message",
+  Unauthorized: /* i18n */ "the session has expired — log in again",
+  unauthorized: /* i18n */ "log in to your account first",
+  InvalidSession: /* i18n */ "the session has expired — log in again",
 };
 
 function describe(error) {
-  if (!error) return "неизвестная ошибка";
+  if (!error) return t("unknown error");
   const text = String(error.message || error.kind || error);
   for (const [code, human] of Object.entries(KNOWN_ERRORS)) {
-    if (error.kind === code || text.includes(code)) return human;
+    if (error.kind === code || text.includes(code)) return t(human);
   }
-  if (/network|сетев|connect/i.test(text)) return "нет связи с сервером";
+  if (/network|сетев|connect/i.test(text)) return t("no connection to the server");
   return text;
 }
 
+/** Открыть ссылку в браузере системы (плагин shell). */
+function openExternal(url) {
+  const shell = window.__TAURI__ && window.__TAURI__.shell;
+  if (shell && shell.open) return shell.open(url);
+  window.open(url, "_blank", "noreferrer");
+  return Promise.resolve();
+}
+
 async function call(cmd, args = {}) {
-  if (!invoke) throw new Error("нет моста Tauri");
+  if (!invoke) throw new Error(t("the Tauri bridge is unavailable"));
   return invoke(cmd, args);
 }
 
@@ -169,14 +178,14 @@ function paintName(node, colour) {
 
 function humanSize(bytes) {
   if (!bytes) return "";
-  const units = ["Б", "КБ", "МБ", "ГБ"];
+  const units = [t("B"), t("KB"), t("MB"), t("GB")];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
     value /= 1024;
     unit += 1;
   }
-  return `${value.toFixed(value < 10 && unit > 0 ? 1 : 0)} ${units[unit]}`;
+  return `${I18N.number(Number(value.toFixed(value < 10 && unit > 0 ? 1 : 0)))} ${units[unit]}`;
 }
 
 // ─────────────────────────── время ───────────────────────────
@@ -190,13 +199,19 @@ function sameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+/** Время по формату из «Языка» (HH:mm или h:mm A). */
 function clockText(date) {
-  return date ? date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) : "";
+  return I18N.time(date);
 }
 
 /** Дата для разделителя (формат «LL» в оригинале). */
 function dateText(date) {
-  return date ? date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" }) : "";
+  return I18N.longDate(date);
+}
+
+/** Формат календаря dayjs: текст в [скобках] как есть, LT — время. */
+function calendarFormat(format, date) {
+  return t(format).replace(/\[([^\]]*)\]|LT/g, (match, text) => (text !== undefined ? text : clockText(date)));
 }
 
 /** Время в шапке сообщения: «Сегодня в 12:30», «Вчера в …», иначе дата. */
@@ -204,9 +219,10 @@ function calendarText(date) {
   if (!date) return "";
   const now = new Date();
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  if (sameDay(date, now)) return "Сегодня в " + clockText(date);
-  if (sameDay(date, yesterday)) return "Вчера в " + clockText(date);
-  return date.toLocaleDateString("ru-RU") + " " + clockText(date);
+  // «[Today at] LT» и «[Yesterday at] LT» — форматы dayjs из каталогов for-web
+  if (sameDay(date, now)) return calendarFormat("[Today at] LT", date);
+  if (sameDay(date, yesterday)) return calendarFormat("[Yesterday at] LT", date);
+  return I18N.date(date) + " " + clockText(date);
 }
 
 // ─────────────────────────── файлы ───────────────────────────
@@ -332,14 +348,20 @@ async function spriteUrl(codepoint) {
   return source ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source) : null;
 }
 
-async function unicodeEmojiUrl(text) {
+/** Встроенный набор картинок — Twemoji; остальные наборы берутся со статики Stoat. */
+const BUNDLED_EMOJI_PACK = "twemoji";
+
+async function unicodeEmojiUrl(text, pack = getOption("appearance:unicode_emoji")) {
   const codepoint = emojiCodepoint(text);
   if (!codepoint) return null;
-  const cached = unicodeCache.get(codepoint);
+  const key = pack + ":" + codepoint;
+  const cached = unicodeCache.get(key);
   if (cached) return cached === "none" ? null : cached;
-  let data = await spriteUrl(codepoint);
-  if (!data) data = await call("fetch_emoji", { codepoint }).catch(() => null);
-  unicodeCache.set(codepoint, data || "none");
+  let data = null;
+  if (pack !== BUNDLED_EMOJI_PACK) data = await call("fetch_emoji", { codepoint, pack }).catch(() => null);
+  if (!data) data = await spriteUrl(codepoint);
+  if (!data && pack === BUNDLED_EMOJI_PACK) data = await call("fetch_emoji", { codepoint, pack }).catch(() => null);
+  unicodeCache.set(key, data || "none");
   return data;
 }
 
@@ -419,9 +441,9 @@ function linkNode(href, label) {
   const info = messageLinkInfo(href);
   if (info) {
     const known = findChannel(info.channel);
-    const button = h("button", { class: "message-link", type: "button", title: "Перейти к сообщению" }, [
+    const button = h("button", { class: "message-link", type: "button", title: t("Jump to message") }, [
       symbol("chevron_right", 16),
-      known ? known.channel.name : "сообщение",
+      known ? known.channel.name : t("message"),
     ]);
     button.onclick = () => jumpToMessage(info);
     return button;
@@ -482,8 +504,8 @@ function plainPreview(message) {
     .replace(/\s+/g, " ")
     .trim();
   if (text) return text;
-  if (message.attachments && message.attachments.length) return "Вложение";
-  if (message.embeds && message.embeds.length) return "Встраивание";
+  if (message.attachments && message.attachments.length) return t("Sent an attachment");
+  if (message.embeds && message.embeds.length) return t("Embed");
   return "";
 }
 
@@ -511,7 +533,7 @@ function findChannel(channelId) {
 function notesChannel() {
   return {
     id: state.workspace.notes,
-    name: "Заметки",
+    name: t("Saved Notes"),
     kind: "notes",
     description: null,
     icon: null,
@@ -540,7 +562,7 @@ function userName(userId) {
   if (author) return author.author;
   const dm = state.workspace && state.workspace.dms.find((item) => item.recipient === userId);
   if (dm) return dm.name;
-  return "неизвестный";
+  return t("Unknown User");
 }
 
 function myName() {
@@ -608,6 +630,7 @@ function noteIncoming(message) {
   if (!channel.last_message_id || channel.last_message_id < message.id) channel.last_message_id = message.id;
   const mine = state.me && message.author_id === state.me.id;
   if (!mine) {
+    notifyIncoming(message, channel, server);
     channel.unread = true;
     if (state.me && (message.mentions || []).includes(state.me.id)) channel.mentions = (channel.mentions || 0) + 1;
   }
@@ -634,7 +657,7 @@ function renderRail() {
 
   const home = railEntry({
     selected: state.serverId === null,
-    title: "Беседы",
+    title: t("Home"),
     content: symbol("home", 22),
     onclick: () => selectServer(null),
   });
@@ -678,7 +701,7 @@ function renderRail() {
   }
 
   const add = railEntry({
-    title: "Добавить сервер",
+    title: t("Create or join a server"),
     content: symbol("add", 24),
     onclick: () => addServerModal(),
   });
@@ -689,7 +712,7 @@ function renderRail() {
   const bottom = el("rail-bottom");
   if (bottom) {
     const gear = railEntry({
-      title: "Настройки",
+      title: t("Settings"),
       content: symbol("settings_fill", 24),
       onclick: () => openUserSettings(),
     });
@@ -749,22 +772,22 @@ function renderSidebar() {
 
   if (state.serverId === null) {
     header.className = "sidebar-header";
-    header.append(h("span", { class: "sidebar-header-title", text: "Беседы" }));
+    header.append(h("span", { class: "sidebar-header-title", text: t("Conversations") }));
 
     if (ws.notes) {
       const notes = notesChannel();
       list.append(
         menuButton({
           icon: symbol("note_stack", 22),
-          name: "Заметки",
+          name: t("Saved Notes"),
           attention: attentionOf(notes),
           onclick: () => openChannel(notes),
         }),
       );
     }
 
-    list.append(categoryLabel("Личные сообщения", null));
-    if (!ws.dms.length) list.append(h("div", { class: "sidebar-note", text: "Пока нет переписок" }));
+    list.append(categoryLabel(t("Direct Messages"), null));
+    if (!ws.dms.length) list.append(h("div", { class: "sidebar-note", text: t("No conversations yet") }));
     for (const dm of ws.dms) {
       const icon =
         dm.kind === "dm"
@@ -795,7 +818,7 @@ function renderSidebar() {
   };
 
   if (!server.categories.length) {
-    list.append(h("div", { class: "sidebar-note", text: "Нет доступных каналов" }));
+    list.append(h("div", { class: "sidebar-note", text: t("No channels available") }));
     return;
   }
   for (const category of server.categories) {
@@ -838,14 +861,14 @@ function renderServerHeader(header, server) {
   if (banner) header.style.backgroundImage = `url("${mediaSrc(server.banner)}")`;
 
   const badge = server.flags
-    ? h("span", { class: "server-badge", title: server.flags === 1 ? "Официальный сервер" : "Проверенный сервер" }, [
+    ? h("span", { class: "server-badge", title: server.flags === 1 ? t("Official Server") : t("Verified Server") }, [
         symbol(server.flags === 1 ? "check_circle_fill" : "check_circle", 14),
       ])
     : null;
-  const name = h("button", { class: "server-name", type: "button", title: "О сервере", text: server.name });
+  const name = h("button", { class: "server-name", type: "button", title: t("Server Info"), text: server.name });
   name.onclick = () => openServerInfo(server);
   const gear = canOpenServerSettings(server)
-    ? h("button", { class: "icon-button server-gear", type: "button", title: "Настройки сервера" }, [
+    ? h("button", { class: "icon-button server-gear", type: "button", title: t("Open server settings") }, [
         symbol("settings_fill", 22),
       ])
     : null;
@@ -867,42 +890,18 @@ async function openServerInfo(server) {
       body.append(richText(server.description));
     }
   } else {
-    body.append(h("span", { class: "settings-hint", text: "У сервера нет описания." }));
+    body.append(h("span", { class: "settings-hint", text: t("This server has no description.") }));
   }
   const actions = [];
   if (canOpenServerSettings(server)) {
     actions.push({
-      label: "Настройки",
+      label: t("Settings"),
       onclick: () => openServerSettings(server.id).catch((error) => toast(describe(error), "error")),
     });
   }
-  actions.push({ label: "Изменить профиль на сервере", onclick: () => editServerIdentity(server) });
-  actions.push({ label: "Закрыть", primary: true, onclick: closeModal });
+  actions.push({ label: t("Edit Identity"), onclick: () => serverIdentityModal(server).catch((error) => toast(describe(error), "error")) });
+  actions.push({ label: t("Close"), primary: true, onclick: closeModal });
   openModal({ title: server.name, body, actions });
-}
-
-/** Ник на сервере (server_identity в оригинале). */
-async function editServerIdentity(server) {
-  if (!state.me) return;
-  let current = "";
-  try {
-    const profile = await call("user_profile", { userId: state.me.id, serverId: server.id });
-    current = profile.nickname || "";
-  } catch (error) {
-    console.warn("профиль не получен:", error);
-  }
-  formModal({
-    title: "Профиль на сервере",
-    text: `Как вас видят участники «${server.name}». Пустое поле — показывать обычное имя.`,
-    fields: [{ label: "Ник на сервере", value: current, placeholder: myName(), maxlength: 32 }],
-    confirm: "Сохранить",
-    submit: async (nickname) => {
-      await call("edit_member", { serverId: server.id, userId: state.me.id, nickname, roles: null });
-      membersCache.delete(server.id);
-      if (state.serverId === server.id) loadMembers(server.id);
-      toast("Профиль на сервере сохранён");
-    },
-  });
 }
 
 /** Меню пустого места в списке каналов. */
@@ -910,15 +909,15 @@ function openSidebarMenu(event, server) {
   openContextMenu(event, [
     serverAllows(server, PERM.MANAGE_CHANNEL) && {
       icon: "add",
-      label: "Создать канал",
+      label: t("Create channel"),
       action: () => createChannelModal(server.id),
     },
     canOpenServerSettings(server) && {
       icon: "settings",
-      label: "Настройки сервера",
+      label: t("Open server settings"),
       action: () => openServerSettings(server.id),
     },
-    { icon: "info", label: "О сервере", action: () => openServerInfo(server) },
+    { icon: "info", label: t("Server Info"), action: () => openServerInfo(server) },
   ]);
 }
 
@@ -976,9 +975,24 @@ function renderHeader() {
   membersButton.classList.toggle("active", state.showMembers);
 }
 
-function setConnection(kind, text) {
+/** Состояние соединения: точка в шапке канала и полоса рамки окна (Titlebar.tsx). */
+function setConnection(kind, text, retry = null) {
   el("conn").className = "connection " + kind;
   el("conn-text").textContent = text;
+  if (window.setTitlebarConnection) {
+    window.setTitlebarConnection({ ok: "connected", warn: "connecting", err: "disconnected" }[kind] || "disconnected", retry);
+  }
+}
+
+/** Переподключиться к шлюзу по ссылке «(переподключиться)». */
+async function reconnectGateway() {
+  setConnection("warn", t("connecting…"));
+  try {
+    await call("connect_gateway");
+  } catch (error) {
+    setConnection("err", t("no connection"), reconnectGateway);
+    toast(t("Could not connect: {0}", [describe(error)]), "error");
+  }
 }
 
 // ─────────────────────────── канал ───────────────────────────
@@ -992,7 +1006,7 @@ function closeChannel() {
   renderHeader();
   renderComposer();
   renderMembers();
-  showState(null, "Выберите канал", "Серверы — слева, беседы — под значком дома.");
+  showState(null, t("Select a channel"), t("Servers are on the left, conversations are under the home icon."));
 }
 
 function showState(icon, title, text) {
@@ -1146,8 +1160,8 @@ async function openChannel(channel, { reload = false } = {}) {
     if (!cached) focusInput();
   } catch (error) {
     if (token !== openToken) return;
-    if (cached) toast("Не удалось обновить историю: " + describe(error), "error");
-    else showState(symbol("info", 32), "Не удалось загрузить историю", describe(error));
+    if (cached) toast(t("Could not refresh the history: {0}", [describe(error)]), "error");
+    else showState(symbol("info", 32), t("Could not load the history"), describe(error));
   }
 }
 
@@ -1203,7 +1217,7 @@ async function jumpToMessage(info) {
   const found = findChannel(info.channel);
   if (!found) {
     await copyText(`https://stoat.chat/channel/${info.channel}/${info.message}`);
-    toast("Канал недоступен — ссылка скопирована");
+    toast(t("The channel is unavailable — link copied"));
     return;
   }
   if (state.channelId !== info.channel) await openChannel(found.channel);
@@ -1218,7 +1232,7 @@ async function jumpToMessage(info) {
     if (state.reachedStart) break;
     await loadOlder();
   }
-  toast("Сообщение не найдено в истории", "error");
+  toast(t("The message was not found in the history"), "error");
 }
 
 // ─────────────────────────── лента ───────────────────────────
@@ -1297,14 +1311,14 @@ function conversationStart(channel) {
   const title = channel.kind === "text" || channel.kind === "voice" ? "#" + channel.name : channel.name;
   const text =
     channel.kind === "notes"
-      ? "Сюда можно сохранять заметки — их видите только вы."
-      : "Это начало переписки.";
+      ? t("This is the start of your notes.")
+      : t("This is the start of your conversation.");
   return h("div", { class: "conversation-start" }, [h("h1", { text: title }), h("p", { text })]);
 }
 
 function divider(dateLabel, unread) {
   return h("div", { class: "divider" + (unread ? " unread" : "") }, [
-    unread ? h("span", { class: "new", text: "НОВОЕ" }) : null,
+    unread ? h("span", { class: "new", text: t("NEW") }) : null,
     dateLabel ? h("time", { text: dateLabel }) : null,
   ]);
 }
@@ -1368,11 +1382,33 @@ function messageNode(message, tail) {
     for (const replyId of message.replies || []) node.append(replyLine(replyId));
   }
 
+  // компактный режим (Container.tsx): без аватаров, «время ник» слева от текста
+  const compact = Boolean(getOption("appearance:compact_mode")) && !message.system;
+  if (compact) {
+    tail = true;
+    classes.push("compact");
+    node.className = classes.join(" ");
+  }
   const info = h("div", { class: "message-info" });
+  const event = message.system ? message.system_event : null;
+  const inServer = Boolean(event && (findChannel(message.channel) || {}).server);
   if (message.system) {
-    info.append(symbol(systemIcon(message.content), 20));
+    const { icon, danger } = event ? systemIcon(event, inServer) : { icon: "info_fill" };
+    info.append(h("span", { class: "system-icon" + (danger ? " danger" : "") }, [symbol(icon, 16)]));
+  } else if (compact) {
+    const name = h("span", { class: "username", text: message.author, title: message.username || message.author });
+    paintName(name, message.colour);
+    name.onclick = (clickEvent) => openUserCard(clickEvent, message.author_id);
+    name.oncontextmenu = (menuEvent) => openUserMenu(menuEvent, { id: message.author_id, name: message.author });
+    info.append(
+      h("span", { class: "compact-info" }, [
+        h("time", { text: clockText(date), title: date ? date.toLocaleString(I18N.tag()) : "" }),
+        name,
+        message.edited ? symbol("edit", 16) : null,
+      ]),
+    );
   } else if (tail) {
-    info.append(h("time", { text: message.edited ? "(изм.)" : clockText(date), title: date ? date.toLocaleString() : "" }));
+    info.append(h("time", { text: message.edited ? t("(ed.)") : clockText(date), title: date ? date.toLocaleString() : "" }));
   } else {
     const picture = avatar({ url: message.avatar, name: message.author, size: 36 });
     picture.onclick = (event) => openUserCard(event, message.author_id);
@@ -1388,18 +1424,20 @@ function messageNode(message, tail) {
     const head = h("div", { class: "message-head" }, [
       name,
       h("time", { text: calendarText(date), title: date ? date.toLocaleString() : "" }),
-      message.edited ? h("span", { class: "edited", text: "(изменено)" }) : null,
+      message.edited ? h("span", { class: "edited", text: t("(edited)") }) : null,
     ]);
     content.append(head);
   }
 
   if (state.editing === message.id) {
     content.append(editBox(message));
+  } else if (event && event.kind !== "text") {
+    content.append(h("div", { class: "message-text system-text" }, systemEventText(event, { server: inServer, channelId: message.channel })));
   } else {
     const text = h("div", { class: "message-text" + (isJumbo(message.content) ? " jumbo" : "") });
     text.append(segmentsNode(message));
     if (text.textContent || text.childElementCount) content.append(text);
-    if (tail && message.edited) content.append(h("span", { class: "edited", text: "(изменено)" }));
+    if (tail && message.edited && !compact) content.append(h("span", { class: "edited", text: t("(edited)") }));
   }
 
   if (message.attachments && message.attachments.length) content.append(attachmentsNode(message.attachments));
@@ -1418,12 +1456,108 @@ function messageNode(message, tail) {
   return node;
 }
 
-function systemIcon(text) {
-  if (/присоединя|добавля/.test(text)) return "person_add";
-  if (/выходит|убирает|исключ|заблокир/.test(text)) return "logout";
-  if (/закрепля|открепля/.test(text)) return "keep";
-  if (/звонок/.test(text)) return "call";
-  return "info";
+/** Значок системного сообщения (SystemMessageIcon.tsx); `danger` — красный. */
+function systemIcon(event, inServer) {
+  switch (event.kind) {
+    case "user_added":
+      return { icon: "add" };
+    case "user_left":
+      return inServer ? { icon: "arrow_back", danger: true } : { icon: "remove", danger: true };
+    case "user_remove":
+      return { icon: "close" };
+    case "user_kicked":
+      return { icon: "cancel", danger: true };
+    case "user_banned":
+      return { icon: "gpp_bad", danger: true };
+    case "user_joined":
+      return { icon: "arrow_forward" };
+    case "channel_renamed":
+      return { icon: "sell" };
+    case "channel_description_changed":
+      return { icon: "notes" };
+    case "channel_icon_changed":
+      return { icon: "image" };
+    case "channel_ownership_changed":
+      return { icon: "key" };
+    case "message_pinned":
+    case "message_unpinned":
+      return { icon: "keep" };
+    case "call_started":
+      return { icon: "call" };
+    default:
+      return { icon: "info_fill" };
+  }
+}
+
+/** msgid системного сообщения (SystemMessage.tsx): <0/> — участник, <1/> — второй участник или ссылка. */
+function systemMessageId(event, inServer) {
+  switch (event.kind) {
+    case "user_added":
+      return /* i18n */ "<0/> has been added by <1/>";
+    case "user_remove":
+      return /* i18n */ "<0/> has been removed by <1/>";
+    case "user_kicked":
+      return /* i18n */ "<0/> has been kicked from the server";
+    case "user_banned":
+      return /* i18n */ "<0/> has been banned from the server";
+    case "user_joined":
+      return /* i18n */ "<0/> joined the server";
+    case "user_left":
+      return inServer ? "<0/> left the server" : "<0/> left the group";
+    case "channel_renamed":
+      return /* i18n */ "<0/> updated the group name to <1>{0}</1>";
+    case "channel_description_changed":
+      return /* i18n */ "<0/> updated the group description";
+    case "channel_icon_changed":
+      return /* i18n */ "<0/> updated the group icon ";
+    case "channel_ownership_changed":
+      return /* i18n */ "<0/> transferred group ownership to <1/>";
+    case "message_pinned":
+      return /* i18n */ "<0/> pinned <1/>";
+    case "message_unpinned":
+      return /* i18n */ "<0/> unpinned <1/>";
+    case "call_started":
+      return /* i18n */ "<0/> started a call";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Текст системного сообщения на языке интерфейса. `plain` — строкой (для
+ * уведомлений), иначе — узлами с упоминаниями и ссылкой на сообщение.
+ */
+function systemEventText(event, { plain = false, server = false, channelId = null } = {}) {
+  const msgid = systemMessageId(event, server);
+  if (!msgid) return plain ? event.text || "" : [event.text || ""];
+  // в «X добавлен Y» первым идёт участник, в остальных — тот, кто сделал
+  const first = ["channel_renamed", "channel_description_changed", "channel_icon_changed", "channel_ownership_changed", "message_pinned", "message_unpinned", "call_started"].includes(event.kind)
+    ? { name: event.by, id: event.by_id }
+    : { name: event.user, id: event.user_id };
+  const second = event.kind === "channel_ownership_changed" ? { name: event.user, id: event.user_id } : { name: event.by, id: event.by_id };
+  const values = [event.text || ""];
+
+  if (plain) {
+    const link = event.message_id ? t("message") : "";
+    return t(msgid, values)
+      .replace(/<0\/>/g, first.name || "")
+      .replace(/<1\/>/g, event.message_id ? link : second.name || "")
+      .replace(/<1>([\s\S]*?)<\/1>/g, "$1")
+      .trim();
+  }
+
+  const mention = (person) => {
+    const node = h("span", { class: "mention", text: person.name || t("Unknown User") });
+    if (person.id) node.onclick = (clickEvent) => openUserCard(clickEvent, person.id);
+    return node;
+  };
+  const target = event.message_id && channelId
+    ? linkNode(channelLink({ id: channelId }) + "/" + event.message_id, null)
+    : mention(second);
+  return I18N.rich(msgid, values, {
+    0: mention(first),
+    1: event.kind === "channel_renamed" ? (text) => h("strong", { text }) : target,
+  });
 }
 
 function replyLine(replyId) {
@@ -1439,7 +1573,7 @@ function replyLine(replyId) {
     );
     node.onclick = () => jumpToMessage({ channel: state.channelId, message: replyId });
   } else {
-    node.append(h("span", { class: "reply-text missing", text: "Сообщение не загружено" }));
+    node.append(h("span", { class: "reply-text missing", text: t("Message not loaded") }));
     node.onclick = () => jumpToMessage({ channel: state.channelId, message: replyId });
   }
   return node;
@@ -1482,7 +1616,7 @@ function sizedContent(width, height, child) {
 function spoilerWrap(node, file) {
   if (!file.name || !file.name.toLowerCase().startsWith("spoiler_")) return node;
   node.classList.add("spoiler");
-  const cover = h("button", { class: "spoiler-cover", type: "button", text: "Спойлер" });
+  const cover = h("button", { class: "spoiler-cover", type: "button", text: t("Spoiler") });
   cover.onclick = (event) => {
     event.stopPropagation();
     node.classList.remove("spoiler");
@@ -1498,7 +1632,7 @@ const FILE_ICONS = { image: "image", video: "movie", audio: "headphones", text: 
 function fileInfo(file) {
   const target = file.original || file.url;
   const download = target
-    ? h("button", { class: "icon-button", type: "button", title: "Скачать" }, [symbol("download", 20)])
+    ? h("button", { class: "icon-button", type: "button", title: t("Download") }, [symbol("download", 20)])
     : null;
   if (download) download.onclick = () => downloadFile(target, file.name);
   return h("div", { class: "file-info" }, [
@@ -1515,7 +1649,7 @@ function fileInfo(file) {
 async function downloadFile(url, filename) {
   try {
     const path = await call("download_file", { url, filename: filename || "file" });
-    toast("Сохранено: " + path);
+    toast(t("Saved: {0}", [path]));
   } catch (error) {
     toast(describe(error), "error");
   }
@@ -1688,15 +1822,15 @@ function openImageViewer({ src, name = null, size = 0, width = null, height = nu
       ])
     : h("div");
   const actions = h("div", { class: "viewer-card" }, [
-    button("zoom_out", "Уменьшить", () => zoom(scale / 1.3)),
-    button("zoom_in", "Увеличить", () => zoom(scale * 1.3)),
-    download ? button("download", "Скачать", () => downloadFile(download, name)) : null,
+    button("zoom_out", t("Zoom out"), () => zoom(scale / 1.3)),
+    button("zoom_in", t("Zoom in"), () => zoom(scale * 1.3)),
+    download ? button("download", t("Download"), () => downloadFile(download, name)) : null,
     !download && link
-      ? h("a", { class: "icon-button", href: link, target: "_blank", rel: "noreferrer", title: "Открыть в браузере" }, [
+      ? h("a", { class: "icon-button", href: link, target: "_blank", rel: "noreferrer", title: t("Open in browser") }, [
           symbol("open_in_new", 22),
         ])
       : null,
-    button("close", "Закрыть", () => closeImageViewer()),
+    button("close", t("Close"), () => closeImageViewer()),
   ]);
   for (const card of [info, actions]) card.addEventListener("click", (event) => event.stopPropagation());
 
@@ -1770,13 +1904,13 @@ function messageToolbar(message, node) {
   const tool = (icon, title, action, danger) =>
     h("button", { type: "button", title, class: danger ? "danger" : null, onclick: action }, [symbol(icon, 20)]);
 
-  bar.append(tool("reply", "Ответить", () => addReply(message)));
+  bar.append(tool("reply", t("Reply"), () => addReply(message)));
   if (message.mine) {
-    bar.append(tool("edit", "Изменить", () => startEdit(message)));
-    bar.append(tool("delete", "Удалить (Shift — без вопроса)", (event) => removeMessage(message, event.shiftKey), true));
+    bar.append(tool("edit", t("Edit message"), () => startEdit(message)));
+    bar.append(tool("delete", t("Delete (Shift — without asking)"), (event) => removeMessage(message, event.shiftKey), true));
   }
   bar.append(
-    tool("more_vert", "Ещё", (event) => {
+    tool("more_vert", t("More"), (event) => {
       node.classList.add("toolbar-open");
       openMessageMenu(event, message, () => node.classList.remove("toolbar-open"));
     }),
@@ -1786,12 +1920,12 @@ function messageToolbar(message, node) {
 
 function failedHint(message) {
   return h("div", { class: "edit-hint" }, [
-    "Не отправлено. ",
-    h("button", { type: "button", text: "Повторить", onclick: () => retrySend(message) }),
+    t("Failed to send") + ". ",
+    h("button", { type: "button", text: t("Retry sending"), onclick: () => retrySend(message) }),
     " · ",
     h("button", {
       type: "button",
-      text: "Убрать",
+      text: t("Cancel message"),
       onclick: () => {
         state.messages = state.messages.filter((item) => item !== message);
         renderMessages();
@@ -1837,10 +1971,10 @@ function editBox(message) {
   return h("div", { class: "edit-box" }, [
     area,
     h("div", { class: "edit-hint" }, [
-      "Esc — ",
-      h("button", { type: "button", text: "отмена", onclick: stopEdit }),
-      " · Enter — ",
-      h("button", { type: "button", text: "сохранить", onclick: () => saveEdit(message, area.value) }),
+      ...I18N.rich("escape to <0>cancel</0> • enter to <1>save</1>", null, {
+        0: (text) => h("button", { type: "button", text, onclick: stopEdit }),
+        1: (text) => h("button", { type: "button", text, onclick: () => saveEdit(message, area.value) }),
+      }),
     ]),
   ]);
 }
@@ -1862,20 +1996,27 @@ async function saveEdit(message, value) {
     renderMessages();
     focusInput();
   } catch (error) {
-    toast("Не удалось изменить: " + describe(error), "error");
+    toast(t("Could not edit: {0}", [describe(error)]), "error");
   }
 }
 
+/** Удалить сообщение; без Shift — после подтверждения (DeleteMessage.tsx). */
 async function removeMessage(message, skipConfirm) {
-  if (!skipConfirm && !window.confirm("Удалить это сообщение?")) return;
-  try {
+  const run = async () => {
     await call("delete_message", { channelId: message.channel, messageId: message.id });
     state.messages = state.messages.filter((item) => item.id !== message.id);
     if (state.editing === message.id) state.editing = null;
     renderMessages();
-  } catch (error) {
-    toast("Не удалось удалить: " + describe(error), "error");
+  };
+  if (skipConfirm) {
+    try {
+      await run();
+    } catch (error) {
+      toast(t("Could not delete: {0}", [describe(error)]), "error");
+    }
+    return;
   }
+  confirmModal({ title: t("Delete message"), text: t("Are you sure you want to delete this?"), confirm: t("Delete"), run });
 }
 
 function replaceMessage(message) {
@@ -1889,10 +2030,8 @@ function replaceMessage(message) {
 const drafts = new Map(); // id канала → недописанный текст
 
 function placeholderFor(channel) {
-  if (channel.kind === "notes") return "Сохранить в заметки";
-  if (channel.kind === "dm") return "Сообщение для " + channel.name;
-  if (channel.kind === "group") return "Сообщение в " + channel.name;
-  return "Сообщение в #" + channel.name;
+  if (channel.kind === "notes") return t("Save to your notes");
+  return t("Message {0}", [channel.name]);
 }
 
 function renderComposer() {
@@ -1919,7 +2058,7 @@ function addReply(message) {
   if (message.pending || message.system) return;
   if (state.replies.some((reply) => reply.message.id === message.id)) return;
   if (state.replies.length >= MAX_REPLIES) {
-    toast("Можно ответить сразу не больше чем на пять сообщений");
+    toast(t("You can reply to at most five messages at once"));
     return;
   }
   // как в оригинале: упоминание включено, кроме ответа самому себе
@@ -1934,7 +2073,7 @@ function renderReplies() {
   for (const reply of state.replies) {
     const name = h("span", { class: "username", text: reply.message.author });
     const preview = h("div", { class: "reply-preview" }, [
-      h("span", { class: "reply-preview-to", text: "Ответ на" }),
+      h("span", { class: "reply-preview-to", text: t("Replying to") }),
       h("span", { class: "reply-preview-message" }, [
         avatar({ url: reply.message.avatar, name: reply.message.author, size: 16 }),
         name,
@@ -1948,13 +2087,13 @@ function renderReplies() {
           {
             type: "button",
             class: "reply-mention" + (reply.mention ? "" : " off"),
-            title: "Упоминать автора",
+            title: t("Mention the author"),
             onclick: () => {
               reply.mention = !reply.mention;
               renderReplies();
             },
           },
-          [symbol("alternate_email", 16), reply.mention ? "Вкл" : "Выкл"],
+          [symbol("alternate_email", 16), reply.mention ? t("On") : t("Off")],
         ),
       );
     }
@@ -1964,7 +2103,7 @@ function renderReplies() {
         {
           type: "button",
           class: "reply-dismiss",
-          title: "Не отвечать",
+          title: t("Cancel reply"),
           onclick: () => {
             state.replies = state.replies.filter((item) => item !== reply);
             renderReplies();
@@ -1984,7 +2123,7 @@ async function submit() {
   const content = emojiNamesToIds(inputEl.value.trim());
   if (!channel || !content) return;
   if (content.length > 2000) {
-    toast("Сообщение длиннее 2000 символов", "error");
+    toast(t("The message is longer than 2000 characters"), "error");
     return;
   }
 
@@ -2039,7 +2178,7 @@ async function deliver(pending) {
   } catch (error) {
     pending.failed = true;
     if (state.channelId === pending.channel) renderMessages();
-    toast("Не отправлено: " + describe(error), "error");
+    toast(t("Failed to send") + ": " + describe(error), "error");
   }
 }
 
@@ -2096,10 +2235,10 @@ function renderTyping() {
   const names = users.slice(0, 3).map(userName);
   node.textContent =
     users.length === 1
-      ? `${names[0]} печатает…`
+      ? t("{0} is typing…", [names[0]])
       : users.length <= 3
-        ? `${names.join(", ")} печатают…`
-        : "Несколько человек печатают…";
+        ? t("{0} and {1} are typing…", [names.slice(0, -1).join(", "), names[names.length - 1]])
+        : t("Several people are typing…");
 }
 
 // ─────────────────────────── участники ───────────────────────────
@@ -2160,7 +2299,7 @@ function renderMembers() {
   const members = membersCache.get(state.serverId);
   if (!members) {
     memberView = null;
-    panel.replaceChildren(h("div", { class: "member-title", text: "Загрузка участников…" }));
+    panel.replaceChildren(h("div", { class: "member-title", text: t("Loading members…") }));
     return;
   }
 
@@ -2180,7 +2319,7 @@ function renderMembers() {
   const sections = [...groups.values()]
     .sort((a, b) => a.role.rank - b.role.rank)
     .map((group) => [group.role.name, group.list]);
-  sections.push(["В сети", online], ["Не в сети", offline]);
+  sections.push([t("Online"), online], [t("Offline"), offline]);
 
   // плоский список с заранее известными высотами строк
   const items = [];
@@ -2199,7 +2338,7 @@ function renderMembers() {
   const scroll = sameServer ? panel.scrollTop : 0;
   const list = h("div", { class: "member-list", style: { height: `${top}px` } });
   panel.replaceChildren(
-    h("div", { class: "member-title" }, [h("span", { class: "connection-dot" }), `${onlineCount} в сети`]),
+    h("div", { class: "member-title" }, [h("span", { class: "connection-dot" }), t("{0} online", [onlineCount])]),
     list,
   );
   panel.scrollTop = scroll;
@@ -2405,11 +2544,11 @@ function renderEmojiPicker() {
       if (emoji.code.includes(needle) || emoji.text === needle) found.push({ kind: "unicode", emoji });
     }
     if (!found.length) {
-      list.append(h("div", { class: "emoji-note", text: "Ничего не найдено" }));
+      list.append(h("div", { class: "emoji-note", text: t("No results") }));
       renderEmojiPreview(null);
       return;
     }
-    list.append(h("div", { class: "emoji-section", text: "Результаты" }));
+    list.append(h("div", { class: "emoji-section", text: t("Results") }));
     for (const item of found.slice(0, 300)) list.append(emojiButton(item));
     renderEmojiPreview(found[0]);
     return;
@@ -2438,7 +2577,7 @@ function renderEmojiPicker() {
     for (const emoji of serverEmoji.get(server.id)) list.append(emojiButton({ kind: "server", emoji, server }));
   }
 
-  list.append(h("div", { class: "emoji-section", text: "Эмодзи" }));
+  list.append(h("div", { class: "emoji-section", text: t("Emojis") }));
   for (const emoji of unicodeEmojis()) list.append(emojiButton({ kind: "unicode", emoji }));
   renderEmojiPreview(
     servers.length
@@ -2501,7 +2640,7 @@ function renderEmojiPreview(item) {
   }
   img.append(emojiVisual(item));
   el("emoji-preview-name").textContent = item.kind === "server" ? ":" + item.emoji.name + ":" : item.emoji.text;
-  el("emoji-preview-from").textContent = item.kind === "server" ? "с сервера " + item.server.name : "юникод";
+  el("emoji-preview-from").textContent = item.kind === "server" ? t("from {0}", [item.server.name]) : t("Unicode");
 }
 
 /** Вставить текст на месте курсора. */
@@ -2577,8 +2716,9 @@ function openContextMenu(event, items, onClose) {
         "button",
         {
           type: "button",
-          class: "menu-item" + (item.danger ? " danger" : ""),
-          role: "menuitem",
+          class: "menu-item" + (item.danger ? " danger" : "") + (item.selected ? " selected" : ""),
+          role: item.selected === undefined ? "menuitem" : "menuitemradio",
+          "aria-checked": item.selected === undefined ? null : String(item.selected),
           onclick: async (clickEvent) => {
             closeMenus();
             try {
@@ -2588,7 +2728,7 @@ function openContextMenu(event, items, onClose) {
             }
           },
         },
-        [item.icon ? symbol(item.icon, 20) : null, item.label],
+        item.node ? [item.node] : [item.icon ? symbol(item.icon, 20) : null, item.label],
       ),
     );
   }
@@ -2617,25 +2757,25 @@ function openMessageMenu(event, message, onClose) {
   openContextMenu(
     event,
     [
-      !message.system && { icon: "reply", label: "Ответить", action: () => addReply(message) },
-      message.mine && !message.system && { icon: "edit", label: "Изменить", action: () => startEdit(message) },
-      message.content && { icon: "content_copy", label: "Копировать текст", action: () => copyText(message.content) },
+      !message.system && { icon: "reply", label: t("Reply"), action: () => addReply(message) },
+      message.mine && !message.system && { icon: "edit", label: t("Edit message"), action: () => startEdit(message) },
+      message.content && { icon: "content_copy", label: t("Copy text"), action: () => copyText(message.content) },
       {
         icon: "link",
-        label: "Копировать ссылку",
+        label: t("Copy message link"),
         action: async () => {
           await copyText(await messageLink(message));
-          toast("Ссылка скопирована");
+          toast(t("Link copied"));
         },
       },
-      { icon: "fingerprint", label: "Копировать ID", action: () => copyText(message.id) },
       message.mine && { divider: true },
       message.mine && {
         icon: "delete",
-        label: "Удалить",
+        label: t("Delete message"),
         danger: true,
         action: (clickEvent) => removeMessage(message, clickEvent.shiftKey),
       },
+      ...developerItems("message", message.id, t("Copy message ID")),
     ],
     onClose,
   );
@@ -2650,32 +2790,32 @@ function openUserMenu(event, user, serverId = state.serverId) {
   };
   const canWrite = Boolean(currentChannel()) && !el("message-box").classList.contains("hidden");
   openContextMenu(event, [
-    { icon: "person", label: "Профиль", action: () => openProfileModal(user.id, serverId) },
-    !me && { icon: "chat", label: "Написать сообщение", action: () => openDirectMessage(user.id) },
+    { icon: "person", label: t("Profile"), action: () => openProfileModal(user.id, serverId) },
+    !me && { icon: "chat", label: t("Message"), action: () => openDirectMessage(user.id) },
     canWrite && {
       icon: "alternate_email",
-      label: "Упомянуть",
+      label: t("Mention"),
       action: () => insertText(`<@${user.id}>`),
     },
     { divider: true },
     !me &&
       user.relationship === "Friend" && {
         icon: "person_remove",
-        label: "Удалить из друзей",
+        label: t("Remove friend"),
         danger: true,
         action: relate("remove"),
       },
     !me &&
       user.relationship !== "Blocked" && {
         icon: "block",
-        label: "Заблокировать",
+        label: t("Block user"),
         danger: true,
         action: relate("block"),
       },
-    !me && user.relationship === "Blocked" && { icon: "block", label: "Разблокировать", action: relate("unblock") },
+    !me && user.relationship === "Blocked" && { icon: "block", label: t("Unblock user"), action: relate("unblock") },
     !me && { divider: true },
-    { icon: "content_copy", label: "Копировать имя", action: () => copyText(user.username || user.name) },
-    { icon: "fingerprint", label: "Копировать ID", action: () => copyText(user.id) },
+    { icon: "content_copy", label: t("Copy username"), action: () => copyText(user.username || user.name) },
+    ...developerItems("user", user.id, t("Copy user ID")),
   ]);
 }
 
@@ -2684,13 +2824,38 @@ function openChannelMenu(event, channel) {
     channel.unread &&
       channel.last_message_id && {
         icon: "mark_chat_read",
-        label: "Отметить прочитанным",
+        label: t("Mark as read"),
         action: () => ackChannel(channel.id, channel.last_message_id),
       },
     ...channelAdminItems(channel),
-    { icon: "content_copy", label: "Копировать название", action: () => copyText(channel.name) },
-    { icon: "fingerprint", label: "Копировать ID", action: () => copyText(channel.id) },
+    { icon: "content_copy", label: t("Copy name"), action: () => copyText(channel.name) },
+    { icon: "link", label: t("Copy link"), action: () => copyText(channelLink(channel)) },
+    ...developerItems("channel", channel.id, t("Copy channel ID")),
   ]);
+}
+
+/**
+ * Пункты для разработчиков в конце меню (настройки «Расширенные»):
+ * «Панель администратора» и «Скопировать ID».
+ */
+function developerItems(kind, id, copyLabel) {
+  const items = [];
+  if (getOption("advanced:admin_panel")) {
+    items.push({
+      icon: "admin_panel_settings",
+      label: t("Admin Panel"),
+      action: () => openExternal(`https://admin.stoatinternal.com/panel/inspect/${kind}/${id}`),
+    });
+  }
+  if (getOption("advanced:copy_id")) items.push({ icon: "fingerprint", label: copyLabel, action: () => copyText(id) });
+  return items.length ? [{ divider: true }, ...items] : [];
+}
+
+/** Ссылка на канал в веб-клиенте. */
+function channelLink(channel) {
+  const found = findChannel(channel.id);
+  const server = found && found.server && found.server.id;
+  return server ? `https://stoat.chat/server/${server}/channel/${channel.id}` : `https://stoat.chat/channel/${channel.id}`;
 }
 
 /** Права на сервере канала (у личных каналов — пусто). */
@@ -2704,12 +2869,12 @@ function channelAdminItems(channel) {
   if (!server) return [];
   const items = [];
   if (serverAllows(server, PERM.INVITE)) {
-    items.push({ icon: "person_add", label: "Пригласить", action: () => showInvite(channel.id) });
+    items.push({ icon: "person_add", label: t("Create invite"), action: () => showInvite(channel.id) });
   }
   if (serverAllows(server, PERM.MANAGE_CHANNEL)) {
     items.push(
-      { icon: "edit", label: "Изменить канал", action: () => editChannelModal(channel) },
-      { icon: "delete", label: "Удалить канал", danger: true, action: () => deleteChannelModal(channel) },
+      { icon: "edit", label: t("Open channel settings"), action: () => editChannelModal(channel) },
+      { icon: "delete", label: t("Delete channel"), danger: true, action: () => deleteChannelModal(channel) },
     );
   }
   return items.length ? [...items, { divider: true }] : [];
@@ -2722,31 +2887,32 @@ function openServerMenu(event, server) {
   openContextMenu(event, [
     unread.length && {
       icon: "mark_chat_read",
-      label: "Отметить прочитанным",
+      label: t("Mark as read"),
       action: () => unread.forEach((channel) => ackChannel(channel.id, channel.last_message_id)),
     },
     { divider: true },
     firstInviteChannel(server) && {
       icon: "person_add",
-      label: "Пригласить",
+      label: t("Create invite"),
       action: () => showInvite(firstInviteChannel(server).id),
     },
     serverAllows(server, PERM.MANAGE_CHANNEL) && {
       icon: "add",
-      label: "Создать канал",
+      label: t("Create channel"),
       action: () => createChannelModal(server.id),
     },
-    { icon: "settings", label: "Настройки сервера", action: () => openServerSettings(server.id) },
+    { icon: "edit", label: t("Edit your identity"), action: () => serverIdentityModal(server) },
+    canOpenServerSettings(server) && { icon: "settings", label: t("Open server settings"), action: () => openServerSettings(server.id) },
     { divider: true },
-    { icon: "content_copy", label: "Копировать название", action: () => copyText(server.name) },
-    { icon: "fingerprint", label: "Копировать ID", action: () => copyText(server.id) },
+    { icon: "content_copy", label: t("Copy name"), action: () => copyText(server.name) },
     { divider: true },
     {
       icon: server.owner ? "delete" : "logout",
-      label: server.owner ? "Удалить сервер" : "Выйти с сервера",
+      label: server.owner ? t("Delete Server") : t("Leave server"),
       danger: true,
       action: () => confirmLeaveServer(server),
     },
+    ...developerItems("server", server.id, t("Copy server ID")),
   ]);
 }
 
@@ -2872,22 +3038,22 @@ function onGateway(payload) {
   // события ядра сериализуются с тегом `type`, поля лежат рядом
   switch (event.type) {
     case "Authenticated":
-      setConnection("warn", "авторизация…");
+      setConnection("warn", t("authorising…"));
       break;
     case "Ready":
-      setConnection("ok", "подключено");
+      setConnection("ok", t("connected"));
       membersCache.clear();
       refreshWorkspace({ reloadChannel: true }).catch((error) => toast(describe(error), "error"));
       break;
     case "Logout":
-      setConnection("err", "сессия завершена");
-      toast("Сессия завершена, войдите заново", "error");
+      setConnection("err", t("session ended"));
+      toast(t("The session has ended, please log in again"), "error");
       break;
     case "Error": {
       const kind = event.kind || "";
       if (["InvalidSession", "SessionExpired"].includes(kind)) {
-        setConnection("err", "сессия завершена");
-        toast("Сессия завершена, войдите заново", "error");
+        setConnection("err", t("session ended"));
+        toast(t("The session has ended, please log in again"), "error");
       } else {
         console.warn("шлюз:", event);
       }
@@ -3073,13 +3239,19 @@ async function boot() {
   if (!invoke) {
     document.body.replaceChildren(
       h("div", { class: "messages-state" }, [
-        h("h2", { text: "Нет связи с ядром приложения" }),
-        h("div", { text: "Это ошибка сборки, а не ваших данных." }),
+        h("h2", { text: t("No connection to the application core") }),
+        h("div", { text: t("This is a build error, not a problem with your data.") }),
       ]),
     );
     return;
   }
-  applyAppearance();
+  await I18N.ready;
+  syncTrayLabels();
+  window.addEventListener("arachnid-locale", relocalize);
+  window.addEventListener("arachnid-options", (event) => {
+    const key = event.detail && event.detail.key;
+    if (key === "appearance:compact_mode" || key === "appearance:unicode_emoji") renderMessages();
+  });
   bindUi();
   closeChannel();
 
@@ -3105,19 +3277,34 @@ async function boot() {
     });
   }
 
-  setConnection("warn", "подключаюсь…");
-  try {
-    await call("connect_gateway");
-  } catch (error) {
-    setConnection("err", "нет соединения");
-    toast("Не удалось подключиться: " + describe(error), "error");
-  }
+  await reconnectGateway();
 
   try {
     await refreshWorkspace();
   } catch (error) {
-    showState(symbol("info", 32), "Не удалось получить данные", describe(error));
+    showState(symbol("info", 32), t("Could not load data"), describe(error));
   }
+}
+
+/** Пункты меню трея на языке интерфейса (как в Stoat for Desktop). */
+function syncTrayLabels() {
+  call("set_tray_labels", {
+    labels: { version: t("Version"), show: t("Show App"), hide: t("Hide App"), quit: t("Quit App") },
+  }).catch((error) => console.warn("меню трея:", error));
+}
+
+/** Язык сменился: перерисовать всё, что построено из строк интерфейса. */
+function relocalize() {
+  syncTrayLabels();
+  renderRail();
+  renderSidebar();
+  renderHeader();
+  renderComposer();
+  renderReplies();
+  renderTyping();
+  renderMembers();
+  renderMessages();
+  if (settingsOpen()) renderSettings();
 }
 
 boot();

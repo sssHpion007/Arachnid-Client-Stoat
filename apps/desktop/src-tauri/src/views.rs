@@ -756,27 +756,36 @@ fn from_gif_provider(url: Option<&str>) -> bool {
     })
 }
 
-/// Системное сообщение для интерфейса: вид события и имена участников.
+/// Системное сообщение для интерфейса: вид события, участники и их имена.
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SystemEvent {
     /// Вид события из API: `user_joined`, `message_pinned`, …
     pub kind: &'static str,
     /// С кем произошло (имя для показа)
     pub user: Option<String>,
+    /// id того, с кем произошло (для упоминания)
+    pub user_id: Option<String>,
     /// Кто сделал (имя для показа)
     pub by: Option<String>,
+    /// id того, кто сделал
+    pub by_id: Option<String>,
+    /// Закреплённое или откреплённое сообщение
+    pub message_id: Option<String>,
     /// Новое название канала или текст сообщения `text`
     pub text: Option<String>,
 }
 
-/// Разобрать системное сообщение на вид события и имена.
+/// Разобрать системное сообщение на вид события и участников.
 pub fn system_event(event: &v0::SystemMessage, who: impl Fn(&str) -> String) -> SystemEvent {
     use v0::SystemMessage::*;
     let make =
         |kind, user: Option<&String>, by: Option<&String>, text: Option<&String>| SystemEvent {
             kind,
             user: user.map(|id| who(id)),
+            user_id: user.cloned(),
             by: by.map(|id| who(id)),
+            by_id: by.cloned(),
+            message_id: None,
             text: text.cloned(),
         };
     match event {
@@ -795,8 +804,14 @@ pub fn system_event(event: &v0::SystemMessage, who: impl Fn(&str) -> String) -> 
         ChannelOwnershipChanged { from, to } => {
             make("channel_ownership_changed", Some(to), Some(from), None)
         }
-        MessagePinned { by, .. } => make("message_pinned", None, Some(by), None),
-        MessageUnpinned { by, .. } => make("message_unpinned", None, Some(by), None),
+        MessagePinned { id, by } => SystemEvent {
+            message_id: Some(id.clone()),
+            ..make("message_pinned", None, Some(by), None)
+        },
+        MessageUnpinned { id, by } => SystemEvent {
+            message_id: Some(id.clone()),
+            ..make("message_unpinned", None, Some(by), None)
+        },
         CallStarted { by, .. } => make("call_started", None, Some(by), None),
     }
 }
@@ -1512,6 +1527,16 @@ pub fn message_link(server: Option<&str>, channel: &str, message: &str) -> Strin
     }
 }
 
+/// Наборы эмодзи на статике Stoat (UNICODE_EMOJI_PACKS).
+pub const UNICODE_EMOJI_PACKS: [&str; 6] = [
+    "fluent-3d",
+    "fluent-color",
+    "fluent-flat",
+    "mutant",
+    "noto",
+    "twemoji",
+];
+
 /// Адрес картинки эмодзи на статике Stoat.
 ///
 /// Официальный клиент берёт `https://static.stoat.chat/emoji/<набор>/<код>.svg`:
@@ -2128,6 +2153,7 @@ let a = 1;
         let event = view.system_event.unwrap();
         assert_eq!(event.kind, "user_joined");
         assert_eq!(event.user.as_deref(), Some("Новичок"));
+        assert_eq!(event.user_id.as_deref(), Some("u1"));
         assert_eq!(event.by, None);
     }
 

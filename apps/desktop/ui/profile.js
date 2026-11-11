@@ -11,24 +11,24 @@
 
 "use strict";
 
-/** Варианты присутствия в том порядке, в каком их показывает оригинал. */
+/** Варианты присутствия в том порядке, в каком их показывает оригинал (msgid, переводятся при показе). */
 const PRESENCES = [
-  { id: "Online", label: "В сети" },
-  { id: "Idle", label: "Нет на месте" },
-  { id: "Focus", label: "Фокус", hint: "Уведомления будут только об упоминаниях" },
-  { id: "Busy", label: "Не беспокоить", hint: "Уведомлений не будет" },
-  { id: "Invisible", label: "Невидимка" },
+  { id: "Online", label: /* i18n */ "Online" },
+  { id: "Idle", label: /* i18n */ "Idle" },
+  { id: "Focus", label: /* i18n */ "Focus", hint: /* i18n */ "Only mentions will notify you" },
+  { id: "Busy", label: /* i18n */ "Do Not Disturb", hint: /* i18n */ "You will not receive any notifications" },
+  { id: "Invisible", label: /* i18n */ "Invisible" },
 ];
 
 /** Значки профиля (битовая маска `badges` из API) — как в ProfileBadges.tsx. */
 const BADGES = [
-  { bit: 16, icon: "crown", title: "Основатель Stoat" },
-  { bit: 1, icon: "edit_note", title: "Разработчик Stoat" },
-  { bit: 4, icon: "favorite", title: "Поддержал Stoat пожертвованием" },
-  { bit: 2, icon: "forum", title: "Помогал переводить Stoat" },
-  { bit: 256, icon: "verified", title: "Один из первой тысячи пользователей" },
-  { bit: 32, icon: "badge", title: "Модератор платформы" },
-  { bit: 8, icon: "block", title: "Ответственно сообщил об уязвимости" },
+  { bit: 16, icon: "crown", title: /* i18n */ "Stoat Founder" },
+  { bit: 1, icon: "edit_note", title: /* i18n */ "Stoat Developer" },
+  { bit: 4, icon: "favorite", title: /* i18n */ "Donated to Stoat" },
+  { bit: 2, icon: "forum", title: /* i18n */ "Helped translate Stoat" },
+  { bit: 256, icon: "verified", title: /* i18n */ "One of the first 1000 users!" },
+  { bit: 32, icon: "badge", title: /* i18n */ "Platform Moderator" },
+  { bit: 8, icon: "block", title: /* i18n */ "Responsibly disclosed security issues" },
   { bit: 128, icon: "pets", title: "🦊" },
 ];
 
@@ -120,7 +120,7 @@ function toggleAccountMenu(event) {
     );
 
   // как в оригинале: шапка меню открывает настройки
-  const card = h("button", { type: "button", class: "account-card", title: "Настройки" }, [
+  const card = h("button", { type: "button", class: "account-card", title: t("Settings") }, [
     avatar({ url: me.avatar, name: myName(), size: 32, presence: me.presence || "Online" }),
     h("span", { class: "account-text" }, [
       h("span", { class: "account-name", text: myName() }),
@@ -131,28 +131,28 @@ function toggleAccountMenu(event) {
 
   const children = [
     card,
-    item("person", "Мой профиль", () => openProfileModal(me.id, null)),
-    item("swap_horiz", "Сменить аккаунт", () => location.replace("login.html?switch")),
+    item("person", t("My Profile"), () => openProfileModal(me.id, null)),
+    item("swap_horiz", t("Switch Account"), () => location.replace("login.html?switch")),
     h("div", { class: "menu-divider" }),
   ];
   for (const presence of PRESENCES) {
     children.push(
-      item(presenceDot(presence.id), presence.label, () => setPresence(presence.id), {
+      item(presenceDot(presence.id), t(presence.label), () => setPresence(presence.id), {
         selected: (me.presence || "Online") === presence.id,
-        hint: presence.hint,
+        hint: presence.hint ? t(presence.hint) : null,
       }),
     );
   }
   children.push(h("div", { class: "menu-divider" }));
   if (me.status) {
-    children.push(item("edit", me.status, openStatusModal, { hint: "Изменить статус" }));
-    children.push(item("cancel", "Очистить статус", () => saveStatusText(null)));
+    children.push(item("edit", me.status, openStatusModal, { hint: t("Set your status") }));
+    children.push(item("cancel", t("Clear status"), () => saveStatusText(null)));
   } else {
-    children.push(item("mood", "Добавить статус", openStatusModal));
+    children.push(item("mood", t("Add status text"), openStatusModal));
   }
   children.push(h("div", { class: "menu-divider" }));
-  children.push(item("fingerprint", "Копировать ID", () => copyText(me.id)));
-  children.push(item("logout", "Выйти", logout, { danger: true }));
+  children.push(item("fingerprint", t("Copy user ID"), () => copyText(me.id)));
+  children.push(item("logout", t("Log Out"), logout, { danger: true }));
 
   menu.replaceChildren(...children);
   const rect = event.currentTarget.getBoundingClientRect();
@@ -185,7 +185,7 @@ function openStatusModal() {
     class: "text-field",
     type: "text",
     maxlength: STATUS_LIMIT,
-    placeholder: "Чем заняты?",
+    placeholder: t("What are you up to?"),
     value: (state.me && state.me.status) || "",
     autocomplete: "off",
   });
@@ -212,11 +212,11 @@ function openStatusModal() {
   });
 
   openModal({
-    title: "Задать статус",
-    body: h("label", { class: "field" }, [h("span", { class: "field-label", text: "Текст статуса" }), input, counter]),
+    title: t("Set your status"),
+    body: h("label", { class: "field" }, [h("span", { class: "field-label", text: t("Custom status") }), input, counter]),
     actions: [
-      { label: "Закрыть", onclick: closeModal },
-      { label: "Сохранить", primary: true, onclick: save },
+      { label: t("Close"), onclick: closeModal },
+      { label: t("Save"), primary: true, onclick: save },
     ],
   });
   input.focus();
@@ -260,7 +260,7 @@ async function openUserCard(event, userId, serverId = state.serverId) {
 
   const token = ++cardToken;
   card.dataset.user = userId;
-  card.replaceChildren(h("div", { class: "profile-loading", text: "Загрузка профиля…" }));
+  card.replaceChildren(h("div", { class: "profile-loading", text: t("Loading profile…") }));
   card.classList.remove("hidden");
   placeFloating(card, anchor);
 
@@ -269,7 +269,7 @@ async function openUserCard(event, userId, serverId = state.serverId) {
     profile = await call("user_profile", { userId, serverId: serverId || null });
   } catch (error) {
     if (token !== cardToken) return;
-    card.replaceChildren(h("div", { class: "profile-loading", text: "Профиль недоступен: " + describe(error) }));
+    card.replaceChildren(h("div", { class: "profile-loading", text: t("Profile unavailable: {0}", [describe(error)]) }));
     return;
   }
   if (token !== cardToken) return;
@@ -298,7 +298,7 @@ async function openUserCard(event, userId, serverId = state.serverId) {
 async function openProfileModal(userId, serverId = state.serverId) {
   closeMenus();
   const body = h("div", { class: "profile-grid wide" }, [
-    h("div", { class: "profile-loading", text: "Загрузка профиля…" }),
+    h("div", { class: "profile-loading", text: t("Loading profile…") }),
   ]);
   openModal({ body, wide: true });
 
@@ -306,7 +306,7 @@ async function openProfileModal(userId, serverId = state.serverId) {
   try {
     profile = await call("user_profile", { userId, serverId: serverId || null });
   } catch (error) {
-    body.replaceChildren(h("div", { class: "profile-loading", text: "Профиль недоступен: " + describe(error) }));
+    body.replaceChildren(h("div", { class: "profile-loading", text: t("Profile unavailable: {0}", [describe(error)]) }));
     return;
   }
   const mutualSlot = profile.is_me || profile.bot ? null : h("div", { class: "profile-card w3 hidden" });
@@ -346,9 +346,9 @@ function fillMutual(slot, mutual) {
     button.onclick = onclick;
     return button;
   };
-  const parts = [h("span", { class: "profile-card-title", text: "Общее" })];
+  const parts = [h("span", { class: "profile-card-title", text: t("Mutuals") })];
   if (servers.length) {
-    parts.push(h("span", { class: "profile-subtitle", text: `Серверы – ${servers.length}` }));
+    parts.push(h("span", { class: "profile-subtitle", text: t("Servers – {0}", [servers.length]) }));
     parts.push(
       h(
         "div",
@@ -363,7 +363,7 @@ function fillMutual(slot, mutual) {
     );
   }
   if (friends.length) {
-    parts.push(h("span", { class: "profile-subtitle", text: `Друзья – ${friends.length}` }));
+    parts.push(h("span", { class: "profile-subtitle", text: t("Friends – {0}", [friends.length]) }));
     parts.push(
       h(
         "div",
@@ -394,7 +394,7 @@ function profileCard(title, children, extra = "") {
 function longDate(iso) {
   const date = iso ? new Date(iso) : null;
   if (!date || Number.isNaN(date.getTime())) return "";
-  return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  return I18N.longDate(date);
 }
 
 /** Шапка с фоном, аватаром и именем (ProfileBanner.tsx). */
@@ -410,11 +410,11 @@ function bannerCard(profile, { onclick = null, wide = false } = {}) {
   if (onclick) banner.onclick = onclick;
 
   const tag = `${profile.username}#${profile.discriminator}`;
-  const username = h("button", { type: "button", class: "profile-username", text: tag, title: "Копировать" });
+  const username = h("button", { type: "button", class: "profile-username", text: tag, title: t("Click to copy username") });
   username.onclick = async (event) => {
     event.stopPropagation();
     await copyText(tag);
-    username.textContent = "Скопировано!";
+    username.textContent = t("Copied!");
     setTimeout(() => (username.textContent = tag), 1200);
   };
 
@@ -463,54 +463,54 @@ function actionsCard(profile, serverId) {
   if (!profile.is_me) {
     switch (profile.relationship) {
       case "Friend":
-        buttons.push(action("chat", "Написать", () => openDirectMessage(profile.id), "filled"));
+        buttons.push(action("chat", t("Message"), () => openDirectMessage(profile.id), "filled"));
         break;
       case "Incoming":
-        buttons.push(action("how_to_reg", "Принять запрос", relate("add"), "filled"));
-        buttons.push(action("close", "Отклонить", relate("remove")));
+        buttons.push(action("how_to_reg", t("Accept friend request"), relate("add"), "filled"));
+        buttons.push(action("close", t("Reject friend request"), relate("remove")));
         break;
       case "Outgoing":
-        buttons.push(action("cancel", "Отменить запрос", relate("remove")));
+        buttons.push(action("cancel", t("Cancel friend request"), relate("remove")));
         break;
       case "Blocked":
-        buttons.push(action("block", "Разблокировать", relate("unblock")));
+        buttons.push(action("block", t("Unblock user"), relate("unblock")));
         break;
       case "BlockedOther":
         break;
       default:
-        if (!profile.bot) buttons.push(action("person_add", "Добавить в друзья", relate("add"), "filled"));
-        else buttons.push(action("chat", "Написать", () => openDirectMessage(profile.id), "filled"));
+        if (!profile.bot) buttons.push(action("person_add", t("Add friend"), relate("add"), "filled"));
+        else buttons.push(action("chat", t("Message"), () => openDirectMessage(profile.id), "filled"));
         break;
     }
   }
 
-  const more = h("button", { type: "button", class: "icon-button", title: "Ещё" }, [symbol("more_vert", 20)]);
+  const more = h("button", { type: "button", class: "icon-button", title: t("More") }, [symbol("more_vert", 20)]);
   more.onclick = (event) => openUserMenu(event, { id: profile.id, name: profile.name, username: profile.username, relationship: profile.relationship }, serverId);
 
   return h("div", { class: "profile-actions w2" }, [...buttons, h("span", { class: "spacer" }), more]);
 }
 
 function relationshipToast(kind, relationship) {
-  if (kind === "block") return "Пользователь заблокирован";
-  if (kind === "unblock") return "Пользователь разблокирован";
-  if (relationship === "Friend") return "Теперь вы друзья";
-  if (relationship === "Outgoing") return "Запрос дружбы отправлен";
-  return "Готово";
+  if (kind === "block") return t("User blocked");
+  if (kind === "unblock") return t("User unblocked");
+  if (relationship === "Friend") return t("You are now friends");
+  if (relationship === "Outgoing") return t("Friend request sent");
+  return t("Done");
 }
 
 function statusCard(profile) {
   if (!profile.status) return null;
-  return profileCard("Статус", [h("span", { class: "profile-status", text: profile.status })]);
+  return profileCard(t("Status"), [h("span", { class: "profile-status", text: profile.status })]);
 }
 
 function badgesCard(profile) {
   const list = BADGES.filter((badge) => profile.badges & badge.bit);
   if (!list.length) return null;
-  return profileCard("Значки", [
+  return profileCard(t("Badges"), [
     h(
       "div",
       { class: "profile-badges" },
-      list.map((badge) => h("span", { class: "profile-badge", title: badge.title }, [symbol(badge.icon, 24)])),
+      list.map((badge) => h("span", { class: "profile-badge", title: t(badge.title) }, [symbol(badge.icon, 24)])),
     ),
   ]);
 }
@@ -536,7 +536,7 @@ function joinedCard(profile) {
     );
   }
   if (!rows.length) return null;
-  return profileCard("Присоединился", rows);
+  return profileCard(t("Joined"), rows);
 }
 
 function rolesCard(profile) {
@@ -549,16 +549,16 @@ function rolesCard(profile) {
     ]),
   );
   if (profile.member.owner) {
-    chips.unshift(h("span", { class: "profile-role" }, [symbol("crown", 16), h("span", { text: "Владелец" })]));
+    chips.unshift(h("span", { class: "profile-role" }, [symbol("crown", 16), h("span", { text: t("Owner") })]));
   }
-  return profileCard("Роли", [h("div", { class: "profile-roles" }, chips)]);
+  return profileCard(t("Roles"), [h("div", { class: "profile-roles" }, chips)]);
 }
 
 function ownerCard(profile) {
   if (!profile.bot) return null;
   const owner = profile.bot_owner;
   const children = [
-    h("div", { class: "profile-joined" }, [symbol("smart_toy", 20), h("span", { text: "Бот" })]),
+    h("div", { class: "profile-joined" }, [symbol("smart_toy", 20), h("span", { text: t("Bot") })]),
   ];
   if (owner) {
     const row = h("button", { type: "button", class: "mutual-item" }, [
@@ -568,14 +568,14 @@ function ownerCard(profile) {
     row.onclick = (event) => openUserCard(event, owner.id, null);
     children.push(row);
   }
-  return profileCard("Владелец", children);
+  return profileCard(t("Owner"), children);
 }
 
 function bioCard(profile, { onclick = null, clamp = false }) {
   if (!profile.bio) return null;
   const text = h("div", { class: "profile-bio" + (clamp ? " clamp" : "") });
   text.append(segmentsNode({ segments: profile.bio_segments, content: profile.bio, emoji: profile.bio_emoji }));
-  const card = profileCard("Обо мне", [text], "w2" + (onclick ? " clickable" : ""));
+  const card = profileCard(t("Bio"), [text], "w2" + (onclick ? " clickable" : ""));
   if (onclick) {
     card.onclick = (event) => {
       if (event.target.closest("a, button, .md-spoiler")) return;
@@ -598,7 +598,7 @@ async function openDirectMessage(userId) {
     found = findChannel(channelId);
   }
   if (!found) {
-    toast("Переписка создана, но ещё не появилась в списке", "error");
+    toast(t("The conversation was created but has not appeared in the list yet"), "error");
     return;
   }
   state.serverId = null;

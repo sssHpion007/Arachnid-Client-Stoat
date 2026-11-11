@@ -35,6 +35,8 @@ pub mod ratelimit;
 
 pub use error::{Error, Result};
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -200,6 +202,19 @@ impl ApiRoot {
             .unwrap_or(false)
     }
 
+    /// Наибольшее разрешение видео `[ширина, высота]` из ограничений
+    /// инстанса (`limits.*.video_resolution`); `[0, 0]` — без ограничений.
+    pub fn video_resolution(&self) -> [u64; 2] {
+        let limits = self.features.get("limits");
+        ["default", "new_user"]
+            .iter()
+            .find_map(|kind| {
+                let pair = limits?.get(kind)?.get("video_resolution")?.as_array()?;
+                Some([pair.first()?.as_u64()?, pair.get(1)?.as_u64()?])
+            })
+            .unwrap_or([0, 0])
+    }
+
     /// URL файлового сервиса Autumn, если инстанс его объявил.
     pub fn autumn_url(&self) -> Option<&str> {
         self.features
@@ -226,6 +241,66 @@ impl ApiRoot {
             .cloned()
             .and_then(|links| serde_json::from_value(links).ok())
             .unwrap_or_default()
+    }
+
+    /// Предельные размеры загружаемых файлов по тегам Autumn
+    /// (`features.limits.*.file_upload_size_limits`). Новым аккаунтам, моложе
+    /// `global.new_user_hours`, действуют ограничения `new_user`.
+    pub fn upload_limits(&self) -> UploadLimits {
+        let limits = self.features.get("limits");
+        let sizes = |kind: &str| -> BTreeMap<String, u64> {
+            let mut sizes = UploadLimits::fallback_sizes();
+            if let Some(map) = limits
+                .and_then(|limits| limits.get(kind))
+                .and_then(|limits| limits.get("file_upload_size_limits"))
+                .and_then(|map| map.as_object())
+            {
+                for (tag, size) in map {
+                    if let Some(size) = size.as_u64() {
+                        sizes.insert(tag.clone(), size);
+                    }
+                }
+            }
+            sizes
+        };
+        UploadLimits {
+            new_user_hours: limits
+                .and_then(|limits| limits.get("global"))
+                .and_then(|global| global.get("new_user_hours"))
+                .and_then(|hours| hours.as_u64())
+                .unwrap_or(72),
+            new_user: sizes("new_user"),
+            default: sizes("default"),
+        }
+    }
+}
+
+/// Предельные размеры файлов по тегам (`avatars`, `backgrounds`, `icons`,
+/// `banners`, `emojis`, `attachments`) в байтах.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UploadLimits {
+    /// Сколько часов аккаунт считается новым
+    pub new_user_hours: u64,
+    /// Ограничения нового аккаунта
+    pub new_user: BTreeMap<String, u64>,
+    /// Ограничения остальных аккаунтов
+    pub default: BTreeMap<String, u64>,
+}
+
+impl UploadLimits {
+    /// Значения по умолчанию сервера Stoat, если инстанс их не прислал.
+    fn fallback_sizes() -> BTreeMap<String, u64> {
+        [
+            ("attachments", 20_000_000),
+            ("avatars", 4_000_000),
+            ("backgrounds", 6_000_000),
+            ("icons", 2_500_000),
+            ("banners", 6_000_000),
+            ("emojis", 500_000),
+        ]
+        .into_iter()
+        .map(|(tag, size)| (tag.to_string(), size))
+        .collect()
     }
 }
 
@@ -263,6 +338,36 @@ mod tests {
 
         let none: ApiRoot = serde_json::from_value(serde_json::json!({ "features": {} })).unwrap();
         assert!(!none.video_enabled());
+    }
+
+    #[test]
+    fn upload_limits_from_features() {
+        let root: ApiRoot = serde_json::from_value(serde_json::json!({
+            "features": {
+                "limits": {
+                    "global": { "new_user_hours": 24 },
+                    "new_user": { "file_upload_size_limits": { "avatars": 1000 } },
+                    "default": { "file_upload_size_limits": { "emojis": 2000 } }
+                }
+            }
+        }))
+        .unwrap();
+        let limits = root.upload_limits();
+        assert_eq!(limits.new_user_hours, 24);
+        assert_eq!(limits.new_user["avatars"], 1000);
+        assert_eq!(limits.new_user["emojis"], 500_000);
+        assert_eq!(limits.default["emojis"], 2000);
+        assert_eq!(limits.default["avatars"], 4_000_000);
+
+        let empty: ApiRoot = serde_json::from_value(serde_json::json!({ "features": {} })).unwrap();
+        assert_eq!(empty.upload_limits().new_user_hours, 72);
+        assert_eq!(empty.video_resolution(), [0, 0]);
+
+        let video: ApiRoot = serde_json::from_value(serde_json::json!({
+            "features": { "limits": { "new_user": { "video_resolution": [1080, 720] } } }
+        }))
+        .unwrap();
+        assert_eq!(video.video_resolution(), [1080, 720]);
     }
 
     #[test]

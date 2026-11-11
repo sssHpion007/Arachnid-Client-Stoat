@@ -98,6 +98,10 @@ pub struct InstanceInfo {
     pub autumn_url: Option<String>,
     /// Условия, конфиденциальность и правила инстанса
     pub legal: stoat_core::LegalLinks,
+    /// Предельные размеры загружаемых файлов
+    pub upload: stoat_core::UploadLimits,
+    /// Наибольшее разрешение видео `[ширина, высота]`, `[0, 0]` — любое
+    pub video_resolution: [u64; 2],
 }
 
 /// Проблема, которую нужно показать пользователю.
@@ -280,6 +284,8 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
         video: root.video_enabled(),
         autumn_url: root.autumn_url().map(str::to_string),
         legal: root.legal_links(),
+        upload: root.upload_limits(),
+        video_resolution: root.video_resolution(),
     }
 }
 
@@ -1046,8 +1052,8 @@ async fn server_emojis(
 
 /// Скачать картинку эмодзи из статики Stoat.
 ///
-/// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
-/// поэтому пробуем по очереди и запоминаем удачный.
+/// Набор картинок выбирается в «Внешнем виде»; если в нём картинки нет,
+/// пробуем Twemoji и Noto.
 #[tauri::command]
 async fn fetch_emoji(
     codepoint: String,
@@ -1061,19 +1067,25 @@ async fn fetch_emoji(
         return Err(CommandError::new("bad_emoji", "некорректный код эмодзи"));
     }
 
-    let mut packs: Vec<String> = Vec::new();
-    if let Some(pack) = pack.filter(|pack| !pack.trim().is_empty()) {
-        packs.push(pack);
+    let mut packs: Vec<&str> = Vec::new();
+    if let Some(pack) = pack.as_deref() {
+        // в адрес попадают только наборы, которые есть на статике Stoat
+        let known = views::UNICODE_EMOJI_PACKS
+            .iter()
+            .copied()
+            .find(|known| *known == pack)
+            .ok_or_else(|| CommandError::new("bad_emoji", "неизвестный набор эмодзи"))?;
+        packs.push(known);
     }
     for fallback in ["twemoji", "noto"] {
-        if !packs.iter().any(|pack| pack == fallback) {
-            packs.push(fallback.to_string());
+        if !packs.contains(&fallback) {
+            packs.push(fallback);
         }
     }
 
     let mut last = String::from("эмодзи не найдено");
     for pack in packs {
-        let url = views::emoji_url(&pack, &codepoint);
+        let url = views::emoji_url(pack, &codepoint);
         match download_data_url(proxy.client(), &url).await {
             Ok(data) => return Ok(data),
             Err(error) => last = error,
