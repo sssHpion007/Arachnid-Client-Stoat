@@ -5,6 +5,7 @@
 const bridge = window.__TAURI__;
 const invoke = bridge && bridge.core && bridge.core.invoke;
 const listen = bridge && bridge.event && bridge.event.listen;
+const convertFileSrc = bridge && bridge.core && bridge.core.convertFileSrc;
 
 const ICONS = window.STOAT_ICONS || {};
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -34,8 +35,6 @@ const state = {
   stickToBottom: true,
   showMembers: readSetting("members", true),
   collapsed: new Set(readSetting("collapsed", [])),
-  media: new Map(), // адрес → data-URL (или null, если файла нет)
-  mediaInFlight: new Map(),
   typing: new Map(), // id канала → Map(id пользователя → таймер)
 };
 
@@ -212,43 +211,34 @@ function calendarText(date) {
 
 // ─────────────────────────── файлы ───────────────────────────
 
-// WebView2 не грузит сторонние картинки на встроенных страницах, поэтому
-// файлы скачивает Rust (команда fetch_media) и отдаёт готовые data-URL.
-function mediaUrl(url) {
-  if (!url) return Promise.resolve(null);
-  if (state.media.has(url)) return Promise.resolve(state.media.get(url));
-  const running = state.mediaInFlight.get(url);
-  if (running) return running;
-
-  const task = call("fetch_media", { url })
-    .then((data) => data || null)
-    .catch((error) => {
-      console.warn("не удалось загрузить файл:", url, error);
-      return null;
-    })
-    .then((data) => {
-      // неудачу не запоминаем: Rust сам решает, когда пробовать снова
-      if (data) state.media.set(url, data);
-      state.mediaInFlight.delete(url);
-      return data;
-    });
-  state.mediaInFlight.set(url, task);
-  return task;
+// WebView2 не грузит сторонние файлы на встроенных страницах, поэтому все
+// картинки, видео и аудио идут через протокол ядра `media:` (media.rs):
+// Rust скачивает файл общим клиентом, держит мелкие в памяти и понимает
+// Range — видео перематывается без скачивания целиком.
+function mediaSrc(url) {
+  if (!url) return null;
+  if (url.startsWith("data:") || !convertFileSrc) return url;
+  return convertFileSrc(url, "media");
 }
 
-/** <img>, который получит картинку, когда она скачается. */
+/** То же, что mediaSrc, в виде обещания — для мест, где адрес нужен позже. */
+function mediaUrl(url) {
+  return Promise.resolve(mediaSrc(url));
+}
+
+/** Сторонний файл из встраивания — через прокси January, как в браузере. */
+function proxiedUrl(url) {
+  const proxy = state.workspace && state.workspace.proxy;
+  if (!url || !proxy) return url;
+  return `${proxy.replace(/\/$/, "")}/proxy?url=${encodeURIComponent(url)}`;
+}
+
+/** <img> с файлом через ядро. */
 function image(url, props = {}) {
-  const img = h("img", { alt: "", draggable: "false", ...props });
-  const known = state.media.get(url);
-  if (known) {
-    img.src = known;
-  } else {
-    mediaUrl(url).then((data) => {
-      if (!data) return;
-      img.addEventListener("load", keepBottom, { once: true });
-      img.src = data;
-    });
-  }
+  const img = h("img", { alt: "", draggable: "false", decoding: "async", ...props });
+  img.addEventListener("load", keepBottom, { once: true });
+  img.addEventListener("error", () => img.classList.add("broken"), { once: true });
+  img.src = mediaSrc(url) || "";
   return img;
 }
 
@@ -267,16 +257,13 @@ function avatar({ url, name, size = 32, presence = null, badge = null }) {
   group.append(letters);
   node.append(group);
 
-  const place = (data) => {
-    const picture = svg("image", { x: 0, y: 0, width: 32, height: 32, preserveAspectRatio: "xMidYMid slice" });
-    picture.setAttribute("href", data);
-    letters.remove();
-    group.append(picture);
-  };
   if (url) {
-    const known = state.media.get(url);
-    if (known) place(known);
-    else mediaUrl(url).then((data) => data && place(data));
+    // буквы остаются, пока картинка не загрузится (или если её нет)
+    const picture = svg("image", { x: 0, y: 0, width: 32, height: 32, preserveAspectRatio: "xMidYMid slice" });
+    picture.addEventListener("load", () => letters.remove(), { once: true });
+    picture.addEventListener("error", () => picture.remove(), { once: true });
+    picture.setAttribute("href", mediaSrc(url));
+    group.append(picture);
   }
 
   if (presence) node.append(svg("circle", { cx: 27, cy: 27, r: 5, class: "presence " + presence }));
@@ -685,6 +672,8 @@ function renderRail() {
       onclick: () => selectServer(server.id),
       oncontextmenu: (event) => openServerMenu(event, server),
     });
+    // пока курсор над сервером, его канал уже грузится
+    entry.button.addEventListener("pointerenter", () => prefetchHistory(landingChannel(server.id)));
     rail.append(entry.entry);
   }
 
@@ -695,20 +684,35 @@ function renderRail() {
   });
   add.button.classList.add("home");
   rail.append(add.entry);
+
+  // настройки — внизу рельса и всегда на виду (ServerList.tsx)
+  const bottom = el("rail-bottom");
+  if (bottom) {
+    const gear = railEntry({
+      title: "Настройки",
+      content: symbol("settings_fill", 24),
+      onclick: () => openUserSettings(),
+    });
+    gear.button.classList.add("home");
+    gear.button.id = "btn-settings";
+    bottom.replaceChildren(gear.entry);
+  }
 }
 
 // ─────────────────────────── боковая панель ───────────────────────────
 
-function menuButton({ icon, name, status, attention, onclick, oncontextmenu, trailing }) {
+function menuButton({ icon, name, status, attention, onclick, oncontextmenu, onpointerenter, trailing }) {
   const text = h("span", { class: "menu-button-text" }, [
     h("span", { class: "menu-button-name", text: name }),
     status ? h("span", { class: "menu-button-status", text: status }) : null,
   ]);
-  return h(
+  const button = h(
     "button",
     { class: "menu-button" + (attention ? " " + attention : ""), type: "button", title: name, onclick, oncontextmenu },
     [h("span", { class: "menu-button-icon" }, [icon]), text, trailing || null],
   );
+  if (onpointerenter) button.addEventListener("pointerenter", onpointerenter);
+  return button;
 }
 
 function attentionOf(channel) {
@@ -738,6 +742,10 @@ function renderSidebar() {
   list.textContent = "";
   header.textContent = "";
   if (!ws) return;
+
+  header.style.backgroundImage = "";
+  header.oncontextmenu = null;
+  list.oncontextmenu = null;
 
   if (state.serverId === null) {
     header.className = "sidebar-header";
@@ -779,11 +787,12 @@ function renderSidebar() {
 
   const server = serverById(state.serverId);
   if (!server) return;
-  header.className = "sidebar-header server";
-  header.append(
-    h("span", { class: "sidebar-header-title", text: server.name }),
-  );
-  header.oncontextmenu = (event) => openServerMenu(event, server);
+  renderServerHeader(header, server);
+  // меню пустого места списка (ServerSidebarContextMenu.tsx)
+  list.oncontextmenu = (event) => {
+    if (event.target.closest(".menu-button, .category")) return;
+    openSidebarMenu(event, server);
+  };
 
   if (!server.categories.length) {
     list.append(h("div", { class: "sidebar-note", text: "Нет доступных каналов" }));
@@ -804,10 +813,113 @@ function renderSidebar() {
           trailing: unreadMarker(channel),
           onclick: () => openChannel(channel),
           oncontextmenu: (event) => openChannelMenu(event, channel),
+          onpointerenter: () => prefetchHistory(channel),
         }),
       );
     }
   }
+}
+
+/** Права, с которыми открываются настройки сервера (как в оригинале). */
+function canOpenServerSettings(server) {
+  return [PERM.MANAGE_SERVER, PERM.MANAGE_CUSTOMISATION, PERM.MANAGE_ROLE, PERM.MANAGE_PERMISSIONS].some((bit) =>
+    serverAllows(server, bit),
+  );
+}
+
+/**
+ * Шапка сервера (ServerSidebar.tsx): баннер фоном, значок официального или
+ * проверенного сервера, имя (открывает сведения о сервере) и шестерёнка
+ * настроек для тех, кому они доступны.
+ */
+function renderServerHeader(header, server) {
+  const banner = Boolean(server.banner);
+  header.className = "sidebar-header server" + (banner ? " image" : "");
+  if (banner) header.style.backgroundImage = `url("${mediaSrc(server.banner)}")`;
+
+  const badge = server.flags
+    ? h("span", { class: "server-badge", title: server.flags === 1 ? "Официальный сервер" : "Проверенный сервер" }, [
+        symbol(server.flags === 1 ? "check_circle_fill" : "check_circle", 14),
+      ])
+    : null;
+  const name = h("button", { class: "server-name", type: "button", title: "О сервере", text: server.name });
+  name.onclick = () => openServerInfo(server);
+  const gear = canOpenServerSettings(server)
+    ? h("button", { class: "icon-button server-gear", type: "button", title: "Настройки сервера" }, [
+        symbol("settings_fill", 22),
+      ])
+    : null;
+  if (gear) gear.onclick = () => openServerSettings(server.id).catch((error) => toast(describe(error), "error"));
+
+  header.append(h("div", { class: "server-info" }, [badge, name, gear]));
+  header.oncontextmenu = (event) => openServerMenu(event, server);
+}
+
+/** Сведения о сервере (ServerInfo.tsx): описание и действия. */
+async function openServerInfo(server) {
+  closeMenus();
+  const body = h("div", { class: "server-description" });
+  if (server.description) {
+    try {
+      const rich = await call("rich_text", { text: server.description });
+      body.append(segmentsNode({ segments: rich.segments, content: server.description, emoji: rich.emoji }));
+    } catch {
+      body.append(richText(server.description));
+    }
+  } else {
+    body.append(h("span", { class: "settings-hint", text: "У сервера нет описания." }));
+  }
+  const actions = [];
+  if (canOpenServerSettings(server)) {
+    actions.push({
+      label: "Настройки",
+      onclick: () => openServerSettings(server.id).catch((error) => toast(describe(error), "error")),
+    });
+  }
+  actions.push({ label: "Изменить профиль на сервере", onclick: () => editServerIdentity(server) });
+  actions.push({ label: "Закрыть", primary: true, onclick: closeModal });
+  openModal({ title: server.name, body, actions });
+}
+
+/** Ник на сервере (server_identity в оригинале). */
+async function editServerIdentity(server) {
+  if (!state.me) return;
+  let current = "";
+  try {
+    const profile = await call("user_profile", { userId: state.me.id, serverId: server.id });
+    current = profile.nickname || "";
+  } catch (error) {
+    console.warn("профиль не получен:", error);
+  }
+  formModal({
+    title: "Профиль на сервере",
+    text: `Как вас видят участники «${server.name}». Пустое поле — показывать обычное имя.`,
+    fields: [{ label: "Ник на сервере", value: current, placeholder: myName(), maxlength: 32 }],
+    confirm: "Сохранить",
+    submit: async (nickname) => {
+      await call("edit_member", { serverId: server.id, userId: state.me.id, nickname, roles: null });
+      membersCache.delete(server.id);
+      if (state.serverId === server.id) loadMembers(server.id);
+      toast("Профиль на сервере сохранён");
+    },
+  });
+}
+
+/** Меню пустого места в списке каналов. */
+function openSidebarMenu(event, server) {
+  openContextMenu(event, [
+    serverAllows(server, PERM.MANAGE_CHANNEL) && {
+      icon: "add",
+      label: "Создать канал",
+      action: () => createChannelModal(server.id),
+    },
+    canOpenServerSettings(server) && {
+      icon: "settings",
+      label: "Настройки сервера",
+      action: () => openServerSettings(server.id),
+    },
+    { icon: "info", label: "О сервере", action: () => openServerInfo(server) },
+  ]);
 }
 
 function categoryLabel(title, key, open = true) {
@@ -831,18 +943,9 @@ function selectServer(serverId) {
   closeMenus();
   renderRail();
   renderSidebar();
-  const ws = state.workspace;
-  if (!ws) return;
+  if (!state.workspace) return;
 
-  let target = null;
-  if (serverId === null) {
-    target = ws.dms[0] || (ws.notes ? notesChannel() : null);
-  } else {
-    const server = serverById(serverId);
-    const remembered = readSetting("last." + serverId, null);
-    const channels = server ? server.categories.flatMap((category) => category.channels) : [];
-    target = channels.find((channel) => channel.id === remembered) || channels.find((c) => c.kind === "text") || channels[0];
-  }
+  const target = landingChannel(serverId);
   if (target) openChannel(target);
   else closeChannel();
 }
@@ -881,6 +984,7 @@ function setConnection(kind, text) {
 // ─────────────────────────── канал ───────────────────────────
 
 function closeChannel() {
+  rememberHistory();
   state.channelId = null;
   state.messages = [];
   state.replies = [];
@@ -903,10 +1007,78 @@ function showState(icon, title, text) {
 
 let openToken = 0;
 
+// ─────────────────────────── кэш истории ───────────────────────────
+// Как в официальном клиенте (stoat.js держит сообщения в коллекции): канал,
+// в котором уже были, открывается мгновенно из памяти, а свежая страница
+// подтягивается фоном и сливается с тем, что показано.
+
+const HISTORY_LIMIT = 40; // каналов в памяти
+const historyCache = new Map(); // id канала → { messages, reachedStart }
+const historyInFlight = new Map(); // id канала → Promise<страница>
+
+function rememberHistory() {
+  if (!state.channelId) return;
+  const messages = state.messages.filter((item) => !item.pending);
+  if (!messages.length) return;
+  historyCache.delete(state.channelId);
+  historyCache.set(state.channelId, { messages, reachedStart: state.reachedStart });
+  while (historyCache.size > HISTORY_LIMIT) historyCache.delete(historyCache.keys().next().value);
+}
+
+/** Последняя страница канала; повторные запросы ждут уже идущий. */
+function fetchLatest(channelId) {
+  const running = historyInFlight.get(channelId);
+  if (running) return running;
+  const task = call("channel_history", { channelId, limit: PAGE_SIZE }).finally(() =>
+    historyInFlight.delete(channelId),
+  );
+  historyInFlight.set(channelId, task);
+  return task;
+}
+
+/** Подгрузить канал заранее (наведение на сервер), чтобы открыть его сразу. */
+function prefetchHistory(channel) {
+  if (!channel || channel.kind === "voice" || historyCache.has(channel.id) || channel.id === state.channelId) return;
+  fetchLatest(channel.id)
+    .then((page) => {
+      if (historyCache.has(channel.id) || channel.id === state.channelId) return;
+      const messages = markMine(page.messages || []);
+      historyCache.set(channel.id, {
+        messages,
+        reachedStart: page.has_more === false || messages.length < PAGE_SIZE,
+      });
+    })
+    .catch(() => {});
+}
+
+/** Свежая страница поверх кэша: старые сообщения сохраняются, новые заменяются. */
+function mergeLatest(cached, fresh) {
+  if (!fresh.length) return [];
+  const oldest = fresh[0].id;
+  return cached.filter((item) => item.id < oldest).concat(fresh);
+}
+
+/** Канал, который откроется при выборе сервера (последний или первый текстовый). */
+function landingChannel(serverId) {
+  const ws = state.workspace;
+  if (!ws) return null;
+  if (serverId === null) return ws.dms[0] || (ws.notes ? notesChannel() : null);
+  const server = serverById(serverId);
+  const remembered = readSetting("last." + serverId, null);
+  const channels = server ? server.categories.flatMap((category) => category.channels) : [];
+  return (
+    channels.find((channel) => channel.id === remembered) ||
+    channels.find((channel) => channel.kind === "text") ||
+    channels[0] ||
+    null
+  );
+}
+
 async function openChannel(channel, { reload = false } = {}) {
   if (!channel) return;
   if (!reload && state.channelId === channel.id && state.messages.length) return;
   const token = ++openToken;
+  rememberHistory();
 
   const found = findChannel(channel.id);
   if (found && found.server) {
@@ -923,8 +1095,9 @@ async function openChannel(channel, { reload = false } = {}) {
   }
   state.channelId = channel.id;
   state.lastRead = channel.unread ? channel.last_read || null : null;
-  state.messages = [];
-  state.reachedStart = false;
+  const cached = historyCache.get(channel.id);
+  state.messages = cached ? cached.messages.slice() : [];
+  state.reachedStart = cached ? cached.reachedStart : false;
   state.stickToBottom = true;
   closeMenus();
   toggleEmojiPicker(false);
@@ -933,21 +1106,44 @@ async function openChannel(channel, { reload = false } = {}) {
   renderHeader();
   renderComposer();
   renderTyping();
+
+  // история важнее всего: запрос уходит первым, участники и эмодзи — следом
+  const latest = fetchLatest(channel.id);
+  if (cached) {
+    renderMessages({ toBottom: true });
+    focusInput();
+  } else {
+    showState(h("div", { class: "spinner" }));
+  }
   loadMembers(state.serverId);
   if (state.serverId !== null) loadServerEmoji(state.serverId);
 
-  showState(h("div", { class: "spinner" }));
   try {
-    const history = await call("channel_history", { channelId: channel.id, limit: PAGE_SIZE });
+    const history = await latest;
     if (token !== openToken) return; // пользователь уже ушёл в другой канал
-    state.messages = markMine(history.messages || []);
-    state.reachedStart = history.has_more === false || state.messages.length < PAGE_SIZE;
-    renderMessages({ toBottom: true });
+    const fresh = markMine(history.messages || []);
+    const pending = state.messages.filter((item) => item.pending);
+    const near = !cached || distanceFromBottom() < 120;
+    if (cached && fresh.length >= PAGE_SIZE && !cached.messages.some((item) => item.id >= fresh[0].id)) {
+      // пока нас не было, пришло больше страницы — старый кусок уже не стыкуется
+      state.messages = fresh;
+      state.reachedStart = false;
+    } else if (cached) {
+      state.messages = mergeLatest(state.messages.filter((item) => !item.pending), fresh);
+      if (fresh.length < PAGE_SIZE) state.reachedStart = true;
+    } else {
+      state.messages = fresh;
+      state.reachedStart = history.has_more === false || fresh.length < PAGE_SIZE;
+    }
+    state.messages = state.messages.concat(pending);
+    state.stickToBottom = state.stickToBottom || near;
+    renderMessages({ toBottom: near });
     ackVisible();
-    focusInput();
+    if (!cached) focusInput();
   } catch (error) {
     if (token !== openToken) return;
-    showState(symbol("info", 32), "Не удалось загрузить историю", describe(error));
+    if (cached) toast("Не удалось обновить историю: " + describe(error), "error");
+    else showState(symbol("info", 32), "Не удалось загрузить историю", describe(error));
   }
 }
 
@@ -975,6 +1171,15 @@ async function loadOlder() {
   } finally {
     state.loadingOlder = false;
   }
+}
+
+/** Сообщение из закрытого канала: кэш истории остаётся актуальным. */
+function updateCachedHistory(message) {
+  const cached = historyCache.get(message.channel);
+  if (!cached) return;
+  const index = cached.messages.findIndex((item) => item.id === message.id);
+  if (index >= 0) cached.messages[index] = message;
+  else if (!message.edited) cached.messages.push(message);
 }
 
 function markMine(list) {
@@ -1185,42 +1390,167 @@ function replyLine(replyId) {
   return node;
 }
 
+// ─────────────────────────── вложения (Attachment.tsx) ───────────────────────────
+
+const MEDIA_MIN_W = 160;
+const MEDIA_MIN_H = 120;
+const MEDIA_MAX = 420;
+
+/**
+ * Рамка под картинку или видео (SizedContent.tsx): мелкое растягивается до
+ * 160×120, крупное ужимается до 420 по большей стороне. Размер известен
+ * заранее, поэтому лента не прыгает, пока файл грузится.
+ */
+function sizedContent(width, height, child) {
+  let w = width || MEDIA_MAX;
+  let hgt = height || Math.round((MEDIA_MAX * 9) / 16);
+  if (w < MEDIA_MIN_W) {
+    hgt *= MEDIA_MIN_W / w;
+    w = MEDIA_MIN_W;
+  }
+  if (hgt < MEDIA_MIN_H) {
+    w *= MEDIA_MIN_H / hgt;
+    hgt = MEDIA_MIN_H;
+  }
+  if (w > MEDIA_MAX) {
+    hgt /= w / MEDIA_MAX;
+    w = MEDIA_MAX;
+  }
+  if (hgt > MEDIA_MAX) {
+    w /= hgt / MEDIA_MAX;
+    hgt = MEDIA_MAX;
+  }
+  return h("div", { class: "sized-content", style: { width: `${w}px`, aspectRatio: `${w} / ${hgt}` } }, [child]);
+}
+
+/** Спойлер: файл с именем `spoiler_…` скрыт, пока по нему не щёлкнут. */
+function spoilerWrap(node, file) {
+  if (!file.name || !file.name.toLowerCase().startsWith("spoiler_")) return node;
+  node.classList.add("spoiler");
+  const cover = h("button", { class: "spoiler-cover", type: "button", text: "Спойлер" });
+  cover.onclick = (event) => {
+    event.stopPropagation();
+    node.classList.remove("spoiler");
+    cover.remove();
+  };
+  node.append(cover);
+  return node;
+}
+
+const FILE_ICONS = { image: "image", video: "movie", audio: "headphones", text: "article" };
+
+/** Строка «значок, имя, размер, скачать» (FileInfo.tsx). */
+function fileInfo(file) {
+  const target = file.original || file.url;
+  const download = target
+    ? h("button", { class: "icon-button", type: "button", title: "Скачать" }, [symbol("download", 20)])
+    : null;
+  if (download) download.onclick = () => downloadFile(target, file.name);
+  return h("div", { class: "file-info" }, [
+    symbol(FILE_ICONS[file.kind] || "description", 24),
+    h("span", { class: "file-text" }, [
+      h("span", { class: "file-name", text: file.name }),
+      file.size ? h("span", { class: "file-size", text: humanSize(file.size) }) : null,
+    ]),
+    download,
+  ]);
+}
+
+/** Сохранить файл в «Загрузки»: webview сам не скачивает файлы протокола media:. */
+async function downloadFile(url, filename) {
+  try {
+    const path = await call("download_file", { url, filename: filename || "file" });
+    toast("Сохранено: " + path);
+  } catch (error) {
+    toast(describe(error), "error");
+  }
+}
+
 function attachmentsNode(files) {
   const box = h("div", { class: "attachments" });
   for (const file of files) {
     if (file.kind === "image" && file.url) {
-      const img = image(file.url, { class: "attachment-image", title: file.name, alt: file.name });
-      box.append(h("a", { href: file.url, target: "_blank", rel: "noreferrer" }, [img]));
-      continue;
+      // превью CDN пережимает в статичную картинку — анимацию берём из оригинала
+      const animated = file.content_type === "image/gif";
+      const img = image(animated ? file.original || file.url : file.url, {
+        class: "attachment-media",
+        alt: file.name,
+        title: file.name,
+        loading: "lazy",
+      });
+      img.onclick = () =>
+        openImageViewer({
+          src: file.original || file.url,
+          name: file.name,
+          size: file.size,
+          width: file.width,
+          height: file.height,
+          download: file.original || file.url,
+        });
+      box.append(spoilerWrap(sizedContent(file.width, file.height, img), file));
+    } else if (file.kind === "video" && file.url) {
+      const video = h("video", { class: "attachment-media", controls: true, playsinline: true, preload: "metadata" });
+      video.src = mediaSrc(file.original || file.url);
+      box.append(spoilerWrap(sizedContent(file.width, file.height, video), file));
+    } else if (file.kind === "audio" && file.url) {
+      const audio = h("audio", { controls: true, preload: "metadata" });
+      audio.src = mediaSrc(file.original || file.url);
+      box.append(h("div", { class: "attachment-card" }, [fileInfo(file), audio]));
+    } else {
+      box.append(h("div", { class: "attachment-card shrink" }, [fileInfo(file)]));
     }
-    box.append(
-      h("a", { class: "file", href: file.url || null, target: "_blank", rel: "noreferrer" }, [
-        symbol(file.kind === "image" ? "image" : "description", 28),
-        h("span", { class: "file-text" }, [
-          h("span", { class: "file-name", text: file.name }),
-          h("span", { class: "file-size", text: humanSize(file.size) }),
-        ]),
-        file.url ? symbol("download", 20) : null,
-      ]),
-    );
   }
   return box;
 }
 
+// ─────────────────────────── встраивания (Embed.tsx) ───────────────────────────
+
+/** Ссылка на GIF-сервис отдаётся как есть, прочее — через прокси January. */
+function embedMediaUrl(url, gif) {
+  return gif ? url : proxiedUrl(url);
+}
+
+function embedImage(embed, link) {
+  const src = embedMediaUrl(embed.image, embed.gif);
+  const img = image(src, { class: "attachment-media", loading: "lazy" });
+  img.onclick = () =>
+    openImageViewer({ src, width: embed.width, height: embed.height, link: link || embed.url || embed.image });
+  return sizedContent(embed.width, embed.height, img);
+}
+
+function embedVideo(embed) {
+  const src = embedMediaUrl(embed.video, embed.gif);
+  const video = h("video", { class: "attachment-media", playsinline: true });
+  if (embed.gif) {
+    // GIF-видео ведёт себя как картинка: само крутится, звук выключен
+    video.loop = true;
+    video.muted = true;
+    video.autoplay = true;
+    video.onclick = () =>
+      openImageViewer({ src, width: embed.width, height: embed.height, gif: true, link: embed.url || embed.video });
+  } else {
+    video.controls = true;
+    video.preload = "metadata";
+  }
+  video.src = mediaSrc(src);
+  return sizedContent(embed.width, embed.height, video);
+}
+
 function embedNode(embed) {
-  if (embed.kind === "image" && embed.image) {
-    const img = image(embed.image, { class: "embed-media" });
-    if (embed.width && embed.height) img.style.aspectRatio = `${embed.width} / ${embed.height}`;
-    return img;
-  }
-  if (embed.kind === "video" && embed.url) {
-    return h("a", { class: "file", href: embed.url, target: "_blank", rel: "noreferrer" }, [
-      symbol("description", 28),
-      h("span", { class: "file-text" }, [h("span", { class: "file-name", text: embed.url })]),
-    ]);
-  }
+  if (embed.kind === "image" && embed.image) return embedImage(embed);
+  if (embed.video && (embed.kind === "video" || embed.gif)) return embedVideo(embed);
+  if (embed.gif && embed.image) return embedImage(embed);
+
   const box = h("div", { class: "embed" });
-  if (embed.site) box.append(h("span", { class: "embed-site", text: embed.site }));
+  if (embed.colour) box.style.borderInlineStartColor = embed.colour;
+  if (embed.site || embed.icon) {
+    box.append(
+      h("span", { class: "embed-site" }, [
+        embed.icon ? image(embedMediaUrl(embed.icon, false), { class: "embed-icon", loading: "lazy" }) : null,
+        embed.site ? h("span", { text: embed.site }) : null,
+      ]),
+    );
+  }
   if (embed.title) {
     box.append(
       embed.url
@@ -1230,11 +1560,153 @@ function embedNode(embed) {
   }
   if (embed.description) box.append(h("div", { class: "embed-text" }, [richText(embed.description)]));
   if (embed.image) {
-    const img = image(embed.image, { class: "embed-media" });
+    const src = embedMediaUrl(embed.image, false);
+    const img = image(src, { class: "embed-media", loading: "lazy" });
     if (embed.width && embed.height) img.style.aspectRatio = `${embed.width} / ${embed.height}`;
+    img.onclick = () => openImageViewer({ src, width: embed.width, height: embed.height, link: embed.url });
     box.append(img);
   }
   return box;
+}
+
+// ─────────────────────────── просмотр картинок (ImageViewer.tsx) ───────────────────────────
+
+const VIEWER_MIN = 0.1;
+const VIEWER_MAX = 5;
+let viewerClose = null;
+
+function viewerOpen() {
+  return Boolean(viewerClose);
+}
+
+function closeImageViewer() {
+  if (viewerClose) viewerClose();
+}
+
+/**
+ * Полноэкранный просмотр: затемнение, сверху имя и размер файла, кнопки
+ * масштаба, скачивания или открытия в браузере и закрытия. Колесо мыши
+ * меняет масштаб, перетаскивание двигает картинку; щелчок мимо и Esc
+ * закрывают окно.
+ */
+function openImageViewer({ src, name = null, size = 0, width = null, height = null, gif = false, download = null, link = null }) {
+  closeImageViewer();
+  closeMenus();
+
+  const media = gif
+    ? h("video", { class: "viewer-media", playsinline: true })
+    : h("img", { class: "viewer-media", alt: name || "", draggable: "false" });
+  if (gif) {
+    media.loop = true;
+    media.muted = true;
+    media.autoplay = true;
+  }
+  media.src = mediaSrc(src);
+  if (width && height) media.style.aspectRatio = `${width} / ${height}`;
+
+  let scale = 1;
+  let x = 0;
+  let y = 0;
+  const apply = () => {
+    media.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+  };
+  const zoom = (next) => {
+    scale = Math.min(VIEWER_MAX, Math.max(VIEWER_MIN, next));
+    apply();
+  };
+
+  const button = (icon, title, action) => {
+    const node = h("button", { class: "icon-button", type: "button", title }, [symbol(icon, 22)]);
+    node.onclick = (event) => {
+      event.stopPropagation();
+      action();
+    };
+    return node;
+  };
+
+  const info = name
+    ? h("div", { class: "viewer-card" }, [
+        h("div", { class: "viewer-info" }, [
+          h("span", { class: "viewer-title", text: name }),
+          size ? h("span", { class: "viewer-size", text: humanSize(size) }) : null,
+        ]),
+      ])
+    : h("div");
+  const actions = h("div", { class: "viewer-card" }, [
+    button("zoom_out", "Уменьшить", () => zoom(scale / 1.3)),
+    button("zoom_in", "Увеличить", () => zoom(scale * 1.3)),
+    download ? button("download", "Скачать", () => downloadFile(download, name)) : null,
+    !download && link
+      ? h("a", { class: "icon-button", href: link, target: "_blank", rel: "noreferrer", title: "Открыть в браузере" }, [
+          symbol("open_in_new", 22),
+        ])
+      : null,
+    button("close", "Закрыть", () => closeImageViewer()),
+  ]);
+  for (const card of [info, actions]) card.addEventListener("click", (event) => event.stopPropagation());
+
+  const scrim = h("div", { class: "viewer-scrim", id: "image-viewer", role: "dialog", "aria-modal": "true" }, [
+    h("div", { class: "viewer-bar" }, [info, actions]),
+    h("div", { class: "viewer-stage" }, [media]),
+  ]);
+  scrim.onclick = () => closeImageViewer();
+
+  // перетаскивание
+  let drag = null;
+  media.addEventListener("click", (event) => event.stopPropagation());
+  media.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    drag = { id: event.pointerId, startX: event.clientX - x, startY: event.clientY - y };
+    media.setPointerCapture(event.pointerId);
+    media.classList.add("dragging");
+  });
+  media.addEventListener("pointermove", (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    x = event.clientX - drag.startX;
+    y = event.clientY - drag.startY;
+    apply();
+  });
+  const release = (event) => {
+    if (!drag || drag.id !== event.pointerId) return;
+    drag = null;
+    media.classList.remove("dragging");
+  };
+  media.addEventListener("pointerup", release);
+  media.addEventListener("pointercancel", release);
+  media.addEventListener("dblclick", () => {
+    scale = 1;
+    x = 0;
+    y = 0;
+    apply();
+  });
+  scrim.addEventListener(
+    "wheel",
+    (event) => {
+      event.preventDefault();
+      zoom(scale - event.deltaY / 1000);
+    },
+    { passive: false },
+  );
+
+  const onKey = (event) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    closeImageViewer();
+  };
+  document.addEventListener("keydown", onKey, true);
+
+  viewerClose = () => {
+    viewerClose = null;
+    document.removeEventListener("keydown", onKey, true);
+    if (gif) media.pause();
+    scrim.classList.remove("open");
+    setTimeout(() => scrim.remove(), 200);
+  };
+
+  document.body.append(scrim);
+  requestAnimationFrame(() => scrim.classList.add("open"));
 }
 
 /** Панель действий при наведении (MessageToolbar.tsx). */
@@ -1677,6 +2149,31 @@ function toggleMembers() {
 const serverEmoji = new Map(); // id сервера → [{ id, name, url, animated }]
 const customEmojiIndex = new Map(); // id эмодзи → { name, server }
 
+/**
+ * Эмодзи всех серверов сразу — из `Ready` и событий шлюза (`emoji_index`).
+ * Так `:имя:` и картинки с чужих серверов видны с первого открытия канала,
+ * а не после того, как побываешь на сервере-владельце.
+ */
+async function loadEmojiIndex() {
+  let index;
+  try {
+    index = (await call("emoji_index")) || {};
+  } catch (error) {
+    console.warn("не удалось получить эмодзи:", error);
+    return;
+  }
+  const known = Object.keys(index);
+  if (!known.length && !serverEmoji.size) return; // `Ready` ещё не пришёл
+  const servers = state.workspace ? state.workspace.servers.map((server) => server.id) : [];
+  for (const serverId of new Set([...servers, ...known])) {
+    const list = index[serverId] || [];
+    serverEmoji.set(serverId, list);
+    for (const emoji of list) customEmojiIndex.set(emoji.id, { name: emoji.name, server: serverId });
+  }
+  if (state.messages.length) renderMessages();
+  if (!el("emoji-picker").classList.contains("hidden")) renderEmojiPicker();
+}
+
 async function loadServerEmoji(serverId) {
   if (serverId === null || serverEmoji.has(serverId)) return serverEmoji.get(serverId) || [];
   serverEmoji.set(serverId, []);
@@ -2113,6 +2610,7 @@ async function refreshWorkspace({ reloadChannel = false } = {}) {
     state.workspace = ws;
     state.me = ws.me;
     markMine(state.messages);
+    loadEmojiIndex();
 
     const keep = state.channelId ? findChannel(state.channelId) : null;
     if (keep) {
@@ -2151,6 +2649,7 @@ function onMessage(message) {
   if (!message || !message.id) return;
   markMine([message]);
   if (message.channel !== state.channelId) {
+    updateCachedHistory(message);
     if (!message.edited) noteIncoming(message);
     return;
   }
@@ -2204,6 +2703,10 @@ function onGateway(payload) {
       break;
     }
     case "MessageDelete":
+      if (historyCache.has(event.channel)) {
+        const cached = historyCache.get(event.channel);
+        cached.messages = cached.messages.filter((item) => item.id !== event.id);
+      }
       if (event.channel === state.channelId) {
         const before = state.messages.length;
         state.messages = state.messages.filter((item) => item.id !== event.id);
@@ -2229,6 +2732,10 @@ function onGateway(payload) {
       break;
     case "UserUpdate":
       applyPresence(event);
+      break;
+    case "EmojiCreate":
+    case "EmojiDelete":
+      loadEmojiIndex();
       break;
     case "ChannelCreate":
     case "ChannelUpdate":

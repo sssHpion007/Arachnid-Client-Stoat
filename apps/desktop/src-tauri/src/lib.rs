@@ -797,6 +797,23 @@ async fn download_data_url(
     Ok(format!("data:{content_type};base64,{encoded}"))
 }
 
+/// Оформленный текст вне сообщений (описание сервера): куски разметки и
+/// адреса своих эмодзи — тем же разбором, что и сообщения.
+#[derive(Debug, Serialize)]
+struct RichTextView {
+    segments: views::Segments,
+    emoji: std::collections::HashMap<String, String>,
+}
+
+#[tauri::command]
+async fn rich_text(text: String, state: State<'_, Arc<AppState>>) -> CmdResult<RichTextView> {
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(RichTextView {
+        segments: views::segments(&text),
+        emoji: views::custom_emojis(&text, cdn.as_deref()),
+    })
+}
+
 /// Сохранить файл из сообщения в каталог «Загрузки» пользователя.
 ///
 /// Webview не умеет скачивать файлы протокола `media:`, поэтому файл
@@ -1369,6 +1386,7 @@ pub fn run() {
             fetch_emoji,
             emoji_index,
             download_file,
+            rich_text,
             server_emojis,
             server_members,
             subscribe_server,
