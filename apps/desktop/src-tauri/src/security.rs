@@ -55,7 +55,7 @@ fn compact(code: &str) -> String {
 }
 
 /// Получить тикет в обмен на ответ пользователя.
-async fn ticket(http: &HttpClient, answer: MfaAnswer) -> CmdResult<MfaTicket> {
+pub(crate) async fn ticket(http: &HttpClient, answer: MfaAnswer) -> CmdResult<MfaTicket> {
     let response = answer.into_response()?;
     Ok(http.create_mfa_ticket(&response).await?)
 }

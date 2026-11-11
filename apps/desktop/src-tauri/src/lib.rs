@@ -14,6 +14,9 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod bots;
+mod desktop;
+mod markdown;
 mod media;
 mod permissions;
 mod profile;
@@ -54,6 +57,8 @@ pub struct AppState {
     pub session_id: RwLock<Option<String>>,
     /// Ссылки на правила инстанса (подвал списка разделов настроек)
     pub legal: RwLock<stoat_core::LegalLinks>,
+    /// Предельные размеры загружаемых файлов по тегам Autumn
+    pub upload: RwLock<stoat_core::UploadLimits>,
 }
 
 impl AppState {
@@ -72,6 +77,7 @@ impl AppState {
             subscriptions: Mutex::new(std::collections::HashMap::new()),
             session_id: RwLock::new(None),
             legal: RwLock::new(stoat_core::LegalLinks::default()),
+            upload: RwLock::new(stoat_core::UploadLimits::default()),
         }
     }
 }
@@ -89,10 +95,16 @@ pub struct InstanceInfo {
     pub version: Option<String>,
     /// Включён ли голос
     pub voice: bool,
+    /// Разрешено ли видео в звонках (камера и демонстрация экрана)
+    pub video: bool,
     /// Адрес файлового сервиса (Autumn)
     pub autumn_url: Option<String>,
     /// Условия, конфиденциальность и правила инстанса
     pub legal: stoat_core::LegalLinks,
+    /// Предельные размеры загружаемых файлов
+    pub upload: stoat_core::UploadLimits,
+    /// Наибольшее разрешение видео `[ширина, высота]`, `[0, 0]` — любое
+    pub video_resolution: [u64; 2],
 }
 
 /// Проблема, которую нужно показать пользователю.
@@ -272,8 +284,11 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
         ws_url: instance.ws_url.to_string(),
         version: root.stoat.clone(),
         voice: root.voice_enabled(),
+        video: root.video_enabled(),
         autumn_url: root.autumn_url().map(str::to_string),
         legal: root.legal_links(),
+        upload: root.upload_limits(),
+        video_resolution: root.video_resolution(),
     }
 }
 
@@ -1040,8 +1055,8 @@ async fn server_emojis(
 
 /// Скачать картинку эмодзи из статики Stoat.
 ///
-/// Набор картинок (`twemoji`/`noto`) настраивается в клиенте пользователя,
-/// поэтому пробуем по очереди и запоминаем удачный.
+/// Набор картинок выбирается в «Внешнем виде»; если в нём картинки нет,
+/// пробуем Twemoji и Noto.
 #[tauri::command]
 async fn fetch_emoji(
     codepoint: String,
@@ -1055,19 +1070,25 @@ async fn fetch_emoji(
         return Err(CommandError::new("bad_emoji", "некорректный код эмодзи"));
     }
 
-    let mut packs: Vec<String> = Vec::new();
-    if let Some(pack) = pack.filter(|pack| !pack.trim().is_empty()) {
-        packs.push(pack);
+    let mut packs: Vec<&str> = Vec::new();
+    if let Some(pack) = pack.as_deref() {
+        // в адрес попадают только наборы, которые есть на статике Stoat
+        let known = views::UNICODE_EMOJI_PACKS
+            .iter()
+            .copied()
+            .find(|known| *known == pack)
+            .ok_or_else(|| CommandError::new("bad_emoji", "неизвестный набор эмодзи"))?;
+        packs.push(known);
     }
     for fallback in ["twemoji", "noto"] {
-        if !packs.iter().any(|pack| pack == fallback) {
-            packs.push(fallback.to_string());
+        if !packs.contains(&fallback) {
+            packs.push(fallback);
         }
     }
 
     let mut last = String::from("эмодзи не найдено");
     for pack in packs {
-        let url = views::emoji_url(&pack, &codepoint);
+        let url = views::emoji_url(pack, &codepoint);
         match download_data_url(proxy.client(), &url).await {
             Ok(data) => return Ok(data),
             Err(error) => last = error,
@@ -1086,6 +1107,7 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
     *state.cdn_url.write().await = url.clone();
     *state.proxy_url.write().await = root.january_url().map(str::to_string);
     *state.legal.write().await = root.legal_links();
+    *state.upload.write().await = root.upload_limits();
     url
 }
 
@@ -1373,8 +1395,19 @@ pub fn run() {
     migrate_legacy_identifier(&context.config().identifier);
 
     tauri::Builder::default()
+        // первым: второй экземпляр должен выйти до того, как что-то создаст
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            desktop::show_main_window(app);
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(desktop::HIDDEN_ARG)
+                .build(),
+        )
+        .on_window_event(desktop::on_window_event)
         .manage(Arc::new(media::MediaProxy::new()))
         // файлы для webview: картинки, видео и аудио с CDN (см. media.rs)
         .register_asynchronous_uri_scheme_protocol(media::SCHEME, |ctx, request, responder| {
@@ -1394,6 +1427,18 @@ pub fn run() {
 
             if let Err(error) = ensure_layout(&data_dir) {
                 tracing::warn!(%error, "не удалось подготовить каталоги данных");
+            }
+
+            // окно создаётся здесь, а не по tauri.conf.json: рамка,
+            // аппаратное ускорение и запуск в трее берутся из настроек «ПК»
+            let desktop = Arc::new(desktop::Desktop::new(data_dir.clone()));
+            app.manage(desktop.clone());
+            desktop::create_main_window(app.handle(), &desktop)?;
+            if let Err(error) = desktop::create_tray(app.handle()) {
+                tracing::warn!(%error, "значок в трее не создан");
+            }
+            if desktop.config().discord_rpc {
+                desktop::start_discord(&desktop);
             }
 
             let state = Arc::new(AppState::new(data_dir));
@@ -1477,6 +1522,23 @@ pub fn run() {
             ack_channel,
             cache_snapshot,
             data_dir,
+            desktop::desktop_config,
+            desktop::set_desktop_config,
+            desktop::set_tray_labels,
+            desktop::restart_app,
+            desktop::notify,
+            settings::changelog,
+            settings::edit_server_identity,
+            bots::owned_bots,
+            bots::bot_info,
+            bots::create_bot,
+            bots::edit_bot,
+            bots::delete_bot,
+            bots::public_bot,
+            bots::invite_bot,
+            bots::bot_discover_status,
+            bots::request_bot_discover,
+            bots::cancel_bot_discover,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

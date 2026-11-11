@@ -5,8 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Arachnid Client</title>
     <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="fonts-extra.css" />
     <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="titlebar.css" />
+    <script src="vendor/material-color.js"></script>
     <script src="theme.js"></script>
+    <script src="i18n.js"></script>
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
@@ -39,7 +43,7 @@
 
     <div class="layout" id="layout">
       <!-- рельс серверов -->
-      <nav class="server-list" id="server-list" aria-label="Серверы">
+      <nav class="server-list" id="server-list" aria-label="Servers">
         <div class="server-list-scroll" id="rail"></div>
         <div class="server-list-bottom" id="rail-bottom"></div>
       </nav>
@@ -59,10 +63,10 @@
             <span class="channel-header-divider hidden" id="chat-divider"></span>
             <span class="channel-header-description" id="chat-sub"></span>
             <span class="spacer"></span>
-            <span class="connection" id="conn" title="Соединение со Stoat">
-              <span class="connection-dot"></span><span id="conn-text">не подключено</span>
+            <span class="connection" id="conn" title="Соединение со Stoat" data-i18n-title="Stoat connection">
+              <span class="connection-dot"></span><span id="conn-text" data-i18n="not connected">не подключено</span>
             </span>
-            <button class="icon-button hidden" id="btn-members" type="button" title="Участники"></button>
+            <button class="icon-button hidden" id="btn-members" type="button" title="Участники" data-i18n-title="Members"></button>
           </header>
 
           <div class="channel-body">
@@ -73,15 +77,15 @@
                 <div class="typing hidden" id="typing"></div>
                 <div class="replies" id="replies"></div>
                 <div class="message-box hidden" id="message-box">
-                  <textarea id="input" rows="1" maxlength="2000" spellcheck="true"
+                  <textarea id="input" rows="1" maxlength="2000"
                             autocomplete="off" placeholder=""></textarea>
-                  <button class="icon-button" id="btn-emoji" type="button" title="Эмодзи"></button>
-                  <button class="icon-button send" id="btn-send" type="button" title="Отправить"></button>
+                  <button class="icon-button" id="btn-emoji" type="button" title="Эмодзи" data-i18n-title="Emojis"></button>
+                  <button class="icon-button send" id="btn-send" type="button" title="Отправить" data-i18n-title="Send"></button>
                 </div>
                 <div class="blocked hidden" id="blocked"></div>
 
                 <div class="emoji-picker hidden" id="emoji-picker">
-                  <input id="emoji-search" type="search" placeholder="Поиск эмодзи" autocomplete="off" />
+                  <input id="emoji-search" type="search" placeholder="Поиск эмодзи" data-i18n-placeholder="Search for emojis..." autocomplete="off" />
                   <div class="emoji-body">
                     <div class="emoji-servers" id="emoji-servers"></div>
                     <div class="emoji-scroll" id="emoji-scroll">
@@ -125,8 +129,13 @@
 
     <script src="icons.js"></script>
     <script src="emoji/map.js"></script>
+    <script src="titlebar.js"></script>
+    <script src="options.js" defer></script>
+    <script src="cropper.js" defer></script>
     <script src="profile.js" defer></script>
     <script src="settings.js" defer></script>
+    <script src="settings-profile.js" defer></script>
+    <script src="settings-client.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>

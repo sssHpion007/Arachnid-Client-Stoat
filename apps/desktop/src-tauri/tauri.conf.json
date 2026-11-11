@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Arachnid Client",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "identifier": "com.arachnid.client",
   "build": {
     "frontendDist": "../ui"
@@ -9,11 +9,13 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "Arachnid Client",
         "width": 1280,
         "height": 820,
-        "minWidth": 900,
-        "minHeight": 600,
+        "minWidth": 300,
+        "minHeight": 300,
         "resizable": true,
         "center": true,
         "url": "login.html"

@@ -17,13 +17,13 @@
       let methods = [];
 
       const METHOD_TITLES = {
-        Totp: "Код из приложения-аутентификатора",
-        Password: "Пароль от аккаунта",
-        Recovery: "Код восстановления",
+        Totp: /* i18n */ "Code from your authenticator app",
+        Password: /* i18n */ "Account password",
+        Recovery: /* i18n */ "Recovery Code",
       };
       const METHOD_PLACEHOLDERS = {
         Totp: "000000",
-        Password: "пароль от аккаунта",
+        Password: /* i18n */ "account password",
         Recovery: "xxxx-xxxx-xxxx",
       };
       // как поле называется в ядре
@@ -69,15 +69,15 @@
       function describe(error) {
         const kind = errorKind(error).toLowerCase();
         const text = String((error && (error.message || error)) || "");
-        if (kind === "invalidcredentials") return "Неверная почта или пароль. Проверьте раскладку и Caps Lock.";
-        if (kind === "accountdisabled") return "Аккаунт отключён. Обратитесь в поддержку Stoat.";
-        if (kind === "emailnotverified") return "Почта не подтверждена — проверьте письмо от Stoat.";
-        if (kind === "banned") return "Аккаунт заблокирован.";
-        if (kind === "ratelimited") return "Слишком много попыток. Подождите минуту и попробуйте снова.";
-        if (kind === "network") return "Нет связи с сервером Stoat. Проверьте интернет или VPN.";
-        if (text.includes("network") || text.includes("сетевая")) return "Нет связи с сервером Stoat. Проверьте интернет или VPN.";
-        if (text.includes("MFA") || text.includes("mfa")) return "Код не подошёл. Проверьте и попробуйте снова.";
-        return text || "Неизвестная ошибка.";
+        if (kind === "invalidcredentials") return t("Wrong email or password. Check your keyboard layout and Caps Lock.");
+        if (kind === "accountdisabled") return t("The account is disabled. Contact Stoat support.");
+        if (kind === "emailnotverified") return t("Your email is not verified — check the message from Stoat.");
+        if (kind === "banned") return t("The account is banned.");
+        if (kind === "ratelimited") return t("Too many attempts. Wait a minute and try again.");
+        if (kind === "network") return t("Cannot reach the Stoat server. Check your internet connection or VPN.");
+        if (text.includes("network") || text.includes("сетевая")) return t("Cannot reach the Stoat server. Check your internet connection or VPN.");
+        if (text.includes("MFA") || text.includes("mfa")) return t("The code did not match. Check it and try again.");
+        return text || t("Unknown error.");
       }
 
       // Основной способ сменить экран: через Tauri. Если по какой-то причине
@@ -98,8 +98,8 @@
 
       async function init() {
         if (!invoke) {
-          setMsg("Нет связи с ядром приложения (мост Tauri недоступен). Это ошибка сборки, а не ваших данных — напишите о ней.", "err");
-          document.getElementById("instance-info").textContent = "ядро недоступно";
+          setMsg(t("No connection to the application core (the Tauri bridge is unavailable). This is a build error, not a problem with your data — please report it."), "err");
+          document.getElementById("instance-info").textContent = t("core unavailable");
           btnPassword.disabled = true;
           return;
         }
@@ -108,10 +108,10 @@
           const info = await invoke("instance_info");
           document.getElementById("instance-name").textContent = info.name || "stoat.chat";
           document.getElementById("instance-info").textContent =
-            "инстанс: " + info.api_url + (info.version ? " · API " + info.version : "");
+            t("instance: {0}", [info.api_url + (info.version ? " · API " + info.version : "")]);
         } catch (error) {
           document.getElementById("instance-info").textContent =
-            "инстанс недоступен — проверьте интернет";
+            t("instance unavailable — check your internet connection");
         }
 
         // сессия уже есть — сразу в клиент
@@ -123,17 +123,17 @@
         // запомненная сессия: входим без формы (кроме «Сменить аккаунт»)
         const saved = readSession();
         if (saved && !new URLSearchParams(location.search).has("switch")) {
-          setMsg("Восстанавливаю сессию…");
+          setMsg(t("Restoring session…"));
           btnPassword.disabled = true;
           try {
             await invoke("login_with_token", { token: saved.token, sessionId: saved.id || null });
-            setMsg("Вход выполнен. Открываю клиент…", "ok");
+            setMsg(t("Logged in. Opening the client…"), "ok");
             setTimeout(openClient, 300);
           } catch (error) {
             const kind = errorKind(error).toLowerCase();
             // сессию завершили — забываем её; сеть или сервер — просто показываем
             if (kind === "unauthorized" || kind === "invalidsession") forgetSession();
-            setMsg("Не удалось восстановить сессию: " + describe(error), "warn");
+            setMsg(t("Could not restore the session: {0}", [describe(error)]), "warn");
           } finally {
             btnPassword.disabled = false;
           }
@@ -168,23 +168,23 @@
         ticket = step.ticket;
         methods = step.methods || [];
         const method = methods[0] || "Totp";
-        mfaLabel.textContent = METHOD_TITLES[method] || "Код подтверждения";
-        mfaValue.placeholder = METHOD_PLACEHOLDERS[method] || "код";
+        mfaLabel.textContent = t(METHOD_TITLES[method] || /* i18n */ "Verification code");
+        mfaValue.placeholder = t(METHOD_PLACEHOLDERS[method] || /* i18n */ "code");
         mfaValue.type = method === "Password" ? "password" : "text";
         mfaValue.inputMode = method === "Totp" ? "numeric" : "text";
         mfaValue.value = "";
         mfaHint.textContent =
           methods.length > 1
-            ? "Доступно: " + methods.map((m) => METHOD_TITLES[m] || m).join(", ")
-            : "Введите " + (METHOD_TITLES[method] || "код").toLowerCase() + ".";
+            ? t("Available: {0}", [methods.map((m) => (METHOD_TITLES[m] ? t(METHOD_TITLES[m]) : m)).join(", ")])
+            : t("Enter: {0}.", [t(METHOD_TITLES[method] || /* i18n */ "code").toLowerCase()]);
         formPassword.classList.add("hidden");
         formMfa.classList.remove("hidden");
-        setMsg("Аккаунт защищён вторым фактором.", "warn");
+        setMsg(t("The account is protected by a second factor."), "warn");
         mfaValue.focus();
       }
 
       function onSuccess(result) {
-        setMsg("Вход выполнен. Открываю клиент…", "ok");
+        setMsg(t("Logged in. Opening the client…"), "ok");
         if (result && result.token && remember.checked) rememberSession(result.token, result.session_id);
         else forgetSession();
         // Окно переключает сам Rust сразу после ответа; это лишь запасной путь.
@@ -198,18 +198,18 @@
         const email = document.getElementById("email").value.trim();
         const password = document.getElementById("password").value;
 
-        busy(btnPassword, true, "Вхожу…");
+        busy(btnPassword, true, t("Logging in…"));
         setMsg("");
         try {
           const step = await invoke("login_password", { email, password });
           if (step.status === "Success") onSuccess(step);
           else if (step.status === "Mfa") showMfa(step);
-          else if (step.status === "Disabled") setMsg("Аккаунт отключён. Обратитесь в поддержку Stoat.", "err");
+          else if (step.status === "Disabled") setMsg(t("The account is disabled. Contact Stoat support."), "err");
         } catch (error) {
           console.error("вход не удался:", error);
           setMsg(describe(error), "err");
         } finally {
-          busy(btnPassword, false, "Войти");
+          busy(btnPassword, false, t("Log in"));
         }
       });
 
@@ -218,21 +218,21 @@
         if (!invoke || !ticket) return;
 
         const value = mfaValue.value.trim();
-        if (!value) return setMsg("Введите код подтверждения.", "warn");
+        if (!value) return setMsg(t("Enter the verification code."), "warn");
 
         const method = METHOD_NAMES[methods[0] || "Totp"] || "totp";
 
-        busy(btnMfa, true, "Проверяю…");
+        busy(btnMfa, true, t("Checking…"));
         try {
           const step = await invoke("login_mfa", { ticket, method, value });
           if (step.status === "Success") onSuccess(step);
           else if (step.status === "Mfa") showMfa(step);
-          else if (step.status === "Disabled") setMsg("Аккаунт отключён.", "err");
+          else if (step.status === "Disabled") setMsg(t("The account is disabled."), "err");
         } catch (error) {
           console.error("второй фактор не принят:", error);
           setMsg(describe(error), "err");
         } finally {
-          busy(btnMfa, false, "Подтвердить");
+          busy(btnMfa, false, t("Confirm"));
         }
       });
 
@@ -248,13 +248,13 @@
       document.getElementById("submit-token").addEventListener("click", async () => {
         if (!invoke) return;
         const token = document.getElementById("token").value.trim();
-        if (!token) return setMsg("Нужен токен.", "warn");
+        if (!token) return setMsg(t("A token is required."), "warn");
 
         const button = document.getElementById("submit-token");
-        busy(button, true, "Проверяю…");
+        busy(button, true, t("Checking…"));
         try {
           const user = await invoke("login_with_token", { token, sessionId: null });
-          setMsg("Вошли как " + user.username + "#" + user.discriminator, "ok");
+          setMsg(t("Logged in as {0}", [user.username + "#" + user.discriminator]), "ok");
           if (remember.checked) rememberSession(token, null);
           else forgetSession();
           setTimeout(openClient, 600);
@@ -262,8 +262,9 @@
           console.error("вход по токену не удался:", error);
           setMsg(describe(error), "err");
         } finally {
-          busy(button, false, "Войти с токеном");
+          busy(button, false, t("Log in with token"));
         }
       });
 
-      init();
+      // переводы нужны до первых сообщений формы
+      window.I18N.ready.then(init);

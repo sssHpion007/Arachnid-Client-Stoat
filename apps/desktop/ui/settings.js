@@ -6,43 +6,44 @@
 
 "use strict";
 
-/** Биты прав API (revolt_permissions::ChannelPermission). */
+/**
+ * Права в редакторе роли сервера — тот же список, что в браузерном клиенте
+ * (ChannelPermissionsEditor.tsx, описания для контекста «Server»).
+ */
 const PERMISSIONS = [
-  { bit: 1 << 1, title: "Управлять сервером", hint: "Название, описание, значок, баннер и системные сообщения" },
-  { bit: 1 << 0, title: "Управлять каналами", hint: "Создавать, изменять и удалять каналы" },
-  { bit: 1 << 2, title: "Управлять правами", hint: "Менять права в каналах" },
-  { bit: 1 << 3, title: "Управлять ролями", hint: "Создавать и менять роли ниже своей" },
-  { bit: 1 << 4, title: "Управлять оформлением", hint: "Добавлять и удалять эмодзи" },
-  { bit: 1 << 6, title: "Исключать участников" },
-  { bit: 1 << 7, title: "Банить участников" },
-  { bit: 1 << 8, title: "Выдавать тайм-аут" },
-  { bit: 1 << 9, title: "Выдавать роли", hint: "Роли ниже своей" },
-  { bit: 1 << 10, title: "Менять свой ник" },
-  { bit: 1 << 11, title: "Менять чужие ники" },
-  { bit: 1 << 12, title: "Менять свой аватар на сервере" },
-  { bit: 1 << 13, title: "Удалять аватары участников" },
-  { bit: 1 << 20, title: "Видеть канал" },
-  { bit: 1 << 21, title: "Читать историю сообщений" },
-  { bit: 1 << 22, title: "Отправлять сообщения" },
-  { bit: 1 << 23, title: "Управлять сообщениями", hint: "Удалять и закреплять чужие сообщения" },
-  { bit: 1 << 24, title: "Управлять вебхуками" },
-  { bit: 1 << 25, title: "Приглашать" },
-  { bit: 1 << 26, title: "Встраивать ссылки" },
-  { bit: 1 << 27, title: "Загружать файлы" },
-  { bit: 1 << 28, title: "Маскарад", hint: "Менять имя и аватар у своих сообщений" },
-  { bit: 1 << 29, title: "Реакции" },
-  { bit: 2 ** 37, title: "Упоминать всех" },
-  { bit: 2 ** 38, title: "Упоминать роли" },
-  { bit: 2 ** 39, title: "Обходить медленный режим" },
-  { bit: 2 ** 41, title: "Чужие эмодзи" },
-  { bit: 2 ** 30, title: "Подключаться к голосу" },
-  { bit: 2 ** 31, title: "Говорить" },
-  { bit: 2 ** 32, title: "Видео" },
-  { bit: 2 ** 33, title: "Заглушать участников" },
-  { bit: 2 ** 34, title: "Отключать звук участникам" },
-  { bit: 2 ** 35, title: "Перемещать участников" },
-  { bit: 2 ** 36, title: "Слушать" },
-  { bit: 2 ** 40, title: "Журнал аудита" },
+  { heading: /* i18n */ "Admin", bit: 1 << 0, title: /* i18n */ "Manage Channel", hint: /* i18n */ "Edit and delete channel" },
+  { bit: 1 << 1, title: /* i18n */ "Manage Server", hint: /* i18n */ "Edit the server's information and settings" },
+  { bit: 1 << 2, title: /* i18n */ "Manage Permissions", hint: /* i18n */ "Edit any permissions on the server" },
+  { bit: 1 << 3, title: /* i18n */ "Manage Roles", hint: /* i18n */ "Create and edit server roles" },
+  { bit: 1 << 4, title: /* i18n */ "Manage Customisation", hint: /* i18n */ "Create server emoji" },
+  { heading: /* i18n */ "Members", bit: 1 << 6, title: /* i18n */ "Kick Members", hint: /* i18n */ "Kick lower-ranking members from the server" },
+  { bit: 1 << 7, title: /* i18n */ "Ban Members", hint: /* i18n */ "Ban lower-ranking members from the server" },
+  { bit: 1 << 8, title: /* i18n */ "Timeout Members", hint: /* i18n */ "Temporarily prevent lower-ranking members from interacting" },
+  { bit: 1 << 9, title: /* i18n */ "Assign Roles", hint: /* i18n */ "Assign lower-ranked roles to lower-ranking members" },
+  { bit: 1 << 10, title: /* i18n */ "Change Nickname", hint: /* i18n */ "Change own nickname" },
+  { bit: 1 << 11, title: /* i18n */ "Manage Nicknames", hint: /* i18n */ "Change other members' nicknames" },
+  { bit: 1 << 12, title: /* i18n */ "Change Avatar", hint: /* i18n */ "Change own avatar" },
+  { bit: 1 << 13, title: /* i18n */ "Remove Avatars", hint: /* i18n */ "Remove other members' avatars" },
+  { heading: /* i18n */ "Channels", bit: 1 << 20, title: /* i18n */ "View Channel", hint: /* i18n */ "Able to access channels on this server" },
+  { bit: 1 << 21, title: /* i18n */ "Read Message History", hint: /* i18n */ "Read past messages sent in channels" },
+  { bit: 1 << 22, title: /* i18n */ "Send Messages", hint: /* i18n */ "Send messages in channels" },
+  { bit: 1 << 23, title: /* i18n */ "Manage Messages", hint: /* i18n */ "Delete and pin messages sent by other members" },
+  { bit: 1 << 24, title: /* i18n */ "Manage Webhooks", hint: /* i18n */ "Create and edit webhooks" },
+  { bit: 1 << 25, title: /* i18n */ "Invite Others", hint: /* i18n */ "Create invites for others to use" },
+  { heading: /* i18n */ "Messaging", bit: 1 << 26, title: /* i18n */ "Send Embeds", hint: /* i18n */ "Send embedded content such as link embeds or custom embeds" },
+  { bit: 1 << 27, title: /* i18n */ "Upload Files", hint: /* i18n */ "Send attachments to chat" },
+  { bit: 1 << 28, title: /* i18n */ "Masquerade", hint: /* i18n */ "Allow members to change name and avatar per-message" },
+  { bit: 1 << 29, title: /* i18n */ "React", hint: /* i18n */ "React to messages with emoji" },
+  { bit: 2 ** 39, title: /* i18n */ "Bypass Slowmode", hint: /* i18n */ "Bypasses slowmode in channels" },
+  { heading: /* i18n */ "Voice", bit: 2 ** 30, title: /* i18n */ "Connect", hint: /* i18n */ "Connect to voice channel" },
+  { bit: 2 ** 31, title: /* i18n */ "Speak", hint: /* i18n */ "Able to speak in voice call" },
+  { bit: 2 ** 32, title: /* i18n */ "Video", hint: /* i18n */ "Share camera or screen in voice call" },
+  { bit: 2 ** 33, title: /* i18n */ "Mute Members", hint: /* i18n */ "Mute lower-ranking members in voice call" },
+  { bit: 2 ** 34, title: /* i18n */ "Deafen Members", hint: /* i18n */ "Deafen lower-ranking members in voice call" },
+  { bit: 2 ** 35, title: /* i18n */ "Move Members", hint: /* i18n */ "Move members between voice channels" },
+  { bit: 2 ** 36, title: /* i18n */ "Listen", hint: /* i18n */ "Hear other people and see their video" },
+  { heading: /* i18n */ "Mentions", bit: 2 ** 37, title: /* i18n */ "Mention Everyone", hint: /* i18n */ "Mention everyone and online members inside the server" },
+  { bit: 2 ** 38, title: /* i18n */ "Mention Roles", hint: /* i18n */ "Mention specific roles" },
 ];
 
 const PERM = {
@@ -78,6 +79,7 @@ const settings = {
   page: null,
   server: null, // настройки сервера с ядра
   about: null, // версия и ссылки на правила (команда about)
+  instance: null, // сводка по инстансу: есть ли видео (instance_info)
   token: 0,
 };
 
@@ -113,6 +115,15 @@ function openUserSettings(page = "account") {
   settings.serverId = null;
   settings.page = page;
   renderSettings();
+  if (!settings.instance) {
+    instanceInfo()
+      .then((info) => {
+        settings.instance = info;
+        // без видео раздел называется просто «Голос»
+        if (!info.video && settings.kind === "user") renderSettings();
+      })
+      .catch(() => {});
+  }
 }
 
 /** Настройки сервера. */
@@ -127,38 +138,61 @@ async function openServerSettings(serverId, page = null) {
 }
 
 /**
- * Разделы настроек пользователя в порядке браузерного клиента.
- * «Мой аккаунт» открывается карточкой над списком, поэтому скрыт.
+ * Разделы настроек пользователя в порядке браузерного клиента
+ * (UserSettings.tsx). «Мой аккаунт» открывается карточкой над списком,
+ * поэтому скрыт.
  */
 function userPages() {
+  // «Голос и видео» или просто «Голос», если инстанс не поддерживает видео
+  const video = !settings.instance || settings.instance.video;
   return [
     {
-      title: "Настройки пользователя",
+      title: t("User Settings"),
       entries: [
-        { id: "account", title: "Мой аккаунт", hidden: true, hideTitle: true, render: renderAccountPage },
-        { id: "profile", icon: "account_circle", title: "Профиль", render: renderProfilePage },
-        { id: "sessions", icon: "verified_user", title: "Сессии", render: renderSessionsPage },
+        { id: "account", title: t("My Account"), hidden: true, hideTitle: true, render: renderAccountPage },
+        { id: "profile", icon: "account_circle", title: t("Profile"), render: renderProfilePage },
+        { id: "sessions", icon: "verified_user", title: t("Sessions"), render: renderSessionsPage },
       ],
     },
     {
       title: "Stoat",
-      entries: [{ id: "feedback", icon: "rate_review", title: "Обратная связь", render: renderFeedbackPage }],
+      entries: [
+        { id: "bots", icon: "smart_toy", title: t("My Bots"), render: renderBotsPage },
+        { id: "feedback", icon: "rate_review", title: t("Feedback"), render: renderFeedbackPage },
+      ],
     },
     {
-      title: "Настройки клиента",
+      title: t("Client Settings"),
       entries: [
-        { id: "appearance", icon: "palette", title: "Внешний вид", render: renderAppearancePage },
-        { id: "desktop", icon: "desktop_windows", title: "ПК", render: renderDesktopPage },
+        { id: "voice", icon: "mic", title: video ? t("Voice & Video") : t("Voice"), render: renderVoicePage },
+        { id: "appearance", icon: "palette", title: t("Appearance"), render: renderAppearancePage },
+        { id: "notifications", icon: "notifications", title: t("Notifications"), render: renderNotificationsPage },
+        { id: "language", icon: "language", title: t("Language"), render: renderLanguagePage },
+        { id: "native", icon: "desktop_windows", title: t("Desktop"), render: renderDesktopPage },
       ],
     },
     {
       entries: [
-        { id: "source", icon: "memory", title: "Исходный код", href: LINKS.source },
-        { id: "donate", icon: "coffee", title: "Пожертвовать", href: LINKS.donate },
-        { id: "logout", icon: "logout", title: "Выйти", danger: true, action: logout },
+        { id: "changelog", icon: "campaign", title: t("What's New"), action: openChangelog },
+        { id: "source", icon: "memory", title: t("Source Code"), href: LINKS.source },
+        { id: "advanced", icon: "science", title: t("Advanced"), render: renderAdvancedPage },
+        { id: "donate", icon: "coffee", title: t("Donate"), href: LINKS.donate },
+        { id: "logout", icon: "logout", title: t("Log Out"), danger: true, action: logout },
       ],
     },
   ];
+}
+
+/**
+ * Вложенные страницы (Breadcrumbs): «bots/<id>» — страница бота внутри
+ * «Моих ботов». Возвращает заголовок и отрисовку для полного пути.
+ */
+function nestedPage(path) {
+  const [root, id] = path.split("/");
+  if (root === "bots" && id) {
+    return { title: botTitles.get(id) || "", render: (column, alive) => renderBotPage(column, alive, id) };
+  }
+  return null;
 }
 
 function serverPages() {
@@ -167,34 +201,34 @@ function serverPages() {
   return [
     {
       title: server.name,
-      entries: [{ id: "overview", icon: "info", title: "Обзор", hidden: !can(PERM.MANAGE_SERVER), render: renderOverviewPage }],
+      entries: [{ id: "overview", icon: "info", title: t("Overview"), hidden: !can(PERM.MANAGE_SERVER), render: renderOverviewPage }],
     },
     {
-      title: "Оформление",
+      title: t("Customisation"),
       entries: [
-        { id: "emojis", icon: "mood", title: "Эмодзи", hidden: !can(PERM.MANAGE_CUSTOMISATION), render: renderEmojiPage },
+        { id: "emojis", icon: "mood", title: t("Emojis"), hidden: !can(PERM.MANAGE_CUSTOMISATION), render: renderEmojiPage },
       ],
     },
     {
-      title: "Участники",
+      title: t("Members"),
       entries: [
         {
           id: "members",
           icon: "group",
-          title: "Участники",
+          title: t("Members"),
           hidden: !(can(PERM.KICK) || can(PERM.BAN) || can(PERM.ASSIGN_ROLES) || can(PERM.MANAGE_NICKNAMES)),
           render: renderMembersPage,
         },
-        { id: "roles", icon: "badge", title: "Роли", hidden: !can(PERM.MANAGE_ROLE), render: renderRolesPage },
-        { id: "invites", icon: "link", title: "Приглашения", hidden: !can(PERM.MANAGE_SERVER), render: renderInvitesPage },
-        { id: "bans", icon: "block", title: "Баны", hidden: !can(PERM.BAN), render: renderBansPage },
+        { id: "roles", icon: "badge", title: t("Roles"), hidden: !can(PERM.MANAGE_ROLE), render: renderRolesPage },
+        { id: "invites", icon: "link", title: t("Invites"), hidden: !can(PERM.MANAGE_SERVER), render: renderInvitesPage },
+        { id: "bans", icon: "block", title: t("Bans"), hidden: !can(PERM.BAN), render: renderBansPage },
       ],
     },
     {
       entries: [
         server.is_owner
-          ? { id: "delete", icon: "delete", title: "Удалить сервер", danger: true, action: () => confirmLeaveServer(server) }
-          : { id: "leave", icon: "logout", title: "Выйти с сервера", danger: true, action: () => confirmLeaveServer(server) },
+          ? { id: "delete", icon: "delete", title: t("Delete Server"), danger: true, action: () => confirmLeaveServer(server) }
+          : { id: "leave", icon: "logout", title: t("Leave server"), danger: true, action: () => confirmLeaveServer(server) },
       ],
     },
   ];
@@ -220,7 +254,8 @@ function sidebarEntry(entry) {
     // ссылки с target=_blank открывает в браузере плагин shell
     return h("a", { class: kind, href: entry.href, target: "_blank", rel: "noreferrer" }, content);
   }
-  const button = h("button", { type: "button", class: kind, "aria-selected": String(settings.page === entry.id) }, content);
+  const selected = settings.page === entry.id || settings.page.startsWith(entry.id + "/");
+  const button = h("button", { type: "button", class: kind, "aria-selected": String(selected) }, content);
   button.onclick = async () => {
     if (entry.action) {
       try {
@@ -246,7 +281,7 @@ function accountCard() {
       avatar({ url: me.avatar, name: myName(), size: 36 }),
       h("span", { class: "settings-account-text" }, [
         h("span", { class: "settings-account-name", text: myName() }),
-        h("span", { text: "Мой аккаунт" }),
+        h("span", { text: t("My Account") }),
       ]),
     ],
   );
@@ -263,13 +298,13 @@ function sidebarFooter() {
   const fill = (about) => {
     const legal = about.legal || {};
     const links = [
-      [legal.terms_of_service, "Условия"],
-      [legal.privacy_policy, "Конфиденциальность"],
-      [legal.guidelines, "Правила"],
+      [legal.terms_of_service, t("Terms")],
+      [legal.privacy_policy, t("Privacy")],
+      [legal.guidelines, t("Guidelines")],
     ].filter(([href]) => href);
     put(footer,
       h("span", { class: "settings-footer-line" }, [
-        h("span", { class: "settings-footer-label", text: "Версия: " }),
+        h("span", { class: "settings-footer-label", text: t("Version:") + " " }),
         h("span", { class: "selectable-all", text: about.version }),
       ]),
       h("span", { class: "settings-footer-line small" }, [
@@ -313,10 +348,13 @@ function renderSettings() {
   }
   if (user) nav.append(sidebarFooter());
 
-  const entry = groups.flatMap((group) => group.entries).find((item) => item.id === settings.page);
+  const entries = groups.flatMap((group) => group.entries);
+  const segments = settings.page.split("/");
+  const entry = entries.find((item) => item.id === segments[0]);
+  const nested = segments.length > 1 ? nestedPage(settings.page) : null;
   const column = h("div", { class: "settings-column" });
-  if (entry && !entry.hideTitle) column.append(h("h1", { class: "settings-title", text: entry.title }));
-  const close = h("button", { type: "button", class: "icon-button tonal settings-close", title: "Закрыть" }, [symbol("close", 24)]);
+  if (entry && !entry.hideTitle) column.append(settingsTitle(segments, entry, nested));
+  const close = h("button", { type: "button", class: "icon-button tonal settings-close", title: t("Close") }, [symbol("close", 24)]);
   close.onclick = closeSettings;
 
   root.replaceChildren(
@@ -328,11 +366,36 @@ function renderSettings() {
   );
   root.classList.remove("hidden");
 
-  if (entry && entry.render) {
-    Promise.resolve(entry.render(column, () => token === settings.token)).catch((error) => {
+  const render = nested ? nested.render : entry && entry.render;
+  if (render) {
+    Promise.resolve(render(column, () => token === settings.token)).catch((error) => {
       if (token === settings.token) column.append(notice(describe(error), "error"));
     });
   }
+}
+
+/**
+ * Заголовок страницы с «хлебными крошками» (Breadcrumbs.tsx): предыдущие
+ * части пути — ссылки, последняя — текущая страница.
+ */
+function settingsTitle(segments, entry, nested) {
+  const title = h("h1", { class: "settings-title settings-crumbs" });
+  segments.forEach((_, index) => {
+    const last = index === segments.length - 1;
+    const text = index === 0 ? entry.title : nested ? nested.title : "";
+    if (index) title.append(symbol("chevron_right", 16));
+    if (last) {
+      title.append(h("span", { class: "settings-crumb-current", text }));
+      return;
+    }
+    const link = h("button", { type: "button", class: "settings-crumb", text });
+    link.onclick = () => {
+      settings.page = segments.slice(0, index + 1).join("/");
+      renderSettings();
+    };
+    title.append(link);
+  });
+  return title;
 }
 
 // ─────────────────────────── элементы форм ───────────────────────────
@@ -421,7 +484,7 @@ function choiceRow(options, current, onchoose) {
 }
 
 /** Окно с полями и кнопкой подтверждения; `submit` получает значения полей. */
-function formModal({ title, text = null, fields, confirm, cancel = "Отмена", danger = false, submit }) {
+function formModal({ title, text = null, fields, confirm, cancel = t("Cancel"), danger = false, submit }) {
   const inputs = fields.map((field) => {
     const input = field.multiline
       ? h("textarea", { class: "text-field multiline", rows: 4, maxlength: field.maxlength, placeholder: field.placeholder || "" })
@@ -480,7 +543,7 @@ function confirmModal({ title, text, confirm, danger = true, run }) {
     title,
     body: h("p", { class: "settings-hint", text }),
     actions: [
-      { label: "Отмена", onclick: closeModal },
+      { label: t("Cancel"), onclick: closeModal },
       {
         label: confirm,
         primary: true,
@@ -533,11 +596,12 @@ function imagePicker({ label, url, round = false, wide = false, tag, onchange })
 
   const choice = { file: null, removed: false };
   const upload = actionButton(
-    "Загрузить",
+    t("Upload"),
     async () => {
       const file = await pickFile();
       if (!file) return;
-      if (file.size > 20 * 1024 * 1024) throw new Error("Файл больше 20 МБ");
+      const limit = await uploadLimit(tag);
+      if (file.size > limit) throw new Error(t("The file exceeds the maximum size limit of {0}.", [humanSize(limit)]));
       choice.file = file;
       choice.removed = false;
       show(file.preview);
@@ -546,7 +610,7 @@ function imagePicker({ label, url, round = false, wide = false, tag, onchange })
     { kind: "tonal", icon: "attach_file" },
   );
   const remove = actionButton(
-    "Убрать",
+    t("Remove"),
     async () => {
       choice.file = null;
       choice.removed = true;
@@ -579,9 +643,10 @@ const CATEGORY_ACTIONS = {
  * Кнопкой служит div с ролью button: в описании бывают свои ссылки
  * («Показать»), а кнопки в кнопке HTML не допускает.
  */
-function categoryButton({ icon = null, title, description = null, action = null, onclick = null, href = null, disabled = false, danger = false }) {
+function categoryButton({ icon = null, title, description = null, action = null, onclick = null, href = null, disabled = false, danger = false, variant = null }) {
   const interactive = Boolean(onclick || href);
-  const kind = "cb" + (interactive ? " interactive" : "") + (disabled ? " disabled" : "") + (danger ? " danger" : "");
+  const kind =
+    "cb" + (interactive ? " interactive" : "") + (disabled ? " disabled" : "") + (danger ? " danger" : "") + (variant ? " " + variant : "");
   const node = href
     ? h("a", { class: kind, href, target: "_blank", rel: "noreferrer" })
     : h("div", { class: kind, role: onclick ? "button" : null, tabindex: onclick && !disabled ? "0" : null, "aria-disabled": disabled ? "true" : null });
@@ -595,8 +660,9 @@ function categoryButton({ icon = null, title, description = null, action = null,
       description ? h("span", { class: "cb-description" }, [description]) : null,
     ]),
   );
-  for (const name of [].concat(action || [])) {
-    node.append(h("span", { class: "cb-action" }, [symbol(CATEGORY_ACTIONS[name], 18)]));
+  for (const item of [].concat(action || [])) {
+    // действие — имя значка или готовый элемент (флажок, переключатель)
+    node.append(h("span", { class: "cb-action" }, [typeof item === "string" ? symbol(CATEGORY_ACTIONS[item], 18) : item]));
   }
 
   if (onclick && !href) {
@@ -619,6 +685,126 @@ function categoryButton({ icon = null, title, description = null, action = null,
       run();
     });
   }
+  return node;
+}
+
+/** Флажок Material 3 (mdui-checkbox) для кнопок разделов. */
+function checkboxMark(checked) {
+  const box = h("span", { class: "m3-checkbox" + (checked ? " checked" : ""), role: "checkbox", "aria-checked": String(Boolean(checked)) });
+  box.append(symbol("check", 16));
+  return box;
+}
+
+function setCheckboxMark(box, checked) {
+  box.classList.toggle("checked", Boolean(checked));
+  box.setAttribute("aria-checked", String(Boolean(checked)));
+}
+
+/** Переключатель-радио (Radio2.Option). */
+function radioMark(checked) {
+  return h("span", { class: "m3-radio" + (checked ? " checked" : ""), role: "radio", "aria-checked": String(Boolean(checked)) });
+}
+
+/**
+ * Кнопка с флажком справа: щелчок по всей строке переключает значение.
+ * `get` читает текущее значение, `set` сохраняет новое (может вернуть
+ * Promise и фактическое значение, как автозапуск).
+ */
+function categoryCheckbox({ icon = null, title, description = null, get, set, disabled = false }) {
+  const mark = checkboxMark(get());
+  return categoryButton({
+    icon,
+    title,
+    description,
+    disabled,
+    action: mark,
+    onclick: async () => {
+      const wanted = !get();
+      const saved = await set(wanted);
+      setCheckboxMark(mark, typeof saved === "boolean" ? saved : wanted);
+    },
+  });
+}
+
+/** Отдельный флажок с подписью (Checkbox с текстом в оригинале). */
+function checkboxRow(label, checked, onchange) {
+  const mark = checkboxMark(checked);
+  const row = h("div", { class: "checkbox-row", role: "button", tabindex: "0" }, [mark, h("span", { text: label })]);
+  let value = Boolean(checked);
+  const toggle = () => {
+    value = !value;
+    setCheckboxMark(mark, value);
+    onchange(value);
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggle();
+    }
+  });
+  return row;
+}
+
+/**
+ * Выпадающий список из кнопок (CategoryButton.Select): в заголовке —
+ * выбранный вариант, внутри — варианты с радио. `options` — массив
+ * { id, title, shortDesc?, description?, icon? }.
+ */
+function categorySelect({ icon = null, title, options, value, onUpdate }) {
+  let current = options.some((option) => option.id === value) ? value : options.length ? options[0].id : null;
+  const summary = (option) => (option ? option.shortDesc || option.description || option.title : null);
+  const descriptionSlot = h("span", {});
+  const showSummary = () => {
+    const option = options.find((item) => item.id === current);
+    const text = summary(option);
+    descriptionSlot.replaceChildren(...(text === null || text === undefined ? [] : [text]));
+  };
+  showSummary();
+
+  const rows = options.map((option) => {
+    const mark = radioMark(option.id === current);
+    const row = categoryButton({
+      icon: option.icon || "blank",
+      title: option.title || option.shortDesc,
+      description: option.title ? option.description || null : null,
+      variant: option.id === current ? "tertiary-alt" : "tertiary",
+      action: mark,
+      onclick: async () => {
+        if (option.id === current) return;
+        current = option.id;
+        rows.forEach(({ node, radio, id }) => {
+          node.classList.toggle("tertiary-alt", id === current);
+          node.classList.toggle("tertiary", id !== current);
+          radio.classList.toggle("checked", id === current);
+          radio.setAttribute("aria-checked", String(id === current));
+        });
+        showSummary();
+        await onUpdate(option.id);
+      },
+    });
+    return { node: row, radio: mark, id: option.id };
+  });
+
+  const inner = h("div", { class: "cb-collapse-inner" }, rows.map((row) => row.node));
+  const node = h("div", { class: "cb-collapse cb-select" });
+  const head = categoryButton({
+    icon,
+    title,
+    description: descriptionSlot,
+    action: "collapse",
+    onclick: () => {
+      const open = !node.classList.contains("open");
+      node.classList.toggle("open", open);
+      inner.style.height = open ? Math.min(inner.scrollHeight, 340) + "px" : "0px";
+      if (open && inner.scrollHeight > 340) {
+        const selected = rows.find((row) => row.id === current);
+        if (selected) inner.scrollTop = selected.node.offsetTop - inner.offsetTop;
+      }
+    },
+  });
+  inner.style.height = "0px";
+  node.append(head, inner);
   return node;
 }
 
@@ -652,9 +838,9 @@ function categoryCollapse({ icon, title, description = null, children }) {
 
 /** Способы подтверждения в окне «Подтвердить действие» (MFAFlow.tsx). */
 const MFA_METHODS = {
-  Password: { icon: "keyboard", title: "Пароль", type: "password", autocomplete: "current-password" },
-  Totp: { icon: "key", title: "Приложение для аутентификации", type: "text", autocomplete: "one-time-code" },
-  Recovery: { icon: "archive", title: "Код восстановления", type: "text", autocomplete: "off" },
+  Password: { icon: "keyboard", title: /* i18n */ "Password", type: "password", autocomplete: "current-password" },
+  Totp: { icon: "key", title: /* i18n */ "Authenticator App", type: "text", autocomplete: "one-time-code" },
+  Recovery: { icon: "archive", title: /* i18n */ "Recovery Code", type: "text", autocomplete: "off" },
 };
 
 /** Пересобрать кнопки открытого окна (окно перестраивается по шагам). */
@@ -694,19 +880,19 @@ function mfaFlow(methods, run) {
     };
     // единственный способ, кроме кодов восстановления, выбирается сразу
     let selected = methods.find((method) => method !== "Recovery") || null;
-    const box = openModal({ title: "Подтвердить действие", body: h("div"), onClose: () => finish(null) });
+    const box = openModal({ title: t("Confirm action"), body: h("div"), onClose: () => finish(null) });
     const body = box.querySelector(".modal-body");
 
     const render = () => {
       if (!selected) {
         body.replaceChildren(
           h("div", { class: "form-stack" }, [
-            h("p", { class: "settings-hint", text: "Пожалуйста, выберите метод аутентификации вашего запроса." }),
+            h("p", { class: "settings-hint", text: t("Please select a method to authenticate your request.") }),
             categoryGroup(
               methods.map((method) =>
                 categoryButton({
                   icon: MFA_METHODS[method].icon,
-                  title: MFA_METHODS[method].title,
+                  title: t(MFA_METHODS[method].title),
                   action: "chevron",
                   onclick: () => {
                     selected = method;
@@ -717,7 +903,7 @@ function mfaFlow(methods, run) {
             ),
           ]),
         );
-        modalButtons(box, [{ label: "Отменить", onclick: closeModal }]);
+        modalButtons(box, [{ label: t("Cancel"), onclick: closeModal }]);
         return;
       }
 
@@ -746,21 +932,21 @@ function mfaFlow(methods, run) {
       });
       body.replaceChildren(
         h("div", { class: "form-stack" }, [
-          h("p", { class: "settings-hint", text: "Пожалуйста, подтвердите это действие выбранным методом." }),
-          labelled(info.title, input),
+          h("p", { class: "settings-hint", text: t("Please confirm this action using the selected method.") }),
+          labelled(t(info.title), input),
         ]),
       );
       const single = methods.length === 1;
       const [, confirm] = modalButtons(box, [
         {
-          label: single ? "Отменить" : "Назад",
+          label: single ? t("Cancel") : t("Back"),
           onclick: () => {
             if (single) return closeModal();
             selected = null;
             render();
           },
         },
-        { label: "Подтвердить", primary: true, disabled: true, onclick: submit },
+        { label: t("Confirm"), primary: true, disabled: true, onclick: submit },
       ]);
       input.focus();
     };
@@ -774,20 +960,26 @@ function mfaFlow(methods, run) {
 function longDateTime(iso) {
   const date = iso ? new Date(iso) : null;
   if (!date || Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
-  return `${longDate(iso)} в ${time}`;
+  return t("{0} at {1}", [I18N.longDate(date), I18N.time(date)]);
 }
 
-/** Карточка аккаунта с баннером (account/UserSummary.tsx). */
-function userSummary(account, onedit) {
+/**
+ * Карточка аккаунта с баннером (account/UserSummary.tsx). Кнопка
+ * «Изменить профиль» — только если передан `onedit`; `showBadges` добавляет
+ * значки профиля рядом с датой создания.
+ */
+function userSummary(account, onedit, { showBadges = false } = {}) {
   const box = h("div", { class: "user-summary" });
   if (account.background) {
     const shade = "color-mix(in srgb, var(--md-sys-color-surface-container-low) 70%, transparent)";
     box.style.backgroundImage = `linear-gradient(${shade}, ${shade}), url("${mediaSrc(account.background)}")`;
     box.classList.add("with-banner");
   }
-  const edit = h("button", { type: "button", class: "icon-button filled square", title: "Изменить профиль" }, [symbol("edit", 24)]);
-  edit.onclick = onedit;
+  let edit = null;
+  if (onedit) {
+    edit = h("button", { type: "button", class: "icon-button filled square", title: t("Edit Profile") }, [symbol("edit", 24)]);
+    edit.onclick = onedit;
+  }
   box.append(
     h("div", { class: "user-summary-details" }, [
       avatar({ url: account.avatar, name: account.display_name, size: 58 }),
@@ -798,15 +990,17 @@ function userSummary(account, onedit) {
       edit,
     ]),
   );
+  const badges = [];
   if (account.created_at) {
-    box.append(
-      h("div", { class: "user-summary-bottom" }, [
-        h("span", { class: "user-summary-pad" }),
-        h("span", { class: "user-summary-badges" }, [
-          h("span", { class: "user-summary-badge", title: "Аккаунт создан " + longDateTime(account.created_at) }, [symbol("cake_fill", 14)]),
-        ]),
-      ]),
-    );
+    badges.push(h("span", { class: "user-summary-badge", title: t("Account created {0}", [longDateTime(account.created_at)]) }, [symbol("cake_fill", 14)]));
+  }
+  if (showBadges && account.badges) {
+    for (const badge of BADGES.filter((item) => account.badges & item.bit)) {
+      badges.push(h("span", { class: "user-summary-badge", title: badge.title }, [symbol(badge.icon, 14)]));
+    }
+  }
+  if (badges.length) {
+    box.append(h("div", { class: "user-summary-bottom" }, [h("span", { class: "user-summary-pad" }), h("span", { class: "user-summary-badges" }, badges)]));
   }
   return categoryGroup([box]);
 }
@@ -829,7 +1023,7 @@ async function renderAccountPage(column, alive) {
 function editAccountGroup(account, mfa) {
   const masked = "•••••••••••@•••••••••••";
   const email = h("span", { text: masked });
-  const reveal = h("a", { class: "link", href: "#", text: "Показать" });
+  const reveal = h("a", { class: "link", href: "#", text: t("Reveal") });
   reveal.onclick = async (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -844,21 +1038,21 @@ function editAccountGroup(account, mfa) {
   return categoryGroup([
     categoryButton({
       icon: "alternate_email",
-      title: "Имя пользователя",
+      title: t("Username"),
       description: account.username,
       action: "chevron",
       onclick: () => editUsernameModal(account),
     }),
     categoryButton({
       icon: "mail",
-      title: "Электронная почта",
+      title: t("Email"),
       description: h("span", { class: "inline-row" }, [email, reveal]),
       action: "chevron",
       onclick: () => editEmailModal(mfa),
     }),
     categoryButton({
       icon: "password",
-      title: "Пароль",
+      title: t("Password"),
       description: "•••••••••",
       action: "chevron",
       onclick: editPasswordModal,
@@ -868,17 +1062,17 @@ function editAccountGroup(account, mfa) {
 
 function editUsernameModal(account) {
   formModal({
-    title: "Изменить имя",
+    title: t("Change username"),
     fields: [
-      { label: "Имя пользователя", value: account.username, maxlength: 32, counter: true, suffix: "#" + account.discriminator },
-      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+      { label: t("Username"), value: account.username, maxlength: 32, counter: true, suffix: "#" + account.discriminator },
+      { label: t("Current Password"), type: "password", placeholder: t("Enter your current password...") },
     ],
-    cancel: "Закрыть",
-    confirm: "Изменить",
+    cancel: t("Close"),
+    confirm: t("Change"),
     submit: async (username, password) => {
       const view = await call("change_username", { username, password });
       applyOwnUser(view);
-      if (view.discriminator !== account.discriminator) toast(`Ваш дискриминатор изменён на #${view.discriminator}`);
+      if (view.discriminator !== account.discriminator) toast(t("Your discriminator changed to {0}", [view.discriminator]));
       renderSettings();
     },
   });
@@ -886,35 +1080,35 @@ function editUsernameModal(account) {
 
 function editEmailModal(mfa) {
   formModal({
-    title: "Изменить почту для входа",
+    title: t("Change login email"),
     fields: [
-      { label: "Электронная почта", type: "email", placeholder: "someone@example.com" },
-      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+      { label: t("Email"), type: "email", placeholder: "someone@example.com" },
+      { label: t("Current Password"), type: "password", placeholder: t("Enter your current password...") },
     ],
-    cancel: "Закрыть",
-    confirm: "Отправить письмо",
+    cancel: t("Close"),
+    confirm: t("Send email"),
     submit: async (email, currentPassword) => {
       // с приложением для аутентификации сервер требует ещё и подтверждение
       const sent = mfa.totp
         ? await mfaFlow(mfa.methods, (answer) => call("change_email", { email, currentPassword, mfa: answer }))
         : await call("change_email", { email, currentPassword, mfa: null }).then(() => true);
-      if (sent) toast("Письмо для подтверждения отправлено");
+      if (sent) toast(t("Check your email for a confirmation link"));
     },
   });
 }
 
 function editPasswordModal() {
   formModal({
-    title: "Изменить пароль для входа",
+    title: t("Change login password"),
     fields: [
-      { label: "Новый пароль", type: "password", placeholder: "Введите новый пароль." },
-      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+      { label: t("New Password"), type: "password", placeholder: t("Enter a new password.") },
+      { label: t("Current Password"), type: "password", placeholder: t("Enter your current password...") },
     ],
-    cancel: "Закрыть",
-    confirm: "Изменить",
+    cancel: t("Close"),
+    confirm: t("Change"),
     submit: async (password, currentPassword) => {
       await call("change_password", { password, currentPassword });
-      toast("Пароль успешно изменён.");
+      toast(t("Password changed successfully."));
     },
   });
 }
@@ -929,7 +1123,7 @@ function multiFactorGroup(account, mfa) {
   const setupAuthenticator = async () => {
     const setup = await mfaFlow(mfa.methods, (answer) => call("mfa_totp_secret", { mfa: answer }));
     if (!setup) {
-      toast("Настройка 2FA отменена.");
+      toast(t("MFA setup canceled."));
       return;
     }
     enableTotpModal(setup);
@@ -942,50 +1136,50 @@ function multiFactorGroup(account, mfa) {
   return categoryGroup([
     categoryCollapse({
       icon: "verified_user",
-      title: "Коды восстановления",
-      description: "Настройте способ входа в аккаунт на случай потери двухфакторной аутентификации",
+      title: t("Recovery Codes"),
+      description: t("Configure a way to get back into your account in case your 2FA is lost"),
       children: mfa.recovery
         ? [
             categoryButton({
               icon: "blank",
-              title: "Просмотреть коды восстановления",
-              description: "Получить действующие коды восстановления",
+              title: t("View Recovery Codes"),
+              description: t("Get active recovery codes"),
               onclick: () => showCodes("mfa_recovery_codes"),
             }),
             categoryButton({
               icon: "blank",
-              title: "Сбросить коды восстановления",
-              description: "Получить новый набор кодов восстановления",
+              title: t("Reset Recovery Codes"),
+              description: t("Get a new set of recovery codes"),
               onclick: () => showCodes("mfa_generate_recovery_codes"),
             }),
           ]
         : [
             categoryButton({
               icon: "blank",
-              title: "Сгенерировать коды восстановления",
-              description: "Включить коды восстановления",
+              title: t("Generate Recovery Codes"),
+              description: t("Setup recovery codes"),
               onclick: () => showCodes("mfa_generate_recovery_codes"),
             }),
           ],
     }),
     categoryCollapse({
       icon: "lock",
-      title: "Приложение для аутентификации",
-      description: "Настройте аутентификацию одноразовым паролем",
+      title: t("Authenticator App"),
+      description: t("Configure one-time password authentication"),
       children: mfa.totp
         ? [
             categoryButton({
               icon: "blank",
-              title: "Удалить аутентификатор",
-              description: "Отключить аутентификацию одноразовым паролем",
+              title: t("Remove Authenticator"),
+              description: t("Disable one-time password authenticator"),
               onclick: disableAuthenticator,
             }),
           ]
         : [
             categoryButton({
               icon: "blank",
-              title: "Включить аутентификатор",
-              description: "Включить аутентификацию одноразовым паролем",
+              title: t("Enable Authenticator"),
+              description: t("Setup one-time password authenticator"),
               onclick: setupAuthenticator,
             }),
           ],
@@ -1002,17 +1196,17 @@ function recoveryCodesModal(codes, mfa) {
     codes.map((code, index) => h("span", {}, [code, index < codes.length - 1 ? h("i", { text: "," }) : null])),
   );
   openModal({
-    title: "Ваши коды восстановления",
-    body: h("div", { class: "form-stack" }, [h("p", { class: "settings-hint", text: "Пожалуйста, сохраните их в безопасном месте." }), list]),
+    title: t("Your recovery codes"),
+    body: h("div", { class: "form-stack" }, [h("p", { class: "settings-hint", text: t("Please save these to a safe location.") }), list]),
     actions: [
       {
-        label: "Сбросить",
+        label: t("Reset"),
         onclick: async () => {
           const fresh = await mfaFlow(mfa.methods, (answer) => call("mfa_generate_recovery_codes", { mfa: answer }));
           recoveryCodesModal(fresh || codes, Object.assign({}, mfa, { recovery: true }));
         },
       },
-      { label: "Готово", primary: true, onclick: closeModal },
+      { label: t("Done"), primary: true, onclick: closeModal },
     ],
     onClose: () => {
       // коды могли появиться впервые — у страницы меняются пункты
@@ -1051,18 +1245,18 @@ function enableTotpModal(setup) {
     }
   });
   openModal({
-    title: "Включить приложение для аутентификации",
+    title: t("Enable authenticator app"),
     body: h("div", { class: "form-stack" }, [
-      h("p", { class: "settings-hint", text: "Пожалуйста, отсканируйте или используйте токен ниже в приложении для аутентификации." }),
+      h("p", { class: "settings-hint", text: t("Please scan or use the token below in your authenticator app.") }),
       h("div", { class: "totp-setup" }, [qr, h("code", { class: "totp-secret", text: setup.secret })]),
-      labelled("Введите код", code),
+      labelled(t("Enter Code"), code),
     ]),
     actions: [
-      { label: "Отменить", onclick: closeModal },
-      { label: "Продолжить", primary: true, onclick: submit },
+      { label: t("Cancel"), onclick: closeModal },
+      { label: t("Continue"), primary: true, onclick: submit },
     ],
     onClose: () => {
-      if (!enabled) toast("Настройка 2FA отменена.");
+      if (!enabled) toast(t("MFA setup canceled."));
     },
   });
   code.focus();
@@ -1081,9 +1275,9 @@ function manageAccountGroup(account, mfa) {
     categoryButton({
       icon: "block",
       danger: true,
-      title: "Отключить учётную запись",
+      title: t("Disable Account"),
       description:
-        "Вы не сможете получить доступ к своему аккаунту, пока не обратитесь в службу поддержки, однако ваши данные не будут удалены.",
+        t("You won't be able to access your account unless you contact support - however, your data will not be deleted."),
       action: "chevron",
       onclick: () => finish("disable_account"),
     }),
@@ -1091,91 +1285,20 @@ function manageAccountGroup(account, mfa) {
       icon: "delete",
       danger: true,
       disabled: owns,
-      title: owns ? "Невозможно удалить аккаунт, пока серверы не будут удалены или переданы" : "Удалить аккаунт",
+      title: owns ? t("Cannot delete account until servers are deleted or transferred") : t("Delete Account"),
       description:
-        "Ваша учётная запись и все ваши данные (включая сообщения и список друзей) будут помещены в очередь на удаление. На электронную почту будет отправлено письмо с подтверждением. Вы можете отменить своё решение в течение 7 дней, обратившись в службу поддержки.",
+        t("Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support."),
       action: owns ? null : "chevron",
       onclick: () => finish("delete_account"),
     }),
   ]);
 }
 
-// ─────────────────────────── профиль ───────────────────────────
-
-async function renderProfilePage(column, alive) {
-  const profile = await call("user_profile", { userId: state.me.id, serverId: null });
-  if (!alive()) return;
-
-  const displayName = textInput({ value: profile.display_name || "", placeholder: profile.username, maxlength: 32 });
-  const pronouns = textInput({ value: profile.pronouns || "", placeholder: "например, он/его", maxlength: 24 });
-  const bio = h("textarea", { class: "text-field multiline", rows: 6, maxlength: 2000, placeholder: "Расскажите о себе" });
-  bio.value = profile.bio || "";
-  const counter = h("span", { class: "field-counter" });
-  const count = () => (counter.textContent = `${bio.value.length}/2000`);
-  count();
-  bio.addEventListener("input", count);
-
-  const avatarPicker = imagePicker({ label: "Аватар", url: state.me.avatar, round: true, tag: "avatars" });
-  const backgroundPicker = imagePicker({ label: "Фон профиля", url: profile.background, wide: true, tag: "backgrounds" });
-
-  const save = actionButton("Сохранить", async () => {
-    const remove = [];
-    let avatarId = null;
-    let backgroundId = null;
-    if (avatarPicker.state.file) avatarId = await uploadPicked(avatarPicker.state.file, "avatars");
-    else if (avatarPicker.state.removed) remove.push("Avatar");
-    if (backgroundPicker.state.file) backgroundId = await uploadPicked(backgroundPicker.state.file, "backgrounds");
-    else if (backgroundPicker.state.removed) remove.push("ProfileBackground");
-
-    const view = await call("edit_profile", {
-      displayName: displayName.value,
-      pronouns: pronouns.value,
-      bio: bio.value,
-      avatar: avatarId,
-      background: backgroundId,
-      remove,
-    });
-    applyOwnUser(view);
-    toast("Профиль сохранён");
-    renderSettings();
-  }, { icon: "check" });
-
-  put(column,
-    section("Как вас видят", [
-      h("div", { class: "form-grid" }, [
-        avatarPicker.node,
-        backgroundPicker.node,
-        labelled("Отображаемое имя", displayName, "Пустое — будет видно имя пользователя"),
-        labelled("Местоимения", pronouns),
-      ]),
-    ]),
-    section("Обо мне", [h("div", { class: "field" }, [bio, counter])], "Поддерживается разметка: **жирный**, *курсив*, `код`, ||спойлер||"),
-    h("div", { class: "settings-actions" }, [
-      actionButton("Предпросмотр", () => openProfileModal(state.me.id, null), { kind: "text", icon: "person" }),
-      save,
-    ]),
-  );
-}
-
 // ─────────────────────────── сессии ───────────────────────────
 
-/** «3 дня назад» — как формат relative у dayjs в браузерном клиенте. */
+/** «3 дня назад» на языке интерфейса. */
 function relativeTime(iso) {
-  const date = iso ? new Date(iso) : null;
-  if (!date || Number.isNaN(date.getTime())) return "";
-  const seconds = (date.getTime() - Date.now()) / 1000;
-  const steps = [
-    ["year", 31536000],
-    ["month", 2592000],
-    ["day", 86400],
-    ["hour", 3600],
-    ["minute", 60],
-  ];
-  const format = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
-  for (const [unit, size] of steps) {
-    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
-  }
-  return format.format(0, "second");
+  return iso ? I18N.relative(new Date(iso)) : "";
 }
 
 /** Логотип системы по имени сессии (SessionIcon в Sessions.tsx). */
@@ -1198,10 +1321,10 @@ function sessionIcon(name) {
 
 function renameSessionModal(session) {
   formModal({
-    title: "Переименовать сессию",
-    fields: [{ label: "Имя", value: session.name, placeholder: "Введите новое имя этой сессии" }],
-    cancel: "Отменить",
-    confirm: "Переименовать",
+    title: t("Rename Session"),
+    fields: [{ label: t("Name"), value: session.name, placeholder: t("Enter a new name for this session") }],
+    cancel: t("Cancel"),
+    confirm: t("Rename"),
     submit: async (name) => {
       await call("rename_session", { sessionId: session.id, name });
       renderSettings();
@@ -1220,9 +1343,9 @@ async function renderSessionsPage(column, alive) {
 
   const signOutOthers = () =>
     confirmModal({
-      title: "Вы уверены, что хотите завершить остальные сессии?",
-      text: "Вы не можете отменить это действие.",
-      confirm: "Принять",
+      title: t("Are you sure you want to clear your sessions?"),
+      text: t("You cannot undo this action."),
+      confirm: t("Accept"),
       run: async () => {
         if (await mfaFlow(mfa.methods, (answer) => call("revoke_other_sessions", { mfa: answer }))) renderSettings();
       },
@@ -1233,17 +1356,17 @@ async function renderSessionsPage(column, alive) {
       current
         ? categoryCollapse({
             icon: sessionIcon(current.name),
-            title: "Текущая сессия",
+            title: t("Current Session"),
             description: current.name,
-            children: [categoryButton({ icon: "blank", title: "Переименовать", action: "chevron", onclick: () => renameSessionModal(current) })],
+            children: [categoryButton({ icon: "blank", title: t("Rename"), action: "chevron", onclick: () => renameSessionModal(current) })],
           })
         : null,
       others.length
         ? categoryButton({
             icon: symbol("logout", 24),
             danger: true,
-            title: "Выйти из остальных сессий",
-            description: "Выйти из других сессий, кроме текущей.",
+            title: t("Log Out Other Sessions"),
+            description: t("Logs you out of all sessions except this device."),
             action: "chevron",
             onclick: signOutOthers,
           })
@@ -1255,12 +1378,12 @@ async function renderSessionsPage(column, alive) {
             categoryCollapse({
               icon: sessionIcon(session.name),
               title: h("span", { class: "capitalise", text: session.name }),
-              description: session.created_at ? "Создана " + relativeTime(session.created_at) : null,
+              description: session.created_at ? I18N.rich("Created <0/>", null, [relativeTime(session.created_at)]) : null,
               children: [
-                categoryButton({ icon: "blank", title: "Переименовать", action: "chevron", onclick: () => renameSessionModal(session) }),
+                categoryButton({ icon: "blank", title: t("Rename"), action: "chevron", onclick: () => renameSessionModal(session) }),
                 categoryButton({
                   icon: "blank",
-                  title: "Выйти",
+                  title: t("Log Out"),
                   action: "chevron",
                   onclick: async () => {
                     const done = await mfaFlow(mfa.methods, (answer) => call("revoke_session", { sessionId: session.id, mfa: answer }));
@@ -1286,24 +1409,24 @@ async function renderFeedbackPage(column, alive) {
     categoryGroup([
       categoryButton({
         icon: "star",
-        title: "Отправить предложение",
-        description: "Предложить новую функцию Stoat в обсуждениях GitHub.",
+        title: t("Submit feature suggestion"),
+        description: t("Suggest new Stoat features on GitHub discussions."),
         action: "external",
         href: LINKS.suggestions,
       }),
-      categoryButton({ icon: "format_list_numbered", title: "Обратная связь", description: "Отправить отзыв", action: "external", href: LINKS.feedback }),
+      categoryButton({ icon: "format_list_numbered", title: t("Feedback"), description: t("Submit feedback"), action: "external", href: LINKS.feedback }),
       categoryButton({
         icon: "bug_report",
-        title: "Баг-трекер",
-        description: "Посмотреть активные в настоящее время отчёты об ошибках можно здесь.",
+        title: t("Bug Tracker"),
+        description: t("View currently active bug reports here."),
         action: "external",
         href: LINKS.bugs,
       }),
       official
         ? categoryButton({
             icon: "groups_3",
-            title: inLounge ? "Перейти в Stoat Lounge" : "Присоединиться к Stoat Lounge",
-            description: "Вы можете сообщать об ошибках и обсуждать идеи с нами прямо здесь.",
+            title: inLounge ? t("Go to the Stoat Lounge") : t("Join the Stoat Lounge"),
+            description: t("You can report issues and discuss improvements with us directly here."),
             onclick: async () => {
               if (inLounge) {
                 closeSettings();
@@ -1323,18 +1446,18 @@ async function joinLoungeModal() {
   const info = await call("preview_invite", { code: LOUNGE_INVITE });
   const title = info.server_name || "Stoat Lounge";
   openModal({
-    title: "Приглашение",
+    title: t("Invite"),
     body: h("div", { class: "invite-preview" }, [
       avatar({ url: info.icon, name: title, size: 48 }),
       h("span", { class: "settings-row-text" }, [
         h("span", { class: "settings-row-title", text: title }),
-        info.member_count ? h("span", { class: "settings-hint", text: `${info.member_count} участников` }) : null,
+        info.member_count ? h("span", { class: "settings-hint", text: t("{0} members", [I18N.number(info.member_count)]) }) : null,
       ]),
     ]),
     actions: [
-      { label: "Отменить", onclick: closeModal },
+      { label: t("Cancel"), onclick: closeModal },
       {
-        label: "Вступить",
+        label: t("Join"),
         primary: true,
         onclick: async () => {
           try {
@@ -1352,150 +1475,19 @@ async function joinLoungeModal() {
   });
 }
 
-// ─────────────────────────── внешний вид ───────────────────────────
-
-function renderAppearancePage(column) {
-  const appearance = readAppearance();
-  const update = (patch) => {
-    Object.assign(appearance, patch);
-    writeSetting("appearance", appearance);
-    applyAppearance(appearance);
-  };
-
-  const slider = (min, max, value, unit, onchange) => {
-    const input = h("input", { type: "range", class: "slider", min, max, step: 1, value });
-    const label = h("span", { class: "slider-value", text: value + unit });
-    input.oninput = () => {
-      label.textContent = input.value + unit;
-      onchange(Number(input.value));
-    };
-    return h("div", { class: "slider-row" }, [input, label]);
-  };
-
-  put(column,
-    section("Тема", [
-      choiceRow(
-        [
-          { id: "light", label: "Светлая" },
-          { id: "dark", label: "Тёмная" },
-          { id: "system", label: "Как в системе" },
-        ],
-        appearance.theme,
-        (theme) => update({ theme }),
-      ),
-    ]),
-    section("Сообщения", [
-      labelled("Размер текста", slider(12, 20, appearance.messageSize, " px", (messageSize) => update({ messageSize }))),
-      labelled("Отступ между группами", slider(0, 24, appearance.groupSpacing, " px", (groupSpacing) => update({ groupSpacing }))),
-    ]),
-    section("Поле ввода", [
-      toggleRow("Кнопка отправки", "Показывать кнопку рядом с полем ввода", appearance.sendButton, (sendButton) =>
-        update({ sendButton }),
-      ),
-    ]),
-    h("div", { class: "settings-actions" }, [
-      actionButton("Сбросить", () => {
-        writeSetting("appearance", APPEARANCE_DEFAULTS);
-        applyAppearance(readAppearance());
-        renderSettings();
-      }, { kind: "text" }),
-    ]),
-  );
-}
-
-const APPEARANCE_DEFAULTS = { theme: "system", messageSize: 14, groupSpacing: 12, sendButton: true };
-
-function readAppearance() {
-  return Object.assign({}, APPEARANCE_DEFAULTS, readSetting("appearance", {}));
-}
-
-/** Применить тему и размеры (вызывается и при запуске). */
-function applyAppearance(appearance = readAppearance()) {
-  const root = document.documentElement;
-  if (window.ArachnidTheme) window.ArachnidTheme.set(appearance.theme);
-  root.style.setProperty("--message-size", appearance.messageSize + "px");
-  root.style.setProperty("--message-group-spacing", appearance.groupSpacing + "px");
-  root.classList.toggle("no-send-button", !appearance.sendButton);
-}
-
-// ─────────────────────────── приложение ───────────────────────────
-
-async function renderDesktopPage(column, alive) {
-  const [dir, version, stats] = await Promise.all([
-    call("data_dir").catch(() => ""),
-    window.__TAURI__ && window.__TAURI__.app ? window.__TAURI__.app.getVersion().catch(() => "") : "",
-    call("diagnostics").catch(() => null),
-  ]);
-  if (!alive()) return;
-  put(column,
-    section("О программе", [
-      h("div", { class: "settings-row" }, [
-        symbol("info", 24),
-        h("span", { class: "settings-row-text" }, [
-          h("span", { class: "settings-row-title", text: "Arachnid Client" + (version ? " " + version : "") }),
-          h("span", { class: "settings-hint", text: "Клиент Stoat на Tauri и Rust" }),
-        ]),
-      ]),
-      dir
-        ? h("div", { class: "settings-row" }, [
-            symbol("description", 24),
-            h("span", { class: "settings-row-text" }, [
-              h("span", { class: "settings-row-title", text: "Данные приложения" }),
-              h("span", { class: "settings-hint selectable", text: dir }),
-            ]),
-            actionButton("Копировать", () => copyText(dir), { kind: "text", icon: "content_copy" }),
-          ])
-        : null,
-    ]),
-    stats ? memorySection(stats) : null,
-  );
-}
-
-/** Что сейчас лежит в памяти: помогает понять, откуда расход ОЗУ. */
-function memorySection(stats) {
-  const row = (icon, title, hint) =>
-    h("div", { class: "settings-row" }, [
-      symbol(icon, 24),
-      h("span", { class: "settings-row-text" }, [
-        h("span", { class: "settings-row-title", text: title }),
-        h("span", { class: "settings-hint", text: hint }),
-      ]),
-    ]);
-  const { cache, media } = stats;
-  const heap = performance && performance.memory ? performance.memory.usedJSHeapSize : 0;
-  return section("Память", [
-    row(
-      "image",
-      "Файлы в памяти ядра",
-      `${media.files} шт., ${humanSize(media.bytes) || "0 Б"} из ${humanSize(media.limit)}`,
-    ),
-    row(
-      "forum",
-      "Сообщения в кэше ядра",
-      `${cache.messages} в ${cache.message_channels} каналах (не больше 200 на канал и 32 каналов)`,
-    ),
-    row(
-      "group",
-      "Пользователи и участники",
-      `${cache.users} пользователей, ${cache.members} участников, ${cache.servers} серверов, ${cache.channels} каналов`,
-    ),
-    heap ? row("description", "Интерфейс (куча JavaScript)", humanSize(heap)) : null,
-  ]);
-}
-
 // ─────────────────────────── сервер: обзор ───────────────────────────
 
 function renderOverviewPage(column) {
   const server = settings.server;
   const name = textInput({ value: server.name, maxlength: 32 });
-  const description = h("textarea", { class: "text-field multiline", rows: 4, maxlength: 1024, placeholder: "О чём этот сервер" });
+  const description = h("textarea", { class: "text-field multiline", rows: 4, maxlength: 1024, placeholder: t("Add a topic...") });
   description.value = server.description || "";
-  const icon = imagePicker({ label: "Значок", url: server.icon, round: true, tag: "icons" });
-  const banner = imagePicker({ label: "Баннер", url: server.banner, wide: true, tag: "banners" });
+  const icon = imagePicker({ label: t("Server Icon"), url: server.icon, round: true, tag: "icons" });
+  const banner = imagePicker({ label: t("Server Banner"), url: server.banner, wide: true, tag: "banners" });
 
   const select = (value) => {
     const node = h("select", { class: "text-field" }, [
-      h("option", { value: "", text: "Не отправлять" }),
+      h("option", { value: "", text: t("Disabled") }),
       ...server.channels.map((channel) => h("option", { value: channel.id, text: "#" + channel.name })),
     ]);
     node.value = value || "";
@@ -1508,7 +1500,7 @@ function renderOverviewPage(column) {
     user_banned: select(server.system_messages.user_banned),
   };
 
-  const save = actionButton("Сохранить", async () => {
+  const save = actionButton(t("Save"), async () => {
     const remove = [];
     let iconId = null;
     let bannerId = null;
@@ -1530,23 +1522,23 @@ function renderOverviewPage(column) {
       systemMessages: anySystem ? systemMessages : null,
       remove,
     });
-    toast("Сервер сохранён");
+    toast(t("Saved"));
     scheduleWorkspaceRefresh();
     renderSettings();
   }, { icon: "check" });
 
   put(column,
-    section("Сервер", [
+    section(t("Server Info"), [
       h("div", { class: "form-grid" }, [icon.node, banner.node]),
-      labelled("Название", name),
-      labelled("Описание", description),
+      labelled(t("Server Name"), name),
+      labelled(t("Server Description"), description),
     ]),
-    section("Системные сообщения", [
+    section(t("System message channels"), [
       h("div", { class: "form-grid" }, [
-        labelled("Участник вступил", system.user_joined),
-        labelled("Участник вышел", system.user_left),
-        labelled("Участника исключили", system.user_kicked),
-        labelled("Участника забанили", system.user_banned),
+        labelled(t("User Joined"), system.user_joined),
+        labelled(t("User Left"), system.user_left),
+        labelled(t("User Kicked"), system.user_kicked),
+        labelled(t("User Banned"), system.user_banned),
       ]),
     ]),
     h("div", { class: "settings-actions" }, [save]),
@@ -1557,26 +1549,26 @@ function renderOverviewPage(column) {
 
 async function renderEmojiPage(column, alive) {
   const serverId = settings.serverId;
-  const list = await call("server_emojis", { serverId });
+  const [list, emojiLimit] = await Promise.all([call("server_emojis", { serverId }), uploadLimit("emojis")]);
   if (!alive()) return;
 
-  const name = textInput({ placeholder: "имя_эмодзи", maxlength: 32 });
+  const name = textInput({ placeholder: t("emoji_name"), maxlength: 32 });
   let picked = null;
   const preview = h("div", { class: "image-preview emoji empty" });
-  const choose = actionButton("Выбрать картинку", async () => {
+  const choose = actionButton(t("Select image"), async () => {
     picked = await pickFile("image/png,image/jpeg,image/gif,image/webp");
     if (!picked) return;
     preview.style.backgroundImage = `url("${picked.preview}")`;
     preview.classList.remove("empty");
     if (!name.value) name.value = picked.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 32);
   }, { kind: "tonal", icon: "attach_file" });
-  const add = actionButton("Добавить", async () => {
-    if (!picked) throw new Error("Сначала выберите картинку");
-    if (picked.size > 500 * 1024) throw new Error("Эмодзи должен быть не больше 500 КБ");
+  const add = actionButton(t("Add"), async () => {
+    if (!picked) throw new Error(t("Select an image first"));
+    if (picked.size > emojiLimit) throw new Error(t("The file exceeds the maximum size limit of {0}.", [humanSize(emojiLimit)]));
     const fileId = await uploadPicked(picked, "emojis");
     await call("create_emoji", { serverId, name: name.value, fileId });
     serverEmoji.delete(serverId);
-    toast("Эмодзи добавлен");
+    toast(t("Emoji added"));
     renderSettings();
   }, { icon: "add" });
 
@@ -1584,9 +1576,9 @@ async function renderEmojiPage(column, alive) {
   for (const emoji of list) {
     const remove = actionButton("", () =>
       confirmModal({
-        title: "Удалить эмодзи?",
-        text: `:${emoji.name}: пропадёт из всех сообщений сервера.`,
-        confirm: "Удалить",
+        title: t("Delete Emoji"),
+        text: t("Are you sure you want to delete {0}?", [":" + emoji.name + ":"]),
+        confirm: t("Delete"),
         run: async () => {
           await call("delete_emoji", { serverId, emojiId: emoji.id });
           serverEmoji.delete(serverId);
@@ -1594,7 +1586,7 @@ async function renderEmojiPage(column, alive) {
         },
       }),
     { kind: "text", icon: "delete" });
-    remove.title = "Удалить";
+    remove.title = t("Delete");
     grid.append(
       h("div", { class: "emoji-admin-item" }, [
         emoji.url ? image(emoji.url, { class: "emoji-admin-image", alt: emoji.name }) : null,
@@ -1605,10 +1597,10 @@ async function renderEmojiPage(column, alive) {
   }
 
   put(column,
-    section("Новый эмодзи", [
-      h("div", { class: "emoji-upload" }, [preview, h("div", { class: "form-stack grow" }, [labelled("Имя", name), h("div", { class: "image-actions" }, [choose, add])])]),
-    ], "PNG, JPEG, GIF или WebP до 500 КБ. Имя — латиница, цифры и «_»."),
-    section(`Эмодзи – ${list.length}`, [list.length ? grid : h("p", { class: "settings-hint", text: "Своих эмодзи пока нет." })]),
+    section(t("Upload Emoji"), [
+      h("div", { class: "emoji-upload" }, [preview, h("div", { class: "form-stack grow" }, [labelled(t("Emoji Name"), name), h("div", { class: "image-actions" }, [choose, add])])]),
+    ], t("PNG, JPEG, GIF or WebP up to {0}. The name may contain lowercase Latin letters, digits and underscores.", [humanSize(emojiLimit)])),
+    section(`${t("Emojis")} – ${list.length}`, [list.length ? grid : h("p", { class: "settings-hint", text: t("No custom emojis yet.") })]),
   );
 }
 
@@ -1622,7 +1614,7 @@ async function renderMembersPage(column, alive) {
   const can = (bit) => server.is_owner || hasBit(server.permissions, bit);
   const editableRoles = server.roles.filter((role) => role.rank > server.top_rank);
 
-  const search = textInput({ placeholder: `Поиск среди ${list.length} участников` });
+  const search = textInput({ placeholder: t("Search through {0} members", [I18N.number(list.length)]) });
   const body = h("div", { class: "member-admin-list" });
   let open = null;
 
@@ -1646,40 +1638,41 @@ async function renderMembersPage(column, alive) {
     );
     const isMe = state.me && member.id === state.me.id;
     return h("div", { class: "member-admin-editor" }, [
-      can(PERM.MANAGE_NICKNAMES) || isMe ? labelled("Ник на сервере", nickname) : null,
-      server.roles.length ? labelled("Роли", roleBoxes) : null,
+      can(PERM.MANAGE_NICKNAMES) || isMe ? labelled(t("Nickname"), nickname) : null,
+      server.roles.length ? labelled(t("Roles"), roleBoxes) : null,
       h("div", { class: "settings-actions" }, [
         !isMe && can(PERM.KICK)
-          ? actionButton("Исключить", () =>
+          ? actionButton(t("Kick"), () =>
               confirmModal({
-                title: `Исключить ${member.name}?`,
-                text: "Участник сможет вернуться по приглашению.",
-                confirm: "Исключить",
+                title: t("Kick Member"),
+                text: t("Are you sure you want to kick {0}?", [member.name]),
+                confirm: t("Kick"),
                 run: async () => {
                   await call("kick_member", { serverId, userId: member.id });
-                  toast("Участник исключён");
+                  toast(t("Member kicked"));
                   renderSettings();
                 },
               }),
             { kind: "text", danger: true })
           : null,
         !isMe && can(PERM.BAN)
-          ? actionButton("Забанить", () =>
+          ? actionButton(t("Ban"), () =>
               formModal({
-                title: `Забанить ${member.name}?`,
-                fields: [{ label: "Причина (необязательно)", maxlength: 1024 }],
-                confirm: "Забанить",
+                title: t("Ban Member"),
+                text: t("Are you sure you want to ban {0}?", [member.name]),
+                fields: [{ label: t("Reason"), maxlength: 1024 }],
+                confirm: t("Ban"),
                 danger: true,
                 submit: async (reason) => {
                   await call("ban_member", { serverId, userId: member.id, reason });
-                  toast("Участник забанен");
+                  toast(t("Member banned"));
                   renderSettings();
                 },
               }),
             { kind: "text", danger: true })
           : null,
         h("span", { class: "spacer" }),
-        actionButton("Сохранить", async () => {
+        actionButton(t("Save"), async () => {
           const changes = { serverId, userId: member.id, nickname: null, roles: null };
           if (nickname.value.trim() !== (member.nickname || "")) changes.nickname = nickname.value;
           const before = [...member.roles].sort().join();
@@ -1690,7 +1683,7 @@ async function renderMembersPage(column, alive) {
           member.nickname = changes.nickname !== null ? nickname.value.trim() || null : member.nickname;
           if (changes.roles) member.roles = changes.roles;
           membersCache.delete(serverId);
-          toast("Участник сохранён");
+          toast(t("Saved"));
         }, { icon: "check" }),
       ]),
     ]);
@@ -1722,13 +1715,13 @@ async function renderMembersPage(column, alive) {
       };
       body.append(item);
     }
-    if (shown.length > 200) body.append(h("p", { class: "settings-hint", text: `Показаны первые 200 из ${shown.length}. Уточните поиск.` }));
-    if (!shown.length) body.append(h("p", { class: "settings-hint", text: "Никого не нашлось." }));
+    if (shown.length > 200) body.append(h("p", { class: "settings-hint", text: t("Showing the first 200 of {0}. Refine your search.", [I18N.number(shown.length)]) }));
+    if (!shown.length) body.append(h("p", { class: "settings-hint", text: t("No results") }));
   };
   search.addEventListener("input", draw);
   draw();
   put(column,
-    editableRoles.length || can(PERM.KICK) || can(PERM.BAN) ? null : notice("У вас нет прав менять участников."),
+    editableRoles.length || can(PERM.KICK) || can(PERM.BAN) ? null : notice(t("You don't have permission to manage members.")),
     search,
     body,
   );
@@ -1755,10 +1748,10 @@ function renderRolesPage(column) {
     return button;
   };
   for (const role of server.roles) roleList.append(entry(role.id, role.name, role.colour, role.rank > server.top_rank));
-  roleList.append(entry("default", "Все", null, true));
+  roleList.append(entry("default", t("Everyone"), null, true));
 
-  const newName = textInput({ placeholder: "Новая роль", maxlength: 32 });
-  const create = actionButton("Создать", async () => {
+  const newName = textInput({ placeholder: t("Role Name"), maxlength: 32 });
+  const create = actionButton(t("Create Role"), async () => {
     const before = new Set(server.roles.map((role) => role.id));
     settings.server = await call("create_role", { serverId, name: newName.value });
     const created = settings.server.roles.find((role) => !before.has(role.id));
@@ -1769,17 +1762,17 @@ function renderRolesPage(column) {
   const editorBox = h("div", { class: "role-editor" });
   if (selected === "default") {
     put(editorBox,
-      h("p", { class: "settings-hint", text: "Права роли «Все» есть у каждого участника сервера." }),
+      h("p", { class: "settings-hint", text: t("Permissions of the Everyone role apply to every member of the server.") }),
       permissionList(server.default_permissions, null, false, async (allow) => {
         settings.server = await call("set_permissions", { serverId, roleId: null, allow, deny: null });
-        toast("Права сохранены");
+        toast(t("Saved"));
       }),
     );
   } else {
     const role = server.roles.find((item) => item.id === selected);
     const editable = role.rank > server.top_rank;
     const name = textInput({ value: role.name, maxlength: 32 });
-    const colourText = textInput({ value: role.colour || "", placeholder: "#5470ec или CSS-градиент", maxlength: 128 });
+    const colourText = textInput({ value: role.colour || "", placeholder: t("#5470ec or a CSS gradient"), maxlength: 128 });
     const colourPicker = h("input", { type: "color", class: "colour-picker", value: /^#[0-9a-f]{6}$/i.test(role.colour || "") ? role.colour : "#5470ec" });
     colourPicker.oninput = () => (colourText.value = colourPicker.value);
     const hoist = h("input", { type: "checkbox", class: "switch" });
@@ -1787,23 +1780,23 @@ function renderRolesPage(column) {
     if (!editable) [name, colourText, colourPicker, hoist].forEach((node) => (node.disabled = true));
 
     put(editorBox,
-      editable ? null : notice("Эта роль не ниже вашей — менять её нельзя."),
-      labelled("Название", name),
-      labelled("Цвет", h("div", { class: "colour-row" }, [colourPicker, colourText]), "Пустое поле — без цвета"),
+      editable ? null : notice(t("This role is not below yours, so you can't edit it.")),
+      labelled(t("Role Name"), name),
+      labelled(t("Role Colour"), h("div", { class: "colour-row" }, [colourPicker, colourText]), t("Leave empty for no colour")),
       h("label", { class: "settings-row" }, [
         h("span", { class: "settings-row-text" }, [
-          h("span", { class: "settings-row-title", text: "Показывать отдельно" }),
-          h("span", { class: "settings-hint", text: "Участники с этой ролью — отдельной группой в списке" }),
+          h("span", { class: "settings-row-title", text: t("Hoist Role") }),
+          h("span", { class: "settings-hint", text: t("Display this role above others") }),
         ]),
         hoist,
       ]),
       editable
         ? h("div", { class: "settings-actions" }, [
-            actionButton("Удалить роль", () =>
+            actionButton(t("Delete Role"), () =>
               confirmModal({
-                title: `Удалить роль «${role.name}»?`,
-                text: "Роль пропадёт у всех участников.",
-                confirm: "Удалить",
+                title: t("Delete Role"),
+                text: t("Are you sure you want to delete {0}?", [role.name]),
+                confirm: t("Delete"),
                 run: async () => {
                   settings.server = await call("delete_role", { serverId, roleId: role.id });
                   settings.role = null;
@@ -1812,7 +1805,7 @@ function renderRolesPage(column) {
               }),
             { kind: "text", danger: true, icon: "delete" }),
             h("span", { class: "spacer" }),
-            actionButton("Сохранить", async () => {
+            actionButton(t("Save"), async () => {
               settings.server = await call("edit_role", {
                 serverId,
                 roleId: role.id,
@@ -1822,15 +1815,15 @@ function renderRolesPage(column) {
               });
               membersCache.delete(serverId);
               scheduleWorkspaceRefresh();
-              toast("Роль сохранена");
+              toast(t("Saved"));
               renderSettings();
             }, { icon: "check" }),
           ])
         : null,
-      h("h2", { class: "settings-section-title", text: "Права" }),
+      h("h2", { class: "settings-section-title", text: t("Permissions") }),
       permissionList(role.allow, role.deny, !editable, async (allow, deny) => {
         settings.server = await call("set_permissions", { serverId, roleId: role.id, allow, deny });
-        toast("Права сохранены");
+        toast(t("Saved"));
       }),
     );
   }
@@ -1853,14 +1846,15 @@ function permissionList(allow, deny, locked, save) {
   const triState = deny !== null;
   const list = h("div", { class: "permission-list" });
   for (const permission of PERMISSIONS) {
+    if (permission.heading) list.append(h("div", { class: "settings-heading", text: t(permission.heading) }));
     const value = hasBit(allowMask, permission.bit) ? "allow" : hasBit(denyMask, permission.bit) ? "deny" : "unset";
     let control;
     if (triState) {
       control = h("div", { class: "tri-state" });
       for (const option of [
-        { id: "deny", icon: "close", title: "Запретить" },
-        { id: "unset", icon: "remove", title: "Не задано" },
-        { id: "allow", icon: "check", title: "Разрешить" },
+        { id: "deny", icon: "close", title: t("Deny") },
+        { id: "unset", icon: "remove", title: t("Neutral") },
+        { id: "allow", icon: "check", title: t("Allow") },
       ]) {
         const button = h("button", {
           type: "button",
@@ -1887,17 +1881,17 @@ function permissionList(allow, deny, locked, save) {
     list.append(
       h("div", { class: "settings-row permission" }, [
         h("span", { class: "settings-row-text" }, [
-          h("span", { class: "settings-row-title", text: permission.title }),
-          permission.hint ? h("span", { class: "settings-hint", text: permission.hint }) : null,
+          h("span", { class: "settings-row-title", text: t(permission.title) }),
+          h("span", { class: "settings-hint", text: t(permission.hint) }),
         ]),
         control,
       ]),
     );
   }
   const saveBar = h("div", { class: "settings-actions sticky hidden" }, [
-    h("span", { class: "settings-hint", text: "Есть несохранённые права" }),
+    h("span", { class: "settings-hint", text: t("You have unsaved changes") }),
     h("span", { class: "spacer" }),
-    actionButton("Сохранить права", async () => {
+    actionButton(t("Save"), async () => {
       await save(allowMask, triState ? denyMask : null);
       saveBar.classList.add("hidden");
     }, { icon: "check" }),
@@ -1922,19 +1916,19 @@ async function renderInvitesPage(column, alive) {
         h("span", { class: "settings-row-title selectable", text: invite.code }),
         h("span", {
           class: "settings-hint",
-          text: "#" + invite.channel + (invite.creator ? " · создал " + (invite.creator.display_name || invite.creator.username) : ""),
+          text: "#" + invite.channel + (invite.creator ? " · " + t("Inviter") + ": " + (invite.creator.display_name || invite.creator.username) : ""),
         }),
       ]),
-      actionButton("", () => copyText(inviteLink(invite.code)).then(() => toast("Ссылка скопирована")), { kind: "text", icon: "content_copy" }),
+      actionButton("", () => copyText(inviteLink(invite.code)).then(() => toast(t("Copied!"))), { kind: "text", icon: "content_copy" }),
       actionButton("", async () => {
         await call("delete_invite", { code: invite.code });
-        toast("Приглашение удалено");
+        toast(t("Invite deleted"));
         renderSettings();
       }, { kind: "text", icon: "delete", danger: true }),
     ]),
   );
   put(column,
-    section(`Приглашения – ${list.length}`, list.length ? rows : [h("p", { class: "settings-hint", text: "Активных приглашений нет. Создать приглашение можно в меню сервера или канала." })]),
+    section(`${t("Invites")} – ${list.length}`, list.length ? rows : [h("p", { class: "settings-hint", text: t("No active invites. You can create one from the server or channel menu.") })]),
   );
 }
 
@@ -1947,16 +1941,16 @@ async function renderBansPage(column, alive) {
       avatar({ url: ban.avatar, name: ban.username, size: 32 }),
       h("span", { class: "settings-row-text" }, [
         h("span", { class: "settings-row-title", text: `${ban.username}#${ban.discriminator}` }),
-        h("span", { class: "settings-hint", text: ban.reason ? "Причина: " + ban.reason : "Причина не указана" }),
+        h("span", { class: "settings-hint", text: ban.reason ? t("Reason") + ": " + ban.reason : t("No reason provided") }),
       ]),
-      actionButton("Разбанить", async () => {
+      actionButton(t("Unban"), async () => {
         await call("unban_member", { serverId, userId: ban.id });
-        toast("Бан снят");
+        toast(t("Member unbanned"));
         renderSettings();
       }, { kind: "tonal" }),
     ]),
   );
-  column.append(section(`Баны – ${list.length}`, list.length ? rows : [h("p", { class: "settings-hint", text: "Никто не забанен." })]));
+  column.append(section(`${t("Bans")} – ${list.length}`, list.length ? rows : [h("p", { class: "settings-hint", text: t("No one is banned.") })]));
 }
 
 // ─────────────────────────── действия с сервером ───────────────────────────
@@ -1964,11 +1958,9 @@ async function renderBansPage(column, alive) {
 function confirmLeaveServer(server) {
   const owner = server.is_owner || server.owner;
   confirmModal({
-    title: owner ? `Удалить сервер «${server.name}»?` : `Выйти с сервера «${server.name}»?`,
-    text: owner
-      ? "Сервер, его каналы и сообщения будут удалены навсегда."
-      : "Вернуться можно будет только по приглашению.",
-    confirm: owner ? "Удалить" : "Выйти",
+    title: owner ? t("Delete {0}?", [server.name]) : t("Leave {0}?", [server.name]),
+    text: owner ? t("Once it's deleted, there's no going back.") : t("You won't be able to rejoin unless you are re-invited."),
+    confirm: owner ? t("Delete") : t("Leave"),
     run: async () => {
       await call("leave_server", { serverId: server.id });
       if (settingsOpen()) closeSettings();
@@ -1985,14 +1977,14 @@ async function showInvite(channelId) {
   const field = textInput({ value: link });
   field.readOnly = true;
   openModal({
-    title: "Пригласить друзей",
+    title: t("Create Invite"),
     body: h("div", { class: "form-stack" }, [
-      h("p", { class: "settings-hint", text: "Отправьте эту ссылку — по ней можно вступить на сервер." }),
+      h("p", { class: "settings-hint", text: t("Share this link to let others join the server.") }),
       field,
     ]),
     actions: [
-      { label: "Закрыть", onclick: closeModal },
-      { label: "Копировать", primary: true, onclick: () => copyText(link).then(() => toast("Ссылка скопирована")) },
+      { label: t("Close"), onclick: closeModal },
+      { label: t("Copy link"), primary: true, onclick: () => copyText(link).then(() => toast(t("Copied!"))) },
     ],
   });
   field.select();
@@ -2000,7 +1992,7 @@ async function showInvite(channelId) {
 
 function createChannelModal(serverId) {
   let kind = "Text";
-  const name = textInput({ placeholder: "новый-канал", maxlength: 32 });
+  const name = textInput({ placeholder: t("new-channel"), maxlength: 32 });
   const run = async () => {
     try {
       const channelId = await call("create_channel", { serverId, name: name.value, kind });
@@ -2013,21 +2005,21 @@ function createChannelModal(serverId) {
     }
   };
   openModal({
-    title: "Создать канал",
+    title: t("Create channel"),
     body: h("div", { class: "form-stack" }, [
       choiceRow(
         [
-          { id: "Text", label: "Текстовый" },
-          { id: "Voice", label: "Голосовой" },
+          { id: "Text", label: t("Text Channel") },
+          { id: "Voice", label: t("Voice Channel") },
         ],
         kind,
         (value) => (kind = value),
       ),
-      labelled("Название", name),
+      labelled(t("Channel Name"), name),
     ]),
     actions: [
-      { label: "Отмена", onclick: closeModal },
-      { label: "Создать", primary: true, onclick: run },
+      { label: t("Cancel"), onclick: closeModal },
+      { label: t("Create"), primary: true, onclick: run },
     ],
   });
   name.focus();
@@ -2035,12 +2027,12 @@ function createChannelModal(serverId) {
 
 function editChannelModal(channel) {
   formModal({
-    title: "Изменить канал",
+    title: t("Edit Channel"),
     fields: [
-      { label: "Название", value: channel.name, maxlength: 32 },
-      { label: "Описание", value: channel.description || "", maxlength: 1024, multiline: true },
+      { label: t("Channel Name"), value: channel.name, maxlength: 32 },
+      { label: t("Channel Description"), value: channel.description || "", maxlength: 1024, multiline: true },
     ],
-    confirm: "Сохранить",
+    confirm: t("Save"),
     submit: async (name, description) => {
       await call("edit_channel", {
         channelId: channel.id,
@@ -2048,16 +2040,16 @@ function editChannelModal(channel) {
         description: description !== (channel.description || "") ? description : null,
       });
       scheduleWorkspaceRefresh();
-      toast("Канал сохранён");
+      toast(t("Saved"));
     },
   });
 }
 
 function deleteChannelModal(channel) {
   confirmModal({
-    title: `Удалить канал #${channel.name}?`,
-    text: "Все сообщения канала будут удалены навсегда.",
-    confirm: "Удалить",
+    title: t("Delete {0}?", ["#" + channel.name]),
+    text: t("Once it's deleted, there's no going back."),
+    confirm: t("Delete"),
     run: async () => {
       await call("delete_channel", { channelId: channel.id });
       if (state.channelId === channel.id) closeChannel();
@@ -2068,8 +2060,8 @@ function deleteChannelModal(channel) {
 
 /** «Добавить сервер»: создать свой или вступить по приглашению. */
 function addServerModal() {
-  const name = textInput({ placeholder: "Мой сервер", maxlength: 32 });
-  const code = textInput({ placeholder: "https://stoat.chat/invite/… или код" });
+  const name = textInput({ placeholder: t("Server Name"), maxlength: 32 });
+  const code = textInput({ placeholder: t("Invite code or link") });
   const preview = h("div", { class: "invite-preview hidden" });
 
   let previewTimer = null;
@@ -2083,10 +2075,10 @@ function addServerModal() {
         preview.replaceChildren(
           avatar({ url: info.icon, name: info.server_name || info.channel_name || "?", size: 48 }),
           h("span", { class: "settings-row-text" }, [
-            h("span", { class: "settings-row-title", text: info.server_name || info.channel_name || "Приглашение" }),
+            h("span", { class: "settings-row-title", text: info.server_name || info.channel_name || t("Invite") }),
             h("span", {
               class: "settings-hint",
-              text: [info.member_count ? `${info.member_count} участников` : null, info.user_name ? "приглашает " + info.user_name : null]
+              text: [info.member_count ? t("{0} members", [I18N.number(info.member_count)]) : null, info.user_name ? t("Inviter") + ": " + info.user_name : null]
                 .filter(Boolean)
                 .join(" · "),
             }),
@@ -2110,23 +2102,23 @@ function addServerModal() {
   };
 
   openModal({
-    title: "Добавить сервер",
+    title: t("Create or join a server"),
     body: h("div", { class: "form-stack" }, [
-      section("Вступить по приглашению", [
+      section(t("Join a server"), [
         code,
         preview,
         h("div", { class: "settings-actions" }, [
-          actionButton("Вступить", async () => go(await call("join_invite", { code: code.value })), { icon: "group_add" }),
+          actionButton(t("Join"), async () => go(await call("join_invite", { code: code.value })), { icon: "group_add" }),
         ]),
       ]),
-      section("Создать свой", [
+      section(t("Create server"), [
         name,
         h("div", { class: "settings-actions" }, [
-          actionButton("Создать", async () => go(await call("create_server", { name: name.value })), { kind: "tonal", icon: "add" }),
+          actionButton(t("Create"), async () => go(await call("create_server", { name: name.value })), { kind: "tonal", icon: "add" }),
         ]),
       ]),
     ]),
-    actions: [{ label: "Закрыть", onclick: closeModal }],
+    actions: [{ label: t("Close"), onclick: closeModal }],
   });
   code.focus();
 }

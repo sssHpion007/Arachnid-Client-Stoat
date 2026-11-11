@@ -40,6 +40,8 @@ pub struct MemberInfo {
     pub nickname: Option<String>,
     /// Местоимения на сервере
     pub pronouns: Option<String>,
+    /// Свой аватар на сервере (окно «Профиль на сервере»)
+    pub avatar: Option<String>,
     /// Когда вступил (ISO-8601)
     pub joined_at: Option<String>,
     /// Роли сверху вниз
@@ -206,6 +208,8 @@ async fn member_info(
             .pronouns
             .clone()
             .filter(|text| !text.trim().is_empty()),
+        // адрес заполняет user_profile: здесь неизвестен CDN
+        avatar: None,
         joined_at: timestamp_text(&member.joined_at),
         roles: roles
             .into_iter()
@@ -259,18 +263,21 @@ pub async fn user_profile(
         .and_then(|profile| profile.background.as_ref())
         .and_then(|file| views::file_url(file, cdn));
 
-    let (member, member_avatar) = match member {
+    let (mut member, member_avatar) = match member {
         Some((info, avatar)) => (Some(info), avatar),
         None => (None, None),
     };
-    let avatar = member_avatar
+    let member_avatar = member_avatar
         .as_ref()
-        .and_then(|file| views::file_url(file, cdn))
-        .or_else(|| {
-            user.avatar
-                .as_ref()
-                .and_then(|file| views::file_url(file, cdn))
-        });
+        .and_then(|file| views::file_url(file, cdn));
+    if let Some(info) = member.as_mut() {
+        info.avatar = member_avatar.clone();
+    }
+    let avatar = member_avatar.or_else(|| {
+        user.avatar
+            .as_ref()
+            .and_then(|file| views::file_url(file, cdn))
+    });
     let name = member
         .as_ref()
         .and_then(|member| member.nickname.clone())
