@@ -2250,6 +2250,10 @@ span.emoji {
   min-width: 56px;
   padding: 80px 8px;
   align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-sm);
 }
 
 .icon-button.tonal {
@@ -2556,21 +2560,6 @@ select.text-field {
   gap: var(--gap-sm);
 }
 
-.account-summary {
-  display: flex;
-  align-items: center;
-  gap: var(--gap-lg);
-  padding: var(--gap-lg);
-  border-radius: var(--border-radius-lg);
-  background: var(--md-sys-color-primary-container);
-  color: var(--md-sys-color-on-primary-container);
-}
-
-.account-summary-name {
-  font-size: 1.125rem;
-  font-weight: 600;
-}
-
 /* эмодзи сервера */
 .emoji-upload {
   display: flex;
@@ -2821,6 +2810,357 @@ select.text-field {
 .modal .settings-section {
   padding: 0;
   background: none;
+}
+
+/* карточка «Мой аккаунт» над разделами (_AccountCard.tsx) */
+.settings-account {
+  gap: 8px;
+}
+
+.settings-account-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-account-name {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface-variant);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.settings-entry {
+  text-decoration: none;
+}
+
+/* подвал: версия и правила инстанса */
+.settings-footer {
+  display: flex;
+  flex-direction: column;
+  margin-inline: 8px 20px;
+  font-size: 0.75rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.settings-footer-label {
+  font-weight: 700;
+  user-select: none;
+}
+
+.settings-footer-line.small {
+  font-size: 0.6rem;
+  opacity: 0.5;
+}
+
+.settings-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5em;
+  opacity: 0.5;
+}
+
+.settings-legal a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.settings-legal a:hover {
+  text-decoration: underline;
+}
+
+.selectable-all {
+  user-select: all;
+}
+
+/* подпись ESC под кнопкой закрытия */
+.settings-rail-hint {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--md-sys-color-on-surface-variant);
+  user-select: none;
+}
+
+/* CategoryButton из библиотеки компонентов for-web */
+.cb-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+  border-radius: var(--border-radius-xl);
+  overflow: hidden;
+}
+
+.cb {
+  --cb-color: var(--md-sys-color-on-secondary-container);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 13px;
+  border-radius: var(--border-radius-md);
+  background: var(--md-sys-color-secondary-container);
+  color: var(--cb-color);
+  text-decoration: none;
+  user-select: none;
+  transition: background-color 0.1s ease-in-out;
+}
+
+.cb.interactive {
+  cursor: pointer;
+}
+
+.cb.interactive:hover:not(.disabled) {
+  background: color-mix(in srgb, var(--cb-color) 8%, var(--md-sys-color-secondary-container));
+}
+
+.cb.interactive:active:not(.disabled) {
+  background: color-mix(in srgb, var(--cb-color) 12%, var(--md-sys-color-secondary-container));
+}
+
+.cb.interactive:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+
+.cb.disabled {
+  cursor: not-allowed;
+}
+
+.cb-icon {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: var(--border-radius-full);
+  background: var(--md-sys-color-surface-dim);
+  color: var(--md-sys-color-on-surface);
+}
+
+.cb-icon.blank {
+  background: transparent;
+}
+
+.cb.danger .cb-icon {
+  color: var(--md-sys-color-error);
+}
+
+.cb-content {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cb-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cb-description {
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.cb-description a {
+  color: inherit;
+  font-weight: 500;
+}
+
+.cb-description a:hover {
+  text-decoration: underline;
+}
+
+.cb-action {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+.cb-action .symbol {
+  transition: transform 0.3s;
+}
+
+.cb-collapse.open > .cb .cb-action:last-child .symbol {
+  transform: rotate(180deg);
+}
+
+.cb-collapse.open > .cb {
+  margin-bottom: var(--gap-xs);
+}
+
+.cb-collapse-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+  overflow: hidden auto;
+  border-radius: var(--border-radius-md);
+  transition: 0.3s;
+  scrollbar-width: none;
+}
+
+.cb-collapse:not(.open) > .cb-collapse-inner {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.inline-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.capitalise {
+  text-transform: capitalize;
+}
+
+/* карточка аккаунта с баннером (account/UserSummary.tsx) */
+.user-summary {
+  display: flex;
+  flex-direction: column;
+  padding: var(--gap-lg);
+  background: var(--md-sys-color-primary-container);
+  background-size: cover;
+  background-position: center;
+}
+
+.user-summary-details {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+}
+
+.user-summary-names {
+  flex-grow: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.user-summary-name {
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.user-summary-tag {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.icon-button.filled {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.icon-button.filled:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+  color: var(--md-sys-color-on-primary);
+}
+
+.icon-button.square {
+  border-radius: var(--border-radius-md);
+}
+
+.user-summary-bottom {
+  display: flex;
+}
+
+/* отступ под аватар, чтобы значки встали под именем */
+.user-summary-pad {
+  width: 58px;
+  flex-shrink: 0;
+  margin-inline-end: var(--gap-lg);
+}
+
+.user-summary-badges {
+  display: flex;
+  gap: var(--gap-sm);
+  padding: var(--gap-md);
+  border-radius: var(--border-radius-md);
+  background: var(--md-sys-color-secondary);
+  color: var(--md-sys-color-on-secondary);
+}
+
+.user-summary-badge {
+  display: grid;
+  place-items: center;
+}
+
+/* коды восстановления (MFARecovery.tsx) */
+.recovery-codes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap-sm);
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.recovery-codes i {
+  position: absolute;
+  opacity: 0;
+}
+
+/* приложение для аутентификации (MFAEnableTOTP.tsx) */
+.totp-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.totp-qr {
+  width: 156px;
+  height: 156px;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.totp-secret {
+  font-family: var(--font-mono);
+  user-select: all;
+  overflow-wrap: anywhere;
+  text-align: center;
+}
+
+/* поле с подписью справа (#1234) и счётчиком */
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+}
+
+.field-row > .text-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.field-suffix {
+  font-size: 0.875rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.field-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xs);
+}
+
+.field-stack > .field-counter {
+  align-self: flex-end;
 }
 
 /* настройка «Кнопка отправки» */

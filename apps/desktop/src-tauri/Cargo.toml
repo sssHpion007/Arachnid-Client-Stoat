@@ -32,6 +32,8 @@ base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 # адрес файла в пути запроса протокола media:
 percent-encoding = "2"
+# QR-код для приложения аутентификации — только SVG, без растровых зависимостей
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 
 [[bin]]
 name = "arachnid-client"

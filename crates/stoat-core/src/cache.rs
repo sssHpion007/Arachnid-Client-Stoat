@@ -481,6 +481,20 @@ impl Cache {
         }
     }
 
+    /// Сколько серверов принадлежит текущему пользователю: пока они есть,
+    /// аккаунт нельзя удалить.
+    pub async fn owned_servers(&self) -> usize {
+        let state = self.state.read().await;
+        let Some(me) = state.me.as_deref() else {
+            return 0;
+        };
+        state
+            .servers
+            .values()
+            .filter(|server| server.owner == me)
+            .count()
+    }
+
     /// Есть ли сервер в кэше.
     pub async fn has_server(&self, id: &str) -> bool {
         let state = self.state.read().await;

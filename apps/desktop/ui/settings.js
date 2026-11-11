@@ -77,8 +77,22 @@ const settings = {
   serverId: null,
   page: null,
   server: null, // настройки сервера с ядра
+  about: null, // версия и ссылки на правила (команда about)
   token: 0,
 };
+
+/** Ссылки браузерного клиента (UserSettings.tsx, Feedback.tsx). */
+const LINKS = {
+  source: "https://github.com/sssHpion007/Arachnid-Client-Stoat",
+  donate: "https://ko-fi.com/stoatchat",
+  suggestions: "https://github.com/orgs/stoatchat/discussions/categories/feature-suggestions",
+  feedback: "https://github.com/orgs/stoatchat/discussions/categories/feedback",
+  bugs: "https://github.com/stoatchat/for-web/issues?q=is%3Aissue%20state%3Aopen%20type%3ABug",
+};
+
+/** Официальный сервер Stoat Lounge и приглашение в него. */
+const LOUNGE_ID = "01F7ZSBSFHQ8TA81725KQCSDDP";
+const LOUNGE_INVITE = "Testers";
 
 function settingsOpen() {
   return !el("settings").classList.contains("hidden");
@@ -112,25 +126,37 @@ async function openServerSettings(serverId, page = null) {
   renderSettings();
 }
 
+/**
+ * Разделы настроек пользователя в порядке браузерного клиента.
+ * «Мой аккаунт» открывается карточкой над списком, поэтому скрыт.
+ */
 function userPages() {
   return [
     {
-      title: "Пользовательские настройки",
+      title: "Настройки пользователя",
       entries: [
-        { id: "account", icon: "account_circle", title: "Мой аккаунт", render: renderAccountPage },
-        { id: "profile", icon: "person", title: "Профиль", render: renderProfilePage },
-        { id: "sessions", icon: "fingerprint", title: "Сессии", render: renderSessionsPage },
+        { id: "account", title: "Мой аккаунт", hidden: true, hideTitle: true, render: renderAccountPage },
+        { id: "profile", icon: "account_circle", title: "Профиль", render: renderProfilePage },
+        { id: "sessions", icon: "verified_user", title: "Сессии", render: renderSessionsPage },
       ],
     },
     {
-      title: "Клиент",
+      title: "Stoat",
+      entries: [{ id: "feedback", icon: "rate_review", title: "Обратная связь", render: renderFeedbackPage }],
+    },
+    {
+      title: "Настройки клиента",
       entries: [
-        { id: "appearance", icon: "image", title: "Внешний вид", render: renderAppearancePage },
-        { id: "desktop", icon: "settings", title: "Приложение", render: renderDesktopPage },
+        { id: "appearance", icon: "palette", title: "Внешний вид", render: renderAppearancePage },
+        { id: "desktop", icon: "desktop_windows", title: "ПК", render: renderDesktopPage },
       ],
     },
     {
-      entries: [{ id: "logout", icon: "logout", title: "Выйти", danger: true, action: logout }],
+      entries: [
+        { id: "source", icon: "memory", title: "Исходный код", href: LINKS.source },
+        { id: "donate", icon: "coffee", title: "Пожертвовать", href: LINKS.donate },
+        { id: "logout", icon: "logout", title: "Выйти", danger: true, action: logout },
+      ],
     },
   ];
 }
@@ -186,57 +212,118 @@ function currentPages() {
   return settings.kind === "server" ? serverPages() : userPages();
 }
 
+/** Пункт списка разделов: страница, действие или внешняя ссылка. */
+function sidebarEntry(entry) {
+  const content = [symbol(entry.icon, 20), h("span", { class: "settings-entry-title", text: entry.title })];
+  const kind = "settings-entry" + (entry.danger ? " danger" : "");
+  if (entry.href) {
+    // ссылки с target=_blank открывает в браузере плагин shell
+    return h("a", { class: kind, href: entry.href, target: "_blank", rel: "noreferrer" }, content);
+  }
+  const button = h("button", { type: "button", class: kind, "aria-selected": String(settings.page === entry.id) }, content);
+  button.onclick = async () => {
+    if (entry.action) {
+      try {
+        await entry.action();
+      } catch (error) {
+        toast(describe(error), "error");
+      }
+      return;
+    }
+    settings.page = entry.id;
+    renderSettings();
+  };
+  return button;
+}
+
+/** Карточка «Мой аккаунт» над списком разделов (_AccountCard.tsx). */
+function accountCard() {
+  const me = state.me;
+  const button = h(
+    "button",
+    { type: "button", class: "settings-entry settings-account", "aria-selected": String(settings.page === "account") },
+    [
+      avatar({ url: me.avatar, name: myName(), size: 36 }),
+      h("span", { class: "settings-account-text" }, [
+        h("span", { class: "settings-account-name", text: myName() }),
+        h("span", { text: "Мой аккаунт" }),
+      ]),
+    ],
+  );
+  button.onclick = () => {
+    settings.page = "account";
+    renderSettings();
+  };
+  return button;
+}
+
+/** Подвал списка: версия клиента и правила инстанса. */
+function sidebarFooter() {
+  const footer = h("div", { class: "settings-footer" });
+  const fill = (about) => {
+    const legal = about.legal || {};
+    const links = [
+      [legal.terms_of_service, "Условия"],
+      [legal.privacy_policy, "Конфиденциальность"],
+      [legal.guidelines, "Правила"],
+    ].filter(([href]) => href);
+    put(footer,
+      h("span", { class: "settings-footer-line" }, [
+        h("span", { class: "settings-footer-label", text: "Версия: " }),
+        h("span", { class: "selectable-all", text: about.version }),
+      ]),
+      h("span", { class: "settings-footer-line small" }, [
+        ["Tauri " + about.tauri, about.webview ? "WebView " + about.webview : null].filter(Boolean).join(", "),
+      ]),
+      links.length
+        ? h(
+            "span",
+            { class: "settings-footer-line settings-legal" },
+            links.map(([href, title]) => h("a", { href, target: "_blank", rel: "noreferrer", text: title })),
+          )
+        : null,
+    );
+  };
+  if (settings.about) fill(settings.about);
+  else
+    call("about")
+      .then((about) => {
+        settings.about = about;
+        fill(about);
+      })
+      .catch(() => {});
+  return footer;
+}
+
 function renderSettings() {
   const root = el("settings");
   const groups = currentPages();
   const token = ++settings.token;
+  const user = settings.kind === "user";
 
   const nav = h("nav", { class: "settings-nav" });
+  if (user) nav.append(h("div", { class: "settings-group" }, [accountCard()]));
   for (const group of groups) {
     const visible = group.entries.filter((entry) => !entry.hidden);
     if (!visible.length) continue;
     const column = h("div", { class: "settings-group" });
     if (group.title) column.append(h("span", { class: "settings-category", text: group.title }));
-    for (const entry of visible) {
-      const button = h(
-        "button",
-        {
-          type: "button",
-          class: "settings-entry" + (entry.danger ? " danger" : ""),
-          "aria-selected": String(settings.page === entry.id),
-        },
-        [symbol(entry.icon, 20), h("span", { class: "settings-entry-title", text: entry.title })],
-      );
-      button.onclick = async () => {
-        if (entry.action) {
-          try {
-            await entry.action();
-          } catch (error) {
-            toast(describe(error), "error");
-          }
-          return;
-        }
-        settings.page = entry.id;
-        renderSettings();
-      };
-      column.append(button);
-    }
+    for (const entry of visible) column.append(sidebarEntry(entry));
     nav.append(column);
   }
+  if (user) nav.append(sidebarFooter());
 
   const entry = groups.flatMap((group) => group.entries).find((item) => item.id === settings.page);
   const column = h("div", { class: "settings-column" });
-  if (entry) column.append(h("h1", { class: "settings-title", text: entry.title }));
-  const close = h("button", { type: "button", class: "icon-button tonal settings-close", title: "Закрыть (Esc)" }, [
-    symbol("close", 24),
-  ]);
+  if (entry && !entry.hideTitle) column.append(h("h1", { class: "settings-title", text: entry.title }));
+  const close = h("button", { type: "button", class: "icon-button tonal settings-close", title: "Закрыть" }, [symbol("close", 24)]);
   close.onclick = closeSettings;
 
   root.replaceChildren(
     h("div", { class: "settings-sidebar" }, [nav]),
     h("div", { class: "settings-content" }, [
       h("div", { class: "settings-inner" }, [column]),
-      h("div", { class: "settings-rail" }, [close]),
+      h("div", { class: "settings-rail" }, [close, h("span", { class: "settings-rail-hint", text: "ESC" })]),
     ]),
   );
   root.classList.remove("hidden");
@@ -334,7 +421,7 @@ function choiceRow(options, current, onchoose) {
 }
 
 /** Окно с полями и кнопкой подтверждения; `submit` получает значения полей. */
-function formModal({ title, text = null, fields, confirm, danger = false, submit }) {
+function formModal({ title, text = null, fields, confirm, cancel = "Отмена", danger = false, submit }) {
   const inputs = fields.map((field) => {
     const input = field.multiline
       ? h("textarea", { class: "text-field multiline", rows: 4, maxlength: field.maxlength, placeholder: field.placeholder || "" })
@@ -362,15 +449,29 @@ function formModal({ title, text = null, fields, confirm, danger = false, submit
     title,
     body: h("div", { class: "form-stack" }, [
       text ? h("p", { class: "settings-hint", text }) : null,
-      ...fields.map((field, index) => labelled(field.label, inputs[index], field.hint)),
+      ...fields.map((field, index) => labelled(field.label, fieldControl(field, inputs[index]), field.hint)),
     ]),
     actions: [
-      { label: "Отмена", onclick: closeModal },
+      { label: cancel, onclick: closeModal },
       { label: confirm, primary: true, onclick: run },
     ],
   });
   if (danger) box.querySelector(".button.filled").classList.add("danger");
   if (inputs[0]) inputs[0].focus();
+}
+
+/** Поле формы со счётчиком символов и подписью справа (`#1234`). */
+function fieldControl(field, input) {
+  if (!field.counter && !field.suffix) return input;
+  const parts = [input];
+  if (field.suffix) parts.push(h("span", { class: "field-suffix", text: field.suffix }));
+  const row = h("span", { class: "field-row" }, parts);
+  if (!field.counter || !field.maxlength) return row;
+  const counter = h("span", { class: "field-counter" });
+  const count = () => (counter.textContent = `${input.value.length}/${field.maxlength}`);
+  input.addEventListener("input", count);
+  count();
+  return h("span", { class: "field-stack" }, [row, counter]);
 }
 
 /** Простое подтверждение. */
@@ -461,110 +562,542 @@ function imagePicker({ label, url, round = false, wide = false, tag, onchange })
   return { node, state: choice, tag };
 }
 
-// ─────────────────────────── мой аккаунт ───────────────────────────
+// ─────────────────────────── кнопки разделов ───────────────────────────
 
-async function renderAccountPage(column, alive) {
-  const account = await call("account_info");
-  if (!alive()) return;
-  const me = state.me;
-  const masked = account.email.replace(/^(.).*(@.*)$/, (_, first, domain) => first + "•••••" + domain);
-  const email = h("span", { class: "settings-row-value", text: masked });
-  const reveal = h("button", { type: "button", class: "link-button", text: "Показать" });
-  reveal.onclick = () => {
-    const shown = email.textContent === account.email;
-    email.textContent = shown ? masked : account.email;
-    reveal.textContent = shown ? "Показать" : "Скрыть";
-  };
+/** Значки действий справа (CategoryButton.tsx). */
+const CATEGORY_ACTIONS = {
+  chevron: "chevron_right",
+  collapse: "keyboard_arrow_down",
+  external: "open_in_new",
+  copy: "content_copy",
+};
 
-  const card = h("div", { class: "account-summary" }, [
-    avatar({ url: me.avatar, name: myName(), size: 64, presence: me.presence }),
-    h("div", { class: "account-text" }, [
-      h("span", { class: "account-summary-name", text: myName() }),
-      h("span", { class: "account-id", text: `${account.username}#${account.discriminator}` }),
-    ]),
-    h("span", { class: "spacer" }),
-    actionButton("Изменить профиль", () => {
-      settings.page = "profile";
-      renderSettings();
-    }, { kind: "tonal", icon: "edit" }),
-  ]);
+/**
+ * Строка-кнопка в стиле CategoryButton: круглый значок, заголовок с
+ * описанием и значки действий. `icon: "blank"` оставляет пустое место
+ * под значок (вложенные пункты), `href` делает из неё внешнюю ссылку.
+ * Кнопкой служит div с ролью button: в описании бывают свои ссылки
+ * («Показать»), а кнопки в кнопке HTML не допускает.
+ */
+function categoryButton({ icon = null, title, description = null, action = null, onclick = null, href = null, disabled = false, danger = false }) {
+  const interactive = Boolean(onclick || href);
+  const kind = "cb" + (interactive ? " interactive" : "") + (disabled ? " disabled" : "") + (danger ? " danger" : "");
+  const node = href
+    ? h("a", { class: kind, href, target: "_blank", rel: "noreferrer" })
+    : h("div", { class: kind, role: onclick ? "button" : null, tabindex: onclick && !disabled ? "0" : null, "aria-disabled": disabled ? "true" : null });
 
-  const row = (icon, title, value, button) =>
-    h("div", { class: "settings-row" }, [
-      symbol(icon, 24),
-      h("span", { class: "settings-row-text" }, [h("span", { class: "settings-row-title", text: title }), value]),
-      button,
-    ]);
+  if (icon === "blank") node.append(h("span", { class: "cb-icon blank" }));
+  else if (icon) node.append(h("span", { class: "cb-icon" }, [typeof icon === "string" ? symbol(icon, 22) : icon]));
 
-  put(column,
-    card,
-    section("Учётные данные", [
-      row(
-        "alternate_email",
-        "Имя пользователя",
-        h("span", { class: "settings-row-value", text: `${account.username}#${account.discriminator}` }),
-        actionButton("Изменить", () =>
-          formModal({
-            title: "Изменить имя пользователя",
-            fields: [
-              { label: "Имя пользователя", value: account.username, maxlength: 32 },
-              { label: "Текущий пароль", type: "password" },
-            ],
-            confirm: "Сохранить",
-            submit: async (username, password) => {
-              applyOwnUser(await call("change_username", { username, password }));
-              toast("Имя пользователя изменено");
-              renderSettings();
-            },
-          }),
-          { kind: "tonal" },
-        ),
-      ),
-      row(
-        "mail",
-        "Почта",
-        h("span", { class: "settings-row-value-line" }, [email, reveal]),
-        actionButton("Изменить", () =>
-          formModal({
-            title: "Изменить почту",
-            text: "На новый адрес придёт письмо: почта сменится после подтверждения.",
-            fields: [
-              { label: "Новая почта", type: "email" },
-              { label: "Текущий пароль", type: "password" },
-            ],
-            confirm: "Отправить письмо",
-            submit: async (newEmail, currentPassword) => {
-              await call("change_email", { email: newEmail, currentPassword });
-              toast("Письмо для подтверждения отправлено");
-            },
-          }),
-          { kind: "tonal" },
-        ),
-      ),
-      row(
-        "key",
-        "Пароль",
-        h("span", { class: "settings-row-value", text: "•••••••••" }),
-        actionButton("Изменить", () =>
-          formModal({
-            title: "Изменить пароль",
-            fields: [
-              { label: "Текущий пароль", type: "password" },
-              { label: "Новый пароль", type: "password" },
-              { label: "Новый пароль ещё раз", type: "password" },
-            ],
-            confirm: "Сохранить",
-            submit: async (currentPassword, password, repeat) => {
-              if (password !== repeat) throw new Error("Пароли не совпадают");
-              await call("change_password", { password, currentPassword });
-              toast("Пароль изменён");
-            },
-          }),
-          { kind: "tonal" },
-        ),
-      ),
+  node.append(
+    h("span", { class: "cb-content" }, [
+      title ? h("span", { class: "cb-title" }, [title]) : null,
+      description ? h("span", { class: "cb-description" }, [description]) : null,
     ]),
   );
+  for (const name of [].concat(action || [])) {
+    node.append(h("span", { class: "cb-action" }, [symbol(CATEGORY_ACTIONS[name], 18)]));
+  }
+
+  if (onclick && !href) {
+    let busy = false;
+    const run = async () => {
+      if (disabled || busy) return;
+      busy = true;
+      try {
+        await onclick();
+      } catch (error) {
+        toast(describe(error), "error");
+      } finally {
+        busy = false;
+      }
+    };
+    node.addEventListener("click", run);
+    node.addEventListener("keydown", (event) => {
+      if (event.target !== node || (event.key !== "Enter" && event.key !== " ")) return;
+      event.preventDefault();
+      run();
+    });
+  }
+  return node;
+}
+
+/** Группа кнопок со скруглёнными краями (CategoryButton.Group). */
+function categoryGroup(children) {
+  return h("div", { class: "cb-group" }, children.filter(Boolean));
+}
+
+/** Кнопка, раскрывающая вложенные пункты (CategoryButton.Collapse). */
+function categoryCollapse({ icon, title, description = null, children }) {
+  const inner = h("div", { class: "cb-collapse-inner" }, children.filter(Boolean));
+  const node = h("div", { class: "cb-collapse" });
+  const head = categoryButton({
+    icon,
+    title,
+    description,
+    action: "collapse",
+    onclick: () => {
+      const open = !node.classList.contains("open");
+      node.classList.toggle("open", open);
+      if (open) inner.scrollTop = 0;
+      inner.style.height = open ? Math.min(inner.scrollHeight, 340) + "px" : "0px";
+    },
+  });
+  inner.style.height = "0px";
+  node.append(head, inner);
+  return node;
+}
+
+// ─────────────────────────── подтверждение (MFA) ───────────────────────────
+
+/** Способы подтверждения в окне «Подтвердить действие» (MFAFlow.tsx). */
+const MFA_METHODS = {
+  Password: { icon: "keyboard", title: "Пароль", type: "password", autocomplete: "current-password" },
+  Totp: { icon: "key", title: "Приложение для аутентификации", type: "text", autocomplete: "one-time-code" },
+  Recovery: { icon: "archive", title: "Код восстановления", type: "text", autocomplete: "off" },
+};
+
+/** Пересобрать кнопки открытого окна (окно перестраивается по шагам). */
+function modalButtons(box, actions) {
+  let bar = box.querySelector(".modal-actions");
+  if (!bar) {
+    bar = h("div", { class: "modal-actions" });
+    box.append(bar);
+  }
+  const buttons = actions.map((action) =>
+    h("button", {
+      type: "button",
+      class: "button " + (action.primary ? "filled" : "text") + (action.danger ? " danger" : ""),
+      text: action.label,
+      disabled: Boolean(action.disabled),
+      onclick: action.onclick,
+    }),
+  );
+  bar.replaceChildren(...buttons);
+  return buttons;
+}
+
+/**
+ * Окно «Подтвердить действие». `methods` — способы из `mfa_status`,
+ * `run(answer)` выполняет действие с ответом пользователя: ядро само
+ * обменяет его на тикет. Возвращает результат действия (или `true`, если
+ * действие ничего не вернуло) либо `null`, если пользователь передумал.
+ * Неверный пароль или код не закрывают окно — можно ввести заново.
+ */
+function mfaFlow(methods, run) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    // единственный способ, кроме кодов восстановления, выбирается сразу
+    let selected = methods.find((method) => method !== "Recovery") || null;
+    const box = openModal({ title: "Подтвердить действие", body: h("div"), onClose: () => finish(null) });
+    const body = box.querySelector(".modal-body");
+
+    const render = () => {
+      if (!selected) {
+        body.replaceChildren(
+          h("div", { class: "form-stack" }, [
+            h("p", { class: "settings-hint", text: "Пожалуйста, выберите метод аутентификации вашего запроса." }),
+            categoryGroup(
+              methods.map((method) =>
+                categoryButton({
+                  icon: MFA_METHODS[method].icon,
+                  title: MFA_METHODS[method].title,
+                  action: "chevron",
+                  onclick: () => {
+                    selected = method;
+                    render();
+                  },
+                }),
+              ),
+            ),
+          ]),
+        );
+        modalButtons(box, [{ label: "Отменить", onclick: closeModal }]);
+        return;
+      }
+
+      const info = MFA_METHODS[selected];
+      const input = textInput({ type: info.type });
+      input.setAttribute("autocomplete", info.autocomplete);
+      const submit = async () => {
+        if (!input.value.trim() || confirm.disabled) return;
+        confirm.disabled = true;
+        try {
+          const result = await run({ method: selected, value: input.value });
+          finish(result === undefined || result === null ? true : result);
+          closeModal();
+        } catch (error) {
+          toast(describe(error), "error");
+          confirm.disabled = false;
+          input.select();
+        }
+      };
+      input.addEventListener("input", () => (confirm.disabled = !input.value.trim()));
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        }
+      });
+      body.replaceChildren(
+        h("div", { class: "form-stack" }, [
+          h("p", { class: "settings-hint", text: "Пожалуйста, подтвердите это действие выбранным методом." }),
+          labelled(info.title, input),
+        ]),
+      );
+      const single = methods.length === 1;
+      const [, confirm] = modalButtons(box, [
+        {
+          label: single ? "Отменить" : "Назад",
+          onclick: () => {
+            if (single) return closeModal();
+            selected = null;
+            render();
+          },
+        },
+        { label: "Подтвердить", primary: true, disabled: true, onclick: submit },
+      ]);
+      input.focus();
+    };
+    render();
+  });
+}
+
+// ─────────────────────────── мой аккаунт ───────────────────────────
+
+/** Дата и время для подсказок: «12 марта 2024 в 18:05». */
+function longDateTime(iso) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const time = date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  return `${longDate(iso)} в ${time}`;
+}
+
+/** Карточка аккаунта с баннером (account/UserSummary.tsx). */
+function userSummary(account, onedit) {
+  const box = h("div", { class: "user-summary" });
+  if (account.background) {
+    const shade = "color-mix(in srgb, var(--md-sys-color-surface-container-low) 70%, transparent)";
+    box.style.backgroundImage = `linear-gradient(${shade}, ${shade}), url("${mediaSrc(account.background)}")`;
+    box.classList.add("with-banner");
+  }
+  const edit = h("button", { type: "button", class: "icon-button filled square", title: "Изменить профиль" }, [symbol("edit", 24)]);
+  edit.onclick = onedit;
+  box.append(
+    h("div", { class: "user-summary-details" }, [
+      avatar({ url: account.avatar, name: account.display_name, size: 58 }),
+      h("div", { class: "user-summary-names" }, [
+        h("span", { class: "user-summary-name", text: account.display_name }),
+        h("span", { class: "user-summary-tag", text: `${account.username}#${account.discriminator}` }),
+      ]),
+      edit,
+    ]),
+  );
+  if (account.created_at) {
+    box.append(
+      h("div", { class: "user-summary-bottom" }, [
+        h("span", { class: "user-summary-pad" }),
+        h("span", { class: "user-summary-badges" }, [
+          h("span", { class: "user-summary-badge", title: "Аккаунт создан " + longDateTime(account.created_at) }, [symbol("cake_fill", 14)]),
+        ]),
+      ]),
+    );
+  }
+  return categoryGroup([box]);
+}
+
+async function renderAccountPage(column, alive) {
+  const [account, mfa] = await Promise.all([call("account_info"), call("mfa_status")]);
+  if (!alive()) return;
+  put(column,
+    userSummary(account, () => {
+      settings.page = "profile";
+      renderSettings();
+    }),
+    editAccountGroup(account, mfa),
+    multiFactorGroup(account, mfa),
+    manageAccountGroup(account, mfa),
+  );
+}
+
+/** Имя, почта и пароль (EditAccount). */
+function editAccountGroup(account, mfa) {
+  const masked = "•••••••••••@•••••••••••";
+  const email = h("span", { text: masked });
+  const reveal = h("a", { class: "link", href: "#", text: "Показать" });
+  reveal.onclick = async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    try {
+      email.textContent = await call("account_email");
+      reveal.remove();
+    } catch (error) {
+      toast(describe(error), "error");
+    }
+  };
+
+  return categoryGroup([
+    categoryButton({
+      icon: "alternate_email",
+      title: "Имя пользователя",
+      description: account.username,
+      action: "chevron",
+      onclick: () => editUsernameModal(account),
+    }),
+    categoryButton({
+      icon: "mail",
+      title: "Электронная почта",
+      description: h("span", { class: "inline-row" }, [email, reveal]),
+      action: "chevron",
+      onclick: () => editEmailModal(mfa),
+    }),
+    categoryButton({
+      icon: "password",
+      title: "Пароль",
+      description: "•••••••••",
+      action: "chevron",
+      onclick: editPasswordModal,
+    }),
+  ]);
+}
+
+function editUsernameModal(account) {
+  formModal({
+    title: "Изменить имя",
+    fields: [
+      { label: "Имя пользователя", value: account.username, maxlength: 32, counter: true, suffix: "#" + account.discriminator },
+      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+    ],
+    cancel: "Закрыть",
+    confirm: "Изменить",
+    submit: async (username, password) => {
+      const view = await call("change_username", { username, password });
+      applyOwnUser(view);
+      if (view.discriminator !== account.discriminator) toast(`Ваш дискриминатор изменён на #${view.discriminator}`);
+      renderSettings();
+    },
+  });
+}
+
+function editEmailModal(mfa) {
+  formModal({
+    title: "Изменить почту для входа",
+    fields: [
+      { label: "Электронная почта", type: "email", placeholder: "someone@example.com" },
+      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+    ],
+    cancel: "Закрыть",
+    confirm: "Отправить письмо",
+    submit: async (email, currentPassword) => {
+      // с приложением для аутентификации сервер требует ещё и подтверждение
+      const sent = mfa.totp
+        ? await mfaFlow(mfa.methods, (answer) => call("change_email", { email, currentPassword, mfa: answer }))
+        : await call("change_email", { email, currentPassword, mfa: null }).then(() => true);
+      if (sent) toast("Письмо для подтверждения отправлено");
+    },
+  });
+}
+
+function editPasswordModal() {
+  formModal({
+    title: "Изменить пароль для входа",
+    fields: [
+      { label: "Новый пароль", type: "password", placeholder: "Введите новый пароль." },
+      { label: "Текущий пароль", type: "password", placeholder: "Введите текущий пароль..." },
+    ],
+    cancel: "Закрыть",
+    confirm: "Изменить",
+    submit: async (password, currentPassword) => {
+      await call("change_password", { password, currentPassword });
+      toast("Пароль успешно изменён.");
+    },
+  });
+}
+
+/** Коды восстановления и приложение для аутентификации (MultiFactorAuth). */
+function multiFactorGroup(account, mfa) {
+  const showCodes = async (command) => {
+    const codes = await mfaFlow(mfa.methods, (answer) => call(command, { mfa: answer }));
+    if (codes) recoveryCodesModal(codes, mfa);
+  };
+
+  const setupAuthenticator = async () => {
+    const setup = await mfaFlow(mfa.methods, (answer) => call("mfa_totp_secret", { mfa: answer }));
+    if (!setup) {
+      toast("Настройка 2FA отменена.");
+      return;
+    }
+    enableTotpModal(setup);
+  };
+
+  const disableAuthenticator = async () => {
+    if (await mfaFlow(mfa.methods, (answer) => call("mfa_disable_totp", { mfa: answer }))) renderSettings();
+  };
+
+  return categoryGroup([
+    categoryCollapse({
+      icon: "verified_user",
+      title: "Коды восстановления",
+      description: "Настройте способ входа в аккаунт на случай потери двухфакторной аутентификации",
+      children: mfa.recovery
+        ? [
+            categoryButton({
+              icon: "blank",
+              title: "Просмотреть коды восстановления",
+              description: "Получить действующие коды восстановления",
+              onclick: () => showCodes("mfa_recovery_codes"),
+            }),
+            categoryButton({
+              icon: "blank",
+              title: "Сбросить коды восстановления",
+              description: "Получить новый набор кодов восстановления",
+              onclick: () => showCodes("mfa_generate_recovery_codes"),
+            }),
+          ]
+        : [
+            categoryButton({
+              icon: "blank",
+              title: "Сгенерировать коды восстановления",
+              description: "Включить коды восстановления",
+              onclick: () => showCodes("mfa_generate_recovery_codes"),
+            }),
+          ],
+    }),
+    categoryCollapse({
+      icon: "lock",
+      title: "Приложение для аутентификации",
+      description: "Настройте аутентификацию одноразовым паролем",
+      children: mfa.totp
+        ? [
+            categoryButton({
+              icon: "blank",
+              title: "Удалить аутентификатор",
+              description: "Отключить аутентификацию одноразовым паролем",
+              onclick: disableAuthenticator,
+            }),
+          ]
+        : [
+            categoryButton({
+              icon: "blank",
+              title: "Включить аутентификатор",
+              description: "Включить аутентификацию одноразовым паролем",
+              onclick: setupAuthenticator,
+            }),
+          ],
+    }),
+  ]);
+}
+
+/** Окно со списком кодов (MFARecovery.tsx). */
+function recoveryCodesModal(codes, mfa) {
+  // невидимые запятые: при копировании коды разделяются, на экране — нет
+  const list = h(
+    "div",
+    { class: "recovery-codes selectable" },
+    codes.map((code, index) => h("span", {}, [code, index < codes.length - 1 ? h("i", { text: "," }) : null])),
+  );
+  openModal({
+    title: "Ваши коды восстановления",
+    body: h("div", { class: "form-stack" }, [h("p", { class: "settings-hint", text: "Пожалуйста, сохраните их в безопасном месте." }), list]),
+    actions: [
+      {
+        label: "Сбросить",
+        onclick: async () => {
+          const fresh = await mfaFlow(mfa.methods, (answer) => call("mfa_generate_recovery_codes", { mfa: answer }));
+          recoveryCodesModal(fresh || codes, Object.assign({}, mfa, { recovery: true }));
+        },
+      },
+      { label: "Готово", primary: true, onclick: closeModal },
+    ],
+    onClose: () => {
+      // коды могли появиться впервые — у страницы меняются пункты
+      if (!mfa.recovery && settingsOpen()) renderSettings();
+    },
+  });
+}
+
+/** QR-код и поле для первого кода (MFAEnableTOTP.tsx). */
+function enableTotpModal(setup) {
+  const qr = h("div", { class: "totp-qr" });
+  const parsed = new DOMParser().parseFromString(setup.qr_svg, "image/svg+xml").documentElement;
+  if (parsed && parsed.nodeName.toLowerCase() === "svg") {
+    parsed.setAttribute("width", "140");
+    parsed.setAttribute("height", "140");
+    qr.append(document.importNode(parsed, true));
+  }
+  const code = textInput({});
+  code.setAttribute("autocomplete", "one-time-code");
+  let enabled = false;
+  const submit = async () => {
+    if (!code.value.trim()) return;
+    try {
+      await call("mfa_enable_totp", { code: code.value });
+      enabled = true;
+      closeModal();
+      renderSettings();
+    } catch (error) {
+      toast(describe(error), "error");
+    }
+  };
+  code.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submit();
+    }
+  });
+  openModal({
+    title: "Включить приложение для аутентификации",
+    body: h("div", { class: "form-stack" }, [
+      h("p", { class: "settings-hint", text: "Пожалуйста, отсканируйте или используйте токен ниже в приложении для аутентификации." }),
+      h("div", { class: "totp-setup" }, [qr, h("code", { class: "totp-secret", text: setup.secret })]),
+      labelled("Введите код", code),
+    ]),
+    actions: [
+      { label: "Отменить", onclick: closeModal },
+      { label: "Продолжить", primary: true, onclick: submit },
+    ],
+    onClose: () => {
+      if (!enabled) toast("Настройка 2FA отменена.");
+    },
+  });
+  code.focus();
+}
+
+/** Отключение и удаление аккаунта (ManageAccount). */
+function manageAccountGroup(account, mfa) {
+  const owns = account.owned_servers > 0;
+  const finish = async (command) => {
+    if (await mfaFlow(mfa.methods, (answer) => call(command, { mfa: answer }))) {
+      closeSettings();
+      await logout();
+    }
+  };
+  return categoryGroup([
+    categoryButton({
+      icon: "block",
+      danger: true,
+      title: "Отключить учётную запись",
+      description:
+        "Вы не сможете получить доступ к своему аккаунту, пока не обратитесь в службу поддержки, однако ваши данные не будут удалены.",
+      action: "chevron",
+      onclick: () => finish("disable_account"),
+    }),
+    categoryButton({
+      icon: "delete",
+      danger: true,
+      disabled: owns,
+      title: owns ? "Невозможно удалить аккаунт, пока серверы не будут удалены или переданы" : "Удалить аккаунт",
+      description:
+        "Ваша учётная запись и все ваши данные (включая сообщения и список друзей) будут помещены в очередь на удаление. На электронную почту будет отправлено письмо с подтверждением. Вы можете отменить своё решение в течение 7 дней, обратившись в службу поддержки.",
+      action: owns ? null : "chevron",
+      onclick: () => finish("delete_account"),
+    }),
+  ]);
 }
 
 // ─────────────────────────── профиль ───────────────────────────
@@ -626,71 +1159,197 @@ async function renderProfilePage(column, alive) {
 
 // ─────────────────────────── сессии ───────────────────────────
 
+/** «3 дня назад» — как формат relative у dayjs в браузерном клиенте. */
+function relativeTime(iso) {
+  const date = iso ? new Date(iso) : null;
+  if (!date || Number.isNaN(date.getTime())) return "";
+  const seconds = (date.getTime() - Date.now()) / 1000;
+  const steps = [
+    ["year", 31536000],
+    ["month", 2592000],
+    ["day", 86400],
+    ["hour", 3600],
+    ["minute", 60],
+  ];
+  const format = new Intl.RelativeTimeFormat("ru", { numeric: "auto" });
+  for (const [unit, size] of steps) {
+    if (Math.abs(seconds) >= size) return format.format(Math.round(seconds / size), unit);
+  }
+  return format.format(0, "second");
+}
+
+/** Логотип системы по имени сессии (SessionIcon в Sessions.tsx). */
+function sessionIcon(name) {
+  const text = name || "";
+  const brand = /linux/i.test(text)
+    ? "linux"
+    : /windows/i.test(text)
+      ? "windows"
+      : /android/i.test(text)
+        ? "android"
+        : /mac.*os|i(Pad)?os/i.test(text)
+          ? "apple"
+          : "unknown";
+  const node = svg("svg", { viewBox: "0 0 24 24", class: "symbol", "aria-hidden": "true" });
+  node.style.setProperty("--symbol-size", "22px");
+  for (const d of (window.STOAT_BRANDS || {})[brand] || []) node.append(svg("path", { d }));
+  return node;
+}
+
+function renameSessionModal(session) {
+  formModal({
+    title: "Переименовать сессию",
+    fields: [{ label: "Имя", value: session.name, placeholder: "Введите новое имя этой сессии" }],
+    cancel: "Отменить",
+    confirm: "Переименовать",
+    submit: async (name) => {
+      await call("rename_session", { sessionId: session.id, name });
+      renderSettings();
+    },
+  });
+}
+
 async function renderSessionsPage(column, alive) {
-  const list = await call("sessions");
+  const [list, mfa] = await Promise.all([call("sessions"), call("mfa_status")]);
   if (!alive()) return;
-  const current = list.filter((session) => session.current);
-  const others = list.filter((session) => !session.current);
+  const current = list.find((session) => session.current) || null;
+  // от новых к старым, как в оригинале
+  const others = list
+    .filter((session) => !session.current)
+    .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
 
-  const row = (session) =>
-    h("div", { class: "settings-row" }, [
-      symbol(session.current ? "check" : "fingerprint", 24),
-      h("span", { class: "settings-row-text" }, [
-        h("span", { class: "settings-row-title", text: session.name || "Без названия" }),
-        h("span", { class: "settings-hint", text: session.created_at ? "Вход: " + longDate(session.created_at) : session.id }),
-      ]),
-      actionButton(
-        session.current ? "Выйти" : "Завершить",
-        () =>
-          confirmModal({
-            title: session.current ? "Выйти на этом устройстве?" : "Завершить сессию?",
-            text: session.current
-              ? "Это текущая сессия: клиент выйдет из аккаунта."
-              : `Сессия «${session.name}» будет завершена, на том устройстве придётся войти заново.`,
-            confirm: session.current ? "Выйти" : "Завершить",
-            run: async () => {
-              if (session.current) return logout();
-              await call("revoke_session", { sessionId: session.id });
-              toast("Сессия завершена");
-              renderSettings();
-            },
-          }),
-        { kind: "tonal", danger: true },
-      ),
-    ]);
+  const signOutOthers = () =>
+    confirmModal({
+      title: "Вы уверены, что хотите завершить остальные сессии?",
+      text: "Вы не можете отменить это действие.",
+      confirm: "Принять",
+      run: async () => {
+        if (await mfaFlow(mfa.methods, (answer) => call("revoke_other_sessions", { mfa: answer }))) renderSettings();
+      },
+    });
 
-  if (current.length) column.append(section("Текущая сессия", current.map(row)));
   put(column,
-    section(
-      `Другие сессии – ${others.length}`,
-      [
-        others.length
-          ? null
-          : h("p", { class: "settings-hint", text: "Других активных сессий нет." }),
-        ...others.map(row),
-        others.length
-          ? h("div", { class: "settings-actions" }, [
-              actionButton(
-                "Завершить все остальные",
-                () =>
-                  confirmModal({
-                    title: "Завершить все остальные сессии?",
-                    text: "На всех других устройствах придётся войти заново.",
-                    confirm: "Завершить",
-                    run: async () => {
-                      await call("revoke_other_sessions");
-                      toast("Остальные сессии завершены");
-                      renderSettings();
-                    },
-                  }),
-                { kind: "tonal", danger: true, icon: "logout" },
-              ),
-            ])
-          : null,
-      ],
-      current.length ? null : "Текущая сессия отмечается после входа по паролю или при восстановлении запомненной.",
-    ),
+    categoryGroup([
+      current
+        ? categoryCollapse({
+            icon: sessionIcon(current.name),
+            title: "Текущая сессия",
+            description: current.name,
+            children: [categoryButton({ icon: "blank", title: "Переименовать", action: "chevron", onclick: () => renameSessionModal(current) })],
+          })
+        : null,
+      others.length
+        ? categoryButton({
+            icon: symbol("logout", 24),
+            danger: true,
+            title: "Выйти из остальных сессий",
+            description: "Выйти из других сессий, кроме текущей.",
+            action: "chevron",
+            onclick: signOutOthers,
+          })
+        : null,
+    ]),
+    others.length
+      ? categoryGroup(
+          others.map((session) =>
+            categoryCollapse({
+              icon: sessionIcon(session.name),
+              title: h("span", { class: "capitalise", text: session.name }),
+              description: session.created_at ? "Создана " + relativeTime(session.created_at) : null,
+              children: [
+                categoryButton({ icon: "blank", title: "Переименовать", action: "chevron", onclick: () => renameSessionModal(session) }),
+                categoryButton({
+                  icon: "blank",
+                  title: "Выйти",
+                  action: "chevron",
+                  onclick: async () => {
+                    const done = await mfaFlow(mfa.methods, (answer) => call("revoke_session", { sessionId: session.id, mfa: answer }));
+                    if (done) renderSettings();
+                  },
+                }),
+              ],
+            }),
+          ),
+        )
+      : null,
   );
+}
+
+// ─────────────────────────── обратная связь ───────────────────────────
+
+async function renderFeedbackPage(column, alive) {
+  if (!settings.about) settings.about = await call("about");
+  if (!alive()) return;
+  const inLounge = Boolean(serverById(LOUNGE_ID));
+  const official = settings.about.official;
+  put(column,
+    categoryGroup([
+      categoryButton({
+        icon: "star",
+        title: "Отправить предложение",
+        description: "Предложить новую функцию Stoat в обсуждениях GitHub.",
+        action: "external",
+        href: LINKS.suggestions,
+      }),
+      categoryButton({ icon: "format_list_numbered", title: "Обратная связь", description: "Отправить отзыв", action: "external", href: LINKS.feedback }),
+      categoryButton({
+        icon: "bug_report",
+        title: "Баг-трекер",
+        description: "Посмотреть активные в настоящее время отчёты об ошибках можно здесь.",
+        action: "external",
+        href: LINKS.bugs,
+      }),
+      official
+        ? categoryButton({
+            icon: "groups_3",
+            title: inLounge ? "Перейти в Stoat Lounge" : "Присоединиться к Stoat Lounge",
+            description: "Вы можете сообщать об ошибках и обсуждать идеи с нами прямо здесь.",
+            onclick: async () => {
+              if (inLounge) {
+                closeSettings();
+                selectServer(LOUNGE_ID);
+              } else {
+                await joinLoungeModal();
+              }
+            },
+          })
+        : null,
+    ]),
+  );
+}
+
+/** Приглашение в Stoat Lounge (в оригинале — окно приглашения). */
+async function joinLoungeModal() {
+  const info = await call("preview_invite", { code: LOUNGE_INVITE });
+  const title = info.server_name || "Stoat Lounge";
+  openModal({
+    title: "Приглашение",
+    body: h("div", { class: "invite-preview" }, [
+      avatar({ url: info.icon, name: title, size: 48 }),
+      h("span", { class: "settings-row-text" }, [
+        h("span", { class: "settings-row-title", text: title }),
+        info.member_count ? h("span", { class: "settings-hint", text: `${info.member_count} участников` }) : null,
+      ]),
+    ]),
+    actions: [
+      { label: "Отменить", onclick: closeModal },
+      {
+        label: "Вступить",
+        primary: true,
+        onclick: async () => {
+          try {
+            const target = await call("join_invite", { code: LOUNGE_INVITE });
+            closeModal();
+            closeSettings();
+            await refreshWorkspace();
+            if (serverById(target)) selectServer(target);
+          } catch (error) {
+            toast(describe(error), "error");
+          }
+        },
+      },
+    ],
+  });
 }
 
 // ─────────────────────────── внешний вид ───────────────────────────
