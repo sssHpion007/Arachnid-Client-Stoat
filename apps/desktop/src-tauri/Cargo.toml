@@ -1,15 +1,15 @@
 [package]
-name = "tauri-stoat"
+name = "arachnid-client"
 description = "Клиент Stoat: Tauri-оболочка поверх stoat-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-default-run = "tauri-stoat"
+default-run = "arachnid-client"
 
 [lib]
-name = "tauri_stoat_lib"
+name = "arachnid_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -32,6 +32,6 @@ base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 
 [[bin]]
-name = "tauri-stoat"
+name = "arachnid-client"
 path = "src/main.rs"
 

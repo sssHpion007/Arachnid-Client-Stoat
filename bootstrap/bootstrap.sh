@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Tauri-Stoat: портативный бутстрап.
+# Arachnid Client: портативный бутстрап.
 #
-# Создаёт рядом с собой изолированный каталог (~/Tauri-Stoat по умолчанию),
+# Создаёт рядом с собой изолированный каталог (~/Arachnid-Client по умолчанию),
 # скачивает в него нужные файлы и готовит всё для запуска клиента — так, чтобы
 # ничего не приходилось класть в папку с официальным Stoat.
 #
 # Использование:
-#   ./bootstrap.sh                  # установка/обновление в ~/Tauri-Stoat
+#   ./bootstrap.sh                  # установка/обновление в ~/Arachnid-Client
 #   ./bootstrap.sh --dir ~/games/stoat --no-ui   # без интерактивных вопросов
 #   ./bootstrap.sh --check          # только проверить окружение, ничего не менять
 #
@@ -14,18 +14,18 @@
 
 set -euo pipefail
 
-APP_NAME="Tauri-Stoat"
-DEFAULT_DIR="${HOME}/Tauri-Stoat"
+APP_NAME="Arachnid-Client"
+DEFAULT_DIR="${HOME}/Arachnid-Client"
 
 # ── изменение этих значений меняет только «что качать», не логику ────────────
-TAURI_STOAT_REPO="sssHpion007/Tauri-Stoat"
+ARACHNID_CLIENT_REPO="sssHpion007/Arachnid-Client-Stoat"
 REVOLT_MODELS_VERSION="0.16.3"
 
 INSTALL_DIR=""
 CHECK_ONLY=0
 INTERACTIVE=1
 TOKEN="${STOAT_TOKEN:-}"
-GH_TOKEN="${TAURI_STOAT_GH_TOKEN:-${GITHUB_TOKEN:-}}"
+GH_TOKEN="${ARACHNID_CLIENT_GH_TOKEN:-${GITHUB_TOKEN:-}}"
 
 # ────────────────────────────────── цвета ───────────────────────────────────
 if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
@@ -170,7 +170,7 @@ api_url = "https://api.stoat.chat"
 ws_url  = "wss://events.stoat.chat"
 
 [app]
-name = "Tauri-Stoat"
+name = "Arachnid Client"
 
 [plugins]
 enabled = true
@@ -186,7 +186,7 @@ CFG
     if [ -f "$here/README.txt" ]; then
       cp "$here/README.txt" "$INSTALL_DIR/README.txt"
     else
-      printf 'Tauri-Stoat: запустите Tauri-Stoat.exe из этой папки.\n' > "$INSTALL_DIR/README.txt"
+      printf 'Arachnid Client: запустите arachnid-client.exe из этой папки.\n' > "$INSTALL_DIR/README.txt"
     fi
     ok "создан README.txt"
   fi
@@ -195,7 +195,7 @@ CFG
 # ──────────────────────────── интернет и инстанс ────────────────────────────
 check_instance() {
   info "инстанс" "проверяю связь с API"
-  local api_root="${TAURI_STOAT_API_URL:-https://api.stoat.chat}"
+  local api_root="${ARACHNID_CLIENT_API_URL:-https://api.stoat.chat}"
   local body
   if body="$(fetch_text "${api_root}/")"; then
     local version ws
@@ -270,15 +270,15 @@ fetch_vendor() {
 
 # ───────────────────────────── сам клиент (релиз) ───────────────────────────
 fetch_client() {
-  info "клиент" "ищу сборку в релизах ${TAURI_STOAT_REPO}"
+  info "клиент" "ищу сборку в релизах ${ARACHNID_CLIENT_REPO}"
 
-  local api="https://api.github.com/repos/${TAURI_STOAT_REPO}/releases/latest"
+  local api="https://api.github.com/repos/${ARACHNID_CLIENT_REPO}/releases/latest"
   local json
   if ! json="$(fetch_text "$api")"; then
     warn "не удалось получить список релизов"
     if [ -z "${GH_TOKEN}" ]; then
       warn "репозиторий приватный: передайте токен --github-token <PAT с правами repo>"
-      warn "или переменной окружения TAURI_STOAT_GH_TOKEN"
+      warn "или переменной окружения ARACHNID_CLIENT_GH_TOKEN"
     fi
     warn "клиент можно собрать из исходников: см. docs/build.md"
     return 0
@@ -326,7 +326,7 @@ if best is not None and score(best) > 0:
 
   if [ -z "$asset_json" ]; then
     warn "в релизе $tag нет файла для ${PLATFORM}/${ARCH}"
-    warn "доступные файлы: https://github.com/${TAURI_STOAT_REPO}/releases"
+    warn "доступные файлы: https://github.com/${ARACHNID_CLIENT_REPO}/releases"
     return 0
   fi
 
@@ -362,7 +362,7 @@ if best is not None and score(best) > 0:
             ;;
         esac
 
-        # в архиве клиент лежит в подпапке (Tauri-Stoat/) — поднимаем содержимое наверх
+        # в архиве клиент лежит в подпапке (Arachnid-Client/) — поднимаем содержимое наверх
         local inner
         inner="$(find "$stage" -mindepth 1 -maxdepth 1 -type d | head -n1)"
         if [ -n "$inner" ] && [ "$(find "$stage" -mindepth 1 -maxdepth 1 | wc -l)" = "1" ]; then
@@ -372,7 +372,7 @@ if best is not None and score(best) > 0:
         fi
         rm -rf "$stage"
 
-        chmod +x "$INSTALL_DIR"/tauri-stoat* 2>/dev/null || true
+        chmod +x "$INSTALL_DIR"/arachnid-client* 2>/dev/null || true
         ok "распаковано в $INSTALL_DIR"
         ;;
       *.AppImage)
@@ -419,9 +419,9 @@ NEXT
 # ─────────────────────────────────── main ───────────────────────────────────
 detect_platform
 info "платформа" "${PLATFORM}/${ARCH}"
-[ "$PLATFORM" = "windows" ] && LAUNCH_HINT="Tauri-Stoat.exe"
-[ "$PLATFORM" = "linux" ] && LAUNCH_HINT="./Tauri-Stoat"
-[ "$PLATFORM" = "macos" ] && LAUNCH_HINT="open Tauri-Stoat.app"
+[ "$PLATFORM" = "windows" ] && LAUNCH_HINT="arachnid-client.exe"
+[ "$PLATFORM" = "linux" ] && LAUNCH_HINT="./arachnid-client"
+[ "$PLATFORM" = "macos" ] && LAUNCH_HINT="open 'Arachnid Client.app'"
 
 report_tools
 

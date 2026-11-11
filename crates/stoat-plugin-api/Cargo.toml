@@ -1,6 +1,6 @@
 [package]
 name = "stoat-plugin-api"
-description = "ABI и манифест прав для плагинов Tauri-Stoat"
+description = "ABI и манифест прав для плагинов Arachnid Client"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

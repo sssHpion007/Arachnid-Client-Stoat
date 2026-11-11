@@ -145,9 +145,9 @@ type CmdResult<T> = Result<T, CommandError>;
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
-/// Каталог для журналов: рядом с exe (portable) либо `%LOCALAPPDATA%\Tauri-Stoat\logs`.
+/// Каталог для журналов: рядом с exe (portable) либо `%LOCALAPPDATA%\Arachnid-Client\logs`.
 fn log_directory() -> Option<PathBuf> {
-    if let Ok(dir) = std::env::var("TAURI_STOAT_DIR") {
+    if let Ok(dir) = std::env::var("ARACHNID_CLIENT_DIR") {
         return Some(PathBuf::from(dir).join("logs"));
     }
     if let Ok(exe) = std::env::current_exe()
@@ -158,17 +158,17 @@ fn log_directory() -> Option<PathBuf> {
     }
     std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("HOME"))
-        .map(|base| PathBuf::from(base).join("Tauri-Stoat").join("logs"))
+        .map(|base| PathBuf::from(base).join("Arachnid-Client").join("logs"))
 }
 
 /// Определить каталог данных: портативный режим важнее системного.
 ///
 /// Порядок:
-/// 1. переменная `TAURI_STOAT_DIR` (её выставляет запуск из бутстрапа);
+/// 1. переменная `ARACHNID_CLIENT_DIR` (её выставляет запуск из бутстрапа);
 /// 2. рядом с исполняемым файлом, если там лежит `config.toml` (portable);
 /// 3. системный каталог данных приложения.
 fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
-    if let Ok(dir) = std::env::var("TAURI_STOAT_DIR") {
+    if let Ok(dir) = std::env::var("ARACHNID_CLIENT_DIR") {
         let path = PathBuf::from(dir);
         if ensure_layout(&path).is_ok() {
             return path;
@@ -189,6 +189,43 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from("."));
     let _ = ensure_layout(&fallback);
     fallback
+}
+
+/// Идентификатор приложения до переименования Tauri-Stoat → Arachnid Client.
+const LEGACY_IDENTIFIER: &str = "com.tauristoat.client";
+
+/// Перенести данные со старого идентификатора на новый.
+///
+/// По идентификатору называются каталог данных приложения и профиль WebView
+/// (в нём `localStorage` с сохранённой сессией). Без переноса после
+/// обновления пришлось бы входить заново. Переносим до создания окна,
+/// пока WebView ещё не занял новый каталог.
+fn migrate_legacy_identifier(identifier: &str) {
+    let Some(base) = directories::BaseDirs::new() else {
+        return;
+    };
+    let mut roots = vec![
+        base.data_dir().to_path_buf(),
+        base.data_local_dir().to_path_buf(),
+    ];
+    roots.dedup();
+    for root in roots {
+        let place = root.display();
+        match move_dir_if_absent(&root.join(LEGACY_IDENTIFIER), &root.join(identifier)) {
+            Ok(true) => tracing::info!(%place, "данные перенесены на новый идентификатор"),
+            Ok(false) => {}
+            Err(error) => tracing::warn!(%error, %place, "не удалось перенести старые данные"),
+        }
+    }
+}
+
+/// Переименовать `from` в `to`, если `from` есть, а `to` ещё нет.
+fn move_dir_if_absent(from: &Path, to: &Path) -> std::io::Result<bool> {
+    if !from.is_dir() || to.exists() {
+        return Ok(false);
+    }
+    std::fs::rename(from, to)?;
+    Ok(true)
 }
 
 /// Создать структуру каталогов, если её нет (первый запуск без бутстрапа).
@@ -1121,11 +1158,11 @@ pub fn run() {
     let log_dir = log_directory();
     let file_writer = log_dir.as_ref().and_then(|dir| {
         std::fs::create_dir_all(dir).ok()?;
-        std::fs::File::create(dir.join("tauri-stoat.log")).ok()
+        std::fs::File::create(dir.join("arachnid-client.log")).ok()
     });
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "tauri_stoat=debug,stoat_core=info".into());
+        .unwrap_or_else(|_| "arachnid_client=debug,stoat_core=info".into());
 
     // в Windows-релизе нет консоли, поэтому журнал обязательно пишем в файл
     match file_writer {
@@ -1154,8 +1191,11 @@ pub fn run() {
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         log_dir = ?log_dir,
-        "запуск Tauri-Stoat"
+        "запуск Arachnid Client"
     );
+
+    let context = tauri::generate_context!();
+    migrate_legacy_identifier(&context.config().identifier);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_store::Builder::new().build())
@@ -1196,7 +1236,7 @@ pub fn run() {
             cache_snapshot,
             data_dir,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("ошибка запуска Tauri-приложения");
 }
 
@@ -1205,8 +1245,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn legacy_dir_moves_only_once() {
+        let root = std::env::temp_dir().join(format!("arachnid-client-migrate-{}", nonce()));
+        let old = root.join(LEGACY_IDENTIFIER);
+        let new = root.join("com.arachnid.client");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("marker"), "1").unwrap();
+
+        assert!(move_dir_if_absent(&old, &new).unwrap());
+        assert!(new.join("marker").is_file());
+        assert!(!old.exists());
+
+        // новый каталог уже есть — старый (если вдруг появился) не трогаем
+        std::fs::create_dir_all(&old).unwrap();
+        assert!(!move_dir_if_absent(&old, &new).unwrap());
+        assert!(old.is_dir());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
     fn portable_layout_is_created() {
-        let dir = std::env::temp_dir().join(format!("tauri-stoat-test-{}", nonce()));
+        let dir = std::env::temp_dir().join(format!("arachnid-client-test-{}", nonce()));
         ensure_layout(&dir).unwrap();
         for sub in ["cache", "plugins", "themes", "logs"] {
             assert!(dir.join(sub).is_dir(), "нет каталога {sub}");

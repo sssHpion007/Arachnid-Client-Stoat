@@ -847,7 +847,7 @@ function renderHeader() {
   const membersButton = el("btn-members");
   icon.textContent = "";
   if (!channel) {
-    el("chat-title").textContent = "Tauri-Stoat";
+    el("chat-title").textContent = "Arachnid Client";
     el("chat-sub").textContent = "";
     el("chat-divider").classList.add("hidden");
     membersButton.classList.add("hidden");

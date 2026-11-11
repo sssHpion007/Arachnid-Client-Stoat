@@ -68,11 +68,7 @@ impl HttpClient {
     pub fn new(base: Url) -> Self {
         install_crypto_provider();
         let http = reqwest::Client::builder()
-            .user_agent(format!(
-                "{}/{}",
-                crate::DEFAULT_APP_NAME,
-                env!("CARGO_PKG_VERSION")
-            ))
+            .user_agent(user_agent(crate::DEFAULT_APP_NAME))
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
@@ -559,10 +555,19 @@ fn request_headers(
     }
     headers.insert(
         HeaderName::from_static(HEADER_USER_AGENT),
-        HeaderValue::from_str(&format!("{app_name}/{}", env!("CARGO_PKG_VERSION")))
-            .unwrap_or_else(|_| HeaderValue::from_static(crate::DEFAULT_APP_NAME)),
+        HeaderValue::from_str(&user_agent(app_name))
+            .unwrap_or_else(|_| HeaderValue::from_static("Arachnid-Client")),
     );
     headers
+}
+
+/// `User-Agent` вида `Arachnid-Client/0.5.0`.
+///
+/// Название продукта в этом заголовке — один токен без пробелов (RFC 9110),
+/// поэтому «Arachnid Client» превращается в «Arachnid-Client».
+fn user_agent(app_name: &str) -> String {
+    let product = app_name.split_whitespace().collect::<Vec<_>>().join("-");
+    format!("{product}/{}", env!("CARGO_PKG_VERSION"))
 }
 
 /// Заголовки, которые клиент выставляет сам (для тестов и диагностики).
@@ -570,7 +575,8 @@ pub fn default_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         HeaderName::from_static(HEADER_USER_AGENT),
-        HeaderValue::from_static(crate::DEFAULT_APP_NAME),
+        HeaderValue::from_str(&user_agent(crate::DEFAULT_APP_NAME))
+            .unwrap_or_else(|_| HeaderValue::from_static("Arachnid-Client")),
     );
     headers
 }
@@ -622,7 +628,7 @@ mod tests {
     #[test]
     fn send_headers_carry_idempotency_key() {
         let token = Token::Session("secret".into());
-        let headers = request_headers(Some(&token), Some("01KEY"), "Tauri-Stoat");
+        let headers = request_headers(Some(&token), Some("01KEY"), "Arachnid Client");
         assert_eq!(headers.get("Idempotency-Key").unwrap(), "01KEY");
         assert_eq!(headers.get("x-session-token").unwrap(), "secret");
         assert!(
@@ -631,10 +637,10 @@ mod tests {
                 .unwrap()
                 .to_str()
                 .unwrap()
-                .starts_with("Tauri-Stoat/")
+                .starts_with("Arachnid-Client/")
         );
 
-        let anonymous = request_headers(None, None, "Tauri-Stoat");
+        let anonymous = request_headers(None, None, "Arachnid Client");
         assert!(anonymous.get("Idempotency-Key").is_none());
         assert!(anonymous.get("x-session-token").is_none());
     }

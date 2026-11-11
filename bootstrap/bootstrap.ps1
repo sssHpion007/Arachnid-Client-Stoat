@@ -1,11 +1,11 @@
-# Tauri-Stoat: портативный бутстрап для Windows.
+# Arachnid Client: портативный бутстрап для Windows.
 #
 # Создаёт отдельную папку, скачивает в неё нужные файлы и готовит клиент к
 # запуску — официальный Stoat при этом не задействован.
 #
 # Запуск (PowerShell):
-#   .\bootstrap.ps1                          # установка в $HOME\Tauri-Stoat
-#   .\bootstrap.ps1 -Dir D:\Apps\Tauri-Stoat # своя папка
+#   .\bootstrap.ps1                          # установка в $HOME\Arachnid-Client
+#   .\bootstrap.ps1 -Dir D:\Apps\Arachnid-Client # своя папка
 #   .\bootstrap.ps1 -Check                   # только проверить окружение
 #
 # Если PowerShell блокирует запуск скриптов:
@@ -13,7 +13,7 @@
 
 [CmdletBinding()]
 param(
-    [string]$Dir = (Join-Path $HOME "Tauri-Stoat"),
+    [string]$Dir = (Join-Path $HOME "Arachnid-Client"),
     [switch]$Check,
     [string]$Token = $env:STOAT_TOKEN
 )
@@ -21,7 +21,7 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$Repo = "sssHpion007/Tauri-Stoat"
+$Repo = "sssHpion007/Arachnid-Client-Stoat"
 $ModelsVersion = "0.16.3"
 $ApiRoot = "https://api.stoat.chat"
 
@@ -33,13 +33,13 @@ function Die($text)  { Write-Host "[x] $text" -ForegroundColor Red; exit 1 }
 function Download($url, $dest) {
     $parent = Split-Path -Parent $dest
     if ($parent -and -not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
-    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "Tauri-Stoat-bootstrap" }
+    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -Headers @{ "User-Agent" = "Arachnid-Client-bootstrap" }
 }
 
 function FetchText($url) {
     try {
         return (Invoke-WebRequest -Uri $url -UseBasicParsing -Headers @{
-            "User-Agent" = "Tauri-Stoat-bootstrap"
+            "User-Agent" = "Arachnid-Client-bootstrap"
             "Accept"     = "application/vnd.github+json"
         }).Content
     } catch {
@@ -78,7 +78,7 @@ function New-Layout {
     $config = Join-Path $Dir "config.toml"
     if (-not (Test-Path $config)) {
         @'
-# Конфигурация Tauri-Stoat.
+# Конфигурация Arachnid Client.
 # Токен сюда НЕ пишется: он хранится в системном хранилище (Credential Manager).
 
 [instance]
@@ -89,7 +89,7 @@ ws_url  = "wss://events.stoat.chat"
 # ws_url  = "wss://stoat.example.com/events"
 
 [app]
-name = "Tauri-Stoat"
+name = "Arachnid Client"
 check_updates = true
 
 [plugins]
@@ -113,7 +113,7 @@ max_size_mib = 512
     $readme = Join-Path $Dir "README.txt"
     if (-not (Test-Path $readme)) {
         @'
-Tauri-Stoat — портативная установка (Windows)
+Arachnid Client — портативная установка (Windows)
 =============================================
 
  config.toml   настройки (инстанс, плагины, кэш)
@@ -123,7 +123,7 @@ Tauri-Stoat — портативная установка (Windows)
  logs\         журналы
  vendor\       скачанные зависимости и установщик сборки
 
-Запуск: Tauri-Stoat.exe
+Запуск: arachnid-client.exe
 Удаление: удалить всю папку. Ничего вне неё клиент не создаёт.
 Перенос: папку можно скопировать на другой диск или флешку.
 '@ | Set-Content -Path $readme -Encoding UTF8
@@ -244,7 +244,7 @@ function Show-NextSteps {
     Write-Host "Дальше:"
     Write-Host "  1. Открыть папку:        explorer `"$Dir`""
     Write-Host "  2. Настроить инстанс:    config.toml"
-    Write-Host "  3. Запустить:            Tauri-Stoat.exe (или установщик из vendor\)"
+    Write-Host "  3. Запустить:            arachnid-client.exe (или установщик из vendor\)"
     Write-Host "  4. Плагины:              $Dir\plugins (подпапка на плагин)"
     Write-Host ""
     Write-Host "Повторный запуск обновляет файлы, ничего не ломая. Удаление — удалить папку."

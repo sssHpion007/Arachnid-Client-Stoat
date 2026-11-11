@@ -14,7 +14,7 @@
 
 ## Что делает бутстрап
 
-1. Создаёт папку (`~/Tauri-Stoat` по умолчанию, можно указать свою через `--dir`).
+1. Создаёт папку (`~/Arachnid-Client` по умолчанию, можно указать свою через `--dir`).
 2. Раскладывает структуру: `cache/`, `plugins/`, `themes/`, `logs/`, `vendor/`.
 3. Пишет `config.toml` с настройками инстанса и `README.txt` (существующие не
    перезаписывает).
@@ -43,22 +43,22 @@ PowerShell) только проверяет окружение и связь с 
 ```
 
 ```powershell
-.\bootstrap.ps1 -Dir D:\Apps\Tauri-Stoat
+.\bootstrap.ps1 -Dir D:\Apps\Arachnid-Client
 .\bootstrap.ps1 -Check
 .\bootstrap.ps1 -Token $env:STOAT_TOKEN
 ```
 
 Токен GitHub нужен только для скачивания **приватного** репозитория:
-`TAURI_STOAT_GH_TOKEN` или `--github-token`. Токен Stoat (сессии) — только для
+`ARACHNID_CLIENT_GH_TOKEN` или `--github-token`. Токен Stoat (сессии) — только для
 проверки, в файлы он не пишется.
 
 ## Что появится в папке
 
 ```
-Tauri-Stoat/
+Arachnid-Client/
 ├── config.toml      настройки: инстанс, плагины, кэш, UI
 ├── README.txt       краткая памятка
-├── Tauri-Stoat.exe  клиент (после распаковки релиза)
+├── arachnid-client.exe  клиент (после распаковки релиза)
 ├── cache/           кэш файлов и картинок — можно удалять целиком
 ├── plugins/         плагины: подпапка на плагин (.wasm + manifest.json)
 ├── themes/          темы оформления
@@ -70,7 +70,7 @@ Tauri-Stoat/
 
 Порядок (первое совпадение):
 
-1. переменная `TAURI_STOAT_DIR` — её выставляет запуск из бутстрапа;
+1. переменная `ARACHNID_CLIENT_DIR` — её выставляет запуск из бутстрапа;
 2. рядом с исполняемым файлом, если там лежит `config.toml` (portable-режим);
 3. системный каталог данных приложения (если запустили без папки).
 
