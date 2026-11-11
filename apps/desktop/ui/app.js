@@ -1012,16 +1012,18 @@ let openToken = 0;
 // в котором уже были, открывается мгновенно из памяти, а свежая страница
 // подтягивается фоном и сливается с тем, что показано.
 
-const HISTORY_LIMIT = 40; // каналов в памяти
+const HISTORY_LIMIT = 12; // каналов в памяти
+const HISTORY_KEEP = 100; // последних сообщений каждого из них
 const historyCache = new Map(); // id канала → { messages, reachedStart }
 const historyInFlight = new Map(); // id канала → Promise<страница>
 
 function rememberHistory() {
   if (!state.channelId) return;
-  const messages = state.messages.filter((item) => !item.pending);
-  if (!messages.length) return;
+  const all = state.messages.filter((item) => !item.pending);
+  if (!all.length) return;
+  const messages = all.slice(-HISTORY_KEEP);
   historyCache.delete(state.channelId);
-  historyCache.set(state.channelId, { messages, reachedStart: state.reachedStart });
+  historyCache.set(state.channelId, { messages, reachedStart: state.reachedStart && messages.length === all.length });
   while (historyCache.size > HISTORY_LIMIT) historyCache.delete(historyCache.keys().next().value);
 }
 
@@ -1089,6 +1091,8 @@ async function openChannel(channel, { reload = false } = {}) {
   }
 
   if (state.channelId !== channel.id) {
+    // узлы прошлого канала не нужны: в кэше истории остаются только данные
+    messageNodes = new WeakMap();
     state.replies = [];
     state.editing = null;
     inputEl.value = drafts.get(channel.id) || "";
@@ -1179,7 +1183,13 @@ function updateCachedHistory(message) {
   if (!cached) return;
   const index = cached.messages.findIndex((item) => item.id === message.id);
   if (index >= 0) cached.messages[index] = message;
-  else if (!message.edited) cached.messages.push(message);
+  else if (!message.edited) {
+    cached.messages.push(message);
+    if (cached.messages.length > HISTORY_KEEP) {
+      cached.messages.splice(0, cached.messages.length - HISTORY_KEEP);
+      cached.reachedStart = false;
+    }
+  }
 }
 
 function markMine(list) {
@@ -1274,10 +1284,11 @@ function renderMessages({ toBottom = false } = {}) {
       previousDate &&
       date - previousDate < GROUP_WINDOW_MS;
 
-    frag.append(messageNode(message, Boolean(tail)));
+    frag.append(cachedMessageNode(message, Boolean(tail)));
   });
 
   messagesEl.replaceChildren(frag);
+  watchAutoplay(messagesEl);
   if (toBottom || state.stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
   else messagesEl.scrollTop = messagesEl.scrollHeight - messagesEl.clientHeight - keep;
 }
@@ -1296,6 +1307,50 @@ function divider(dateLabel, unread) {
     unread ? h("span", { class: "new", text: "НОВОЕ" }) : null,
     dateLabel ? h("time", { text: dateLabel }) : null,
   ]);
+}
+
+// Готовые узлы сообщений: лента перерисовывается на каждое событие, и без
+// повторного использования каждый раз заново создавались все картинки и
+// видео. Ключ учитывает всё, от чего зависит вид сообщения; WeakMap
+// отпускает узел вместе с сообщением.
+let messageNodes = new WeakMap(); // сообщение → { key, node }; сбрасывается при смене канала
+let messageEpoch = 0; // растёт, когда меняется общее для всех (эмодзи, участники)
+
+function invalidateMessageNodes() {
+  messageEpoch += 1;
+}
+
+function cachedMessageNode(message, tail) {
+  const key = [messageEpoch, tail, state.editing === message.id, message.pending, message.failed, message.mine].join("|");
+  const cached = messageNodes.get(message);
+  if (cached && cached.key === key) return cached.node;
+  const node = messageNode(message, tail);
+  messageNodes.set(message, { key, node });
+  return node;
+}
+
+// GIF и видео-GIF крутятся только на экране: за его краем декодер и кадры
+// в памяти не нужны.
+const autoplayObserver =
+  typeof IntersectionObserver === "function"
+    ? new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) entry.target.play().catch(() => {});
+            else entry.target.pause();
+          }
+        },
+        { rootMargin: "200px 0px" },
+      )
+    : null;
+
+function watchAutoplay(root) {
+  if (!autoplayObserver) {
+    for (const video of root.querySelectorAll("video[data-autoplay]")) video.autoplay = true;
+    return;
+  }
+  autoplayObserver.disconnect();
+  for (const video of root.querySelectorAll("video[data-autoplay]")) autoplayObserver.observe(video);
 }
 
 function messageNode(message, tail) {
@@ -1525,7 +1580,7 @@ function embedVideo(embed) {
     // GIF-видео ведёт себя как картинка: само крутится, звук выключен
     video.loop = true;
     video.muted = true;
-    video.autoplay = true;
+    video.dataset.autoplay = "";
     video.onclick = () =>
       openImageViewer({ src, width: embed.width, height: embed.height, gif: true, link: embed.url || embed.video });
   } else {
@@ -2051,13 +2106,23 @@ function renderTyping() {
 
 const membersCache = new Map(); // id сервера → участники
 
+/** Сколько серверов держат список участников в памяти интерфейса. */
+const MEMBERS_KEEP = 6;
+
 async function loadMembers(serverId) {
   renderMembers();
   if (serverId === null) return;
   // присутствие участников приходит только по подписке; ядро само решает, пора ли её продлить
   call("subscribe_server", { serverId }).catch((error) => console.warn("подписка на сервер:", error));
-  if (membersCache.has(serverId)) return;
+  if (membersCache.has(serverId)) {
+    // свежий сервер — в конец очереди на выгрузку
+    const list = membersCache.get(serverId);
+    membersCache.delete(serverId);
+    membersCache.set(serverId, list);
+    return;
+  }
   membersCache.set(serverId, null);
+  while (membersCache.size > MEMBERS_KEEP) membersCache.delete(membersCache.keys().next().value);
   try {
     membersCache.set(serverId, (await call("server_members", { serverId })) || []);
   } catch (error) {
@@ -2071,16 +2136,31 @@ async function loadMembers(serverId) {
 }
 
 /** Группы как в MemberSidebar.tsx: роли с hoist, «В сети», «Не в сети». */
+// Список участников рисуется окном (как VirtualContainer в оригинале): на
+// странице только видимые строки. Раньше строились все — на большом сервере
+// это тысячи аватаров, и каждое событие присутствия собирало их заново.
+const MEMBER_ROW_HEIGHT = 42;
+const MEMBER_GROUP_HEIGHT = 48;
+const MEMBER_OVERSCAN = 8; // строк сверху и снизу про запас
+const memberRowCache = new Map(); // id участника → { key, node }
+let memberView = null; // { list, items, height }
+let memberFrame = 0;
+
 function renderMembers() {
   const panel = el("members");
   const visible = state.serverId !== null && state.showMembers && currentChannel();
   panel.classList.toggle("hidden", !visible);
-  if (!visible) return;
-  panel.textContent = "";
+  if (!visible) {
+    memberView = null;
+    panel.textContent = "";
+    memberRowCache.clear();
+    return;
+  }
 
   const members = membersCache.get(state.serverId);
   if (!members) {
-    panel.append(h("div", { class: "member-title", text: "Загрузка участников…" }));
+    memberView = null;
+    panel.replaceChildren(h("div", { class: "member-title", text: "Загрузка участников…" }));
     return;
   }
 
@@ -2095,9 +2175,6 @@ function renderMembers() {
     } else online.push(member);
   }
   const onlineCount = members.length - offline.length;
-  panel.append(
-    h("div", { class: "member-title" }, [h("span", { class: "connection-dot" }), `${onlineCount} в сети`]),
-  );
 
   const byName = (a, b) => a.name.localeCompare(b.name);
   const sections = [...groups.values()]
@@ -2105,11 +2182,80 @@ function renderMembers() {
     .map((group) => [group.role.name, group.list]);
   sections.push(["В сети", online], ["Не в сети", offline]);
 
+  // плоский список с заранее известными высотами строк
+  const items = [];
+  let top = 0;
   for (const [title, list] of sections) {
     if (!list.length) continue;
-    panel.append(h("div", { class: "member-group", text: `${title} – ${list.length}` }));
-    for (const member of list.sort(byName)) panel.append(memberRow(member));
+    items.push({ kind: "group", title: `${title} – ${list.length}`, top, height: MEMBER_GROUP_HEIGHT });
+    top += MEMBER_GROUP_HEIGHT;
+    for (const member of list.sort(byName)) {
+      items.push({ kind: "member", member, top, height: MEMBER_ROW_HEIGHT });
+      top += MEMBER_ROW_HEIGHT;
+    }
   }
+
+  const sameServer = memberView && memberView.serverId === state.serverId;
+  const scroll = sameServer ? panel.scrollTop : 0;
+  const list = h("div", { class: "member-list", style: { height: `${top}px` } });
+  panel.replaceChildren(
+    h("div", { class: "member-title" }, [h("span", { class: "connection-dot" }), `${onlineCount} в сети`]),
+    list,
+  );
+  panel.scrollTop = scroll;
+  if (!sameServer) memberRowCache.clear();
+  memberView = { serverId: state.serverId, list, items };
+  paintMemberWindow();
+}
+
+/** Первая строка, нижний край которой ниже `offset` (двоичный поиск). */
+function firstMemberItem(items, offset) {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (items[middle].top + items[middle].height <= offset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+/** Дорисовать строки, попавшие в видимую часть списка. */
+function paintMemberWindow() {
+  memberFrame = 0;
+  if (!memberView) return;
+  const panel = el("members");
+  const { list, items } = memberView;
+  const viewport = panel.clientHeight || 800;
+  const offset = panel.scrollTop - list.offsetTop;
+  const reserve = MEMBER_OVERSCAN * MEMBER_ROW_HEIGHT;
+  const from = firstMemberItem(items, offset - reserve);
+  const nodes = [];
+  const shown = new Set();
+  for (let index = from; index < items.length && items[index].top < offset + viewport + reserve; index += 1) {
+    const item = items[index];
+    const node = item.kind === "group" ? h("div", { class: "member-group", text: item.title }) : memberRowNode(item.member);
+    if (item.kind === "member") shown.add(item.member.id);
+    node.style.transform = `translateY(${item.top}px)`;
+    nodes.push(node);
+  }
+  list.replaceChildren(...nodes);
+  // строки, ушедшие из окна, не держим
+  for (const id of memberRowCache.keys()) if (!shown.has(id)) memberRowCache.delete(id);
+}
+
+/** Строка участника; неизменная строка берётся готовой, чтобы аватар не грузился снова. */
+function memberRowNode(member) {
+  const key = [member.name, member.colour, member.avatar, member.presence, member.online, member.status].join("\u0001");
+  const cached = memberRowCache.get(member.id);
+  if (cached && cached.key === key) return cached.node;
+  const node = memberRow(member);
+  memberRowCache.set(member.id, { key, node });
+  return node;
+}
+
+function scheduleMemberWindow() {
+  if (!memberFrame) memberFrame = requestAnimationFrame(paintMemberWindow);
 }
 
 function memberRow(member) {
@@ -2170,6 +2316,7 @@ async function loadEmojiIndex() {
     serverEmoji.set(serverId, list);
     for (const emoji of list) customEmojiIndex.set(emoji.id, { name: emoji.name, server: serverId });
   }
+  invalidateMessageNodes();
   if (state.messages.length) renderMessages();
   if (!el("emoji-picker").classList.contains("hidden")) renderEmojiPicker();
 }
@@ -2238,6 +2385,7 @@ function unicodeEmojis() {
 function renderEmojiPicker() {
   const list = el("emoji-list");
   const rail = el("emoji-servers");
+  if (emojiObserver) emojiObserver.disconnect();
   list.textContent = "";
   rail.textContent = "";
 
@@ -2299,20 +2447,45 @@ function renderEmojiPicker() {
   );
 }
 
-function emojiVisual(item) {
+// В панели тысячи эмодзи; картинка грузится, только когда кнопка видна.
+const emojiObserver =
+  typeof IntersectionObserver === "function"
+    ? new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (!entry.isIntersecting) continue;
+            emojiObserver.unobserve(entry.target);
+            fillEmojiSlot(entry.target);
+          }
+        },
+        { root: el("emoji-scroll"), rootMargin: "120px 0px" },
+      )
+    : null;
+const emojiSlotItems = new WeakMap(); // заготовка → эмодзи
+
+function fillEmojiSlot(slot) {
+  const item = emojiSlotItems.get(slot);
+  if (!item || !slot.isConnected) return;
   if (item.kind === "server") {
-    return item.emoji.url ? image(item.emoji.url, { class: "emoji", alt: item.emoji.name }) : document.createTextNode("?");
+    if (item.emoji.url) slot.replaceWith(image(item.emoji.url, { class: "emoji", alt: item.emoji.name }));
+    return;
   }
-  const slot = h("span", { text: item.emoji.text });
   spriteUrl(item.emoji.code).then((data) => {
-    if (data) slot.replaceWith(h("img", { class: "emoji", src: data, alt: item.emoji.text }));
+    if (data && slot.isConnected) slot.replaceWith(h("img", { class: "emoji", src: data, alt: item.emoji.text }));
   });
+}
+
+function emojiVisual(item, lazy = false) {
+  const slot = h("span", { class: "emoji-slot", text: item.kind === "server" ? "" : item.emoji.text });
+  emojiSlotItems.set(slot, item);
+  if (lazy && emojiObserver) emojiObserver.observe(slot);
+  else queueMicrotask(() => fillEmojiSlot(slot)); // когда заготовка уже на странице
   return slot;
 }
 
 function emojiButton(item) {
   const title = item.kind === "server" ? ":" + item.emoji.name + ":" : item.emoji.text;
-  const button = h("button", { type: "button", class: "emoji-item", title }, [emojiVisual(item)]);
+  const button = h("button", { type: "button", class: "emoji-item", title }, [emojiVisual(item, true)]);
   button.onclick = () => insertText(item.kind === "server" ? `:${item.emoji.name}:` : item.emoji.text);
   button.onmouseenter = () => renderEmojiPreview(item);
   return button;
@@ -2349,7 +2522,13 @@ function toggleEmojiPicker(force) {
   const open = force ?? picker.classList.contains("hidden");
   picker.classList.toggle("hidden", !open);
   el("btn-emoji").classList.toggle("active", open);
-  if (!open) return;
+  if (!open) {
+    // закрытая панель не держит тысячи кнопок и картинок
+    if (emojiObserver) emojiObserver.disconnect();
+    el("emoji-list").textContent = "";
+    el("emoji-servers").textContent = "";
+    return;
+  }
   el("emoji-search").value = "";
   emojiFilter = "";
   emojiActiveServer = null;
@@ -2665,10 +2844,22 @@ function onMessage(message) {
   );
   if (pending) state.messages.splice(state.messages.indexOf(pending), 1);
   state.stickToBottom = state.stickToBottom || near;
+  trimLive();
   setTyping(message.channel, message.author_id, false);
   noteIncoming(message);
   renderMessages();
   ackVisible();
+}
+
+/** Сколько сообщений держит лента, пока читаешь внизу (старые догружаются при прокрутке). */
+const LIVE_KEEP = 150;
+
+/** Срезать начало ленты, если читатель внизу, а сообщений накопилось много. */
+function trimLive() {
+  if (!state.stickToBottom || state.messages.length <= LIVE_KEEP + PAGE_SIZE) return false;
+  state.messages = state.messages.slice(-LIVE_KEEP);
+  state.reachedStart = false;
+  return true;
 }
 
 function onGateway(payload) {
@@ -2778,12 +2969,12 @@ function applyPresence(event) {
     if (clear.includes("StatusText")) target.status = null;
   };
 
-  let changed = false;
-  for (const members of membersCache.values()) {
+  // перерисовывается только то, что задето, и не чаще раза за кадр
+  for (const [serverId, members] of membersCache) {
     const member = (members || []).find((item) => item.id === event.id);
     if (member) {
       patch(member);
-      changed = true;
+      if (serverId === state.serverId) scheduleRender(renderMembers);
     }
   }
   const ws = state.workspace;
@@ -2793,7 +2984,8 @@ function applyPresence(event) {
     patch(view);
     dm.presence = view.presence;
     dm.description = view.status;
-    changed = true;
+    if (state.serverId === null) scheduleRender(renderSidebar);
+    if (dm.unread) scheduleRender(renderRail);
   }
   if (state.me && state.me.id === event.id) {
     // себе показываем выбранное присутствие (и «невидимку»), а не то, что видят другие
@@ -2801,13 +2993,23 @@ function applyPresence(event) {
     if (clear.includes("StatusPresence")) state.me.presence = "Online";
     if (status && "text" in status) state.me.status = status.text || null;
     if (clear.includes("StatusText")) state.me.status = null;
-    changed = true;
+    scheduleRender(renderRail);
   }
-  if (changed) {
-    renderMembers();
-    renderSidebar();
-    renderRail();
-  }
+}
+
+// События шлюза приходят пачками; перерисовки собираются и выполняются раз за кадр.
+const renderQueue = new Set();
+let renderFrame = 0;
+
+function scheduleRender(render) {
+  renderQueue.add(render);
+  if (renderFrame) return;
+  renderFrame = requestAnimationFrame(() => {
+    renderFrame = 0;
+    const jobs = [...renderQueue];
+    renderQueue.clear();
+    for (const job of jobs) job();
+  });
 }
 
 // ─────────────────────────── запуск ───────────────────────────
@@ -2820,8 +3022,14 @@ function bindUi() {
   messagesEl.addEventListener("scroll", () => {
     state.stickToBottom = distanceFromBottom() < 40;
     if (messagesEl.scrollTop < 400) loadOlder();
-    if (state.stickToBottom) ackVisible();
+    if (state.stickToBottom) {
+      ackVisible();
+      // вернулись вниз после долгого чтения истории — старое снимаем со страницы
+      if (trimLive()) renderMessages({ toBottom: true });
+    }
   });
+  el("members").addEventListener("scroll", scheduleMemberWindow, { passive: true });
+  window.addEventListener("resize", scheduleMemberWindow);
 
   inputEl.addEventListener("keydown", onComposerKey);
   inputEl.addEventListener("input", () => {

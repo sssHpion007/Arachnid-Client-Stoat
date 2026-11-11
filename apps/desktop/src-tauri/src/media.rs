@@ -27,10 +27,16 @@ pub const SCHEME: &str = "media";
 const CHUNK: u64 = 4 * 1024 * 1024;
 
 /// Самый большой файл, который сохраняется в памяти целиком.
-const CACHE_ITEM_MAX: usize = 48 * 1024 * 1024;
+///
+/// Аватары, эмодзи и превью весят десятки–сотни килобайт; крупные файлы
+/// (оригиналы, видео) в памяти не держим — их повторно отдаст CDN.
+const CACHE_ITEM_MAX: usize = 4 * 1024 * 1024;
 
 /// Предел памяти под сохранённые файлы.
-const CACHE_TOTAL_MAX: usize = 160 * 1024 * 1024;
+const CACHE_TOTAL_MAX: usize = 32 * 1024 * 1024;
+
+/// Файлы на CDN неизменны (новый файл — новый id), webview может их не перезапрашивать.
+const CACHE_CONTROL: &str = "public, max-age=604800, immutable";
 
 /// Скачанный файл.
 struct Entry {
@@ -135,6 +141,17 @@ impl ByteRange {
     }
 }
 
+/// Заполненность кэша файлов.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct MediaStats {
+    /// Файлов в памяти
+    pub files: usize,
+    /// Занято байт
+    pub bytes: usize,
+    /// Предел, байт
+    pub limit: usize,
+}
+
 /// Прокси файлов для webview.
 pub struct MediaProxy {
     client: reqwest::Client,
@@ -162,6 +179,16 @@ impl MediaProxy {
         }
     }
 
+    /// Сколько файлов и байт сейчас в памяти, и каков предел.
+    pub async fn stats(&self) -> MediaStats {
+        let store = self.store.lock().await;
+        MediaStats {
+            files: store.items.len(),
+            bytes: store.total,
+            limit: CACHE_TOTAL_MAX,
+        }
+    }
+
     /// HTTP-клиент для прочих загрузок (картинки эмодзи и т. п.).
     pub fn client(&self) -> &reqwest::Client {
         &self.client
@@ -179,7 +206,7 @@ impl MediaProxy {
             .and_then(ByteRange::parse);
 
         if let Some(entry) = self.store.lock().await.get(&url) {
-            return respond(&entry, range);
+            return respond(&entry.content_type, Body::Shared(&entry.body), range);
         }
 
         let mut upstream = self.client.get(&url).header(header::ACCEPT, "*/*");
@@ -212,6 +239,7 @@ impl MediaProxy {
             let mut builder = Response::builder()
                 .status(StatusCode::PARTIAL_CONTENT)
                 .header(header::CONTENT_TYPE, content_type)
+                .header(header::CACHE_CONTROL, CACHE_CONTROL)
                 .header(header::ACCEPT_RANGES, "bytes")
                 .header(header::CONTENT_LENGTH, body.len());
             if let Some(content_range) = content_range {
@@ -234,27 +262,54 @@ impl MediaProxy {
             Ok(body) => body.to_vec(),
             Err(_) => return empty(StatusCode::BAD_GATEWAY),
         };
+        if body.len() > CACHE_ITEM_MAX {
+            // крупный файл отдаём и забываем: вторая копия в памяти ни к чему
+            return respond(&content_type, Body::Owned(body), range);
+        }
         let entry = Arc::new(Entry { content_type, body });
         self.store.lock().await.insert(url, entry.clone());
-        respond(&entry, range)
+        respond(&entry.content_type, Body::Shared(&entry.body), range)
+    }
+}
+
+/// Тело ответа: из общего кэша (копируется) или своё (отдаётся без копии).
+enum Body<'a> {
+    Shared(&'a [u8]),
+    Owned(Vec<u8>),
+}
+
+impl Body<'_> {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            Self::Shared(body) => body,
+            Self::Owned(body) => body,
+        }
+    }
+
+    fn into_vec(self) -> Vec<u8> {
+        match self {
+            Self::Shared(body) => body.to_vec(),
+            Self::Owned(body) => body,
+        }
     }
 }
 
 /// Ответ из файла, который есть целиком.
-fn respond(entry: &Entry, range: Option<ByteRange>) -> Response<Vec<u8>> {
-    let length = entry.body.len() as u64;
+fn respond(content_type: &str, body: Body<'_>, range: Option<ByteRange>) -> Response<Vec<u8>> {
+    let length = body.bytes().len() as u64;
     let builder = Response::builder()
-        .header(header::CONTENT_TYPE, entry.content_type.as_str())
-        .header(header::ACCEPT_RANGES, "bytes");
+        .header(header::CONTENT_TYPE, content_type)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, CACHE_CONTROL);
 
     let response = match range {
         None => builder
             .status(StatusCode::OK)
             .header(header::CONTENT_LENGTH, length)
-            .body(entry.body.clone()),
+            .body(body.into_vec()),
         Some(range) => match range.resolve(length) {
             Some((start, end)) => {
-                let body = entry.body[start as usize..=end as usize].to_vec();
+                let body = body.bytes()[start as usize..=end as usize].to_vec();
                 builder
                     .status(StatusCode::PARTIAL_CONTENT)
                     .header(
@@ -472,7 +527,8 @@ mod tests {
             body: (0u8..10).collect(),
         };
         let response = respond(
-            &entry,
+            &entry.content_type,
+            Body::Shared(&entry.body),
             Some(ByteRange::From {
                 start: 2,
                 end: Some(4),
@@ -481,7 +537,10 @@ mod tests {
         assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
         assert_eq!(response.body(), &vec![2, 3, 4]);
         assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes 2-4/10");
-        assert_eq!(respond(&entry, None).body().len(), 10);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], CACHE_CONTROL);
+        let whole = respond("video/mp4", Body::Owned(entry.body.clone()), None);
+        assert_eq!(whole.status(), StatusCode::OK);
+        assert_eq!(whole.body().len(), 10);
     }
 
     #[test]
@@ -502,11 +561,21 @@ mod tests {
                 body: vec![0; CACHE_ITEM_MAX],
             })
         };
-        for index in 0..5 {
+        let count = CACHE_TOTAL_MAX / CACHE_ITEM_MAX + 2;
+        for index in 0..count {
             store.insert(format!("u{index}"), big());
         }
         assert!(store.total <= CACHE_TOTAL_MAX);
         assert!(store.get("u0").is_none());
-        assert!(store.get("u4").is_some());
+        assert!(store.get(&format!("u{}", count - 1)).is_some());
+        // слишком крупный файл в кэш не попадает
+        store.insert(
+            "huge".into(),
+            Arc::new(Entry {
+                content_type: String::new(),
+                body: vec![0; CACHE_ITEM_MAX + 1],
+            }),
+        );
+        assert!(store.get("huge").is_none());
     }
 }

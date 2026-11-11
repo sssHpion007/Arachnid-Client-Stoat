@@ -814,6 +814,24 @@ async fn rich_text(text: String, state: State<'_, Arc<AppState>>) -> CmdResult<R
     })
 }
 
+/// Что ядро держит в памяти: кэш состояния и кэш файлов.
+#[derive(Debug, Serialize)]
+struct DiagnosticsView {
+    cache: stoat_core::cache::CacheStats,
+    media: media::MediaStats,
+}
+
+#[tauri::command]
+async fn diagnostics(
+    state: State<'_, Arc<AppState>>,
+    proxy: State<'_, Arc<media::MediaProxy>>,
+) -> CmdResult<DiagnosticsView> {
+    Ok(DiagnosticsView {
+        cache: state.cache.stats().await,
+        media: proxy.stats().await,
+    })
+}
+
 /// Сохранить файл из сообщения в каталог «Загрузки» пользователя.
 ///
 /// Webview не умеет скачивать файлы протокола `media:`, поэтому файл
@@ -1387,6 +1405,7 @@ pub fn run() {
             emoji_index,
             download_file,
             rich_text,
+            diagnostics,
             server_emojis,
             server_members,
             subscribe_server,
