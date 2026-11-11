@@ -652,9 +652,14 @@ mod tests {
     fn config_survives_round_trip() {
         let dir = std::env::temp_dir().join(format!("arachnid-desktop-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut config = DesktopConfig::default();
-        config.minimise_to_tray = false;
-        config.window_state.width = 1024;
+        let config = DesktopConfig {
+            minimise_to_tray: false,
+            window_state: WindowState {
+                width: 1024,
+                ..WindowState::default()
+            },
+            ..DesktopConfig::default()
+        };
         config.save(&dir).unwrap();
         assert_eq!(DesktopConfig::load(&dir), config);
         std::fs::remove_dir_all(&dir).ok();
