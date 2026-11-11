@@ -3,8 +3,9 @@
 //! Интерфейс — Stoat for Web без изменений, открытый с адреса инстанса
 //! (по умолчанию https://stoat.chat/app), как это делает официальный Stoat
 //! for Desktop. Оболочка отвечает за то, чего нет у браузера: окно со своей
-//! рамкой, трей, автозапуск, Discord RPC, раздел настроек «ПК» и
-//! портативный каталог данных (см. [`desktop`] и [`instance`]).
+//! рамкой, трей, автозапуск, Discord RPC, раздел настроек «ПК»,
+//! портативный каталог данных (см. [`desktop`] и [`instance`]), а также темы,
+//! QuickCSS и плагины в формате Avia Client (см. [`extensions`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use tauri::Manager;
 use tauri::ipc::CapabilityBuilder;
 
 mod desktop;
+mod extensions;
 mod instance;
 
 /// Проблема, которую нужно сообщить странице.
@@ -52,6 +54,8 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-desktop-autostart-get",
     "allow-desktop-autostart-set",
     "allow-set-tray-labels",
+    "allow-extensions-styles",
+    "allow-set-plugin-menu",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -139,11 +143,14 @@ fn move_dir_if_absent(from: &Path, to: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Создать каталог данных и журналов, если их нет (первый запуск без бутстрапа).
+/// Создать каталог данных, журналов, тем и плагинов, если их нет (первый
+/// запуск без бутстрапа).
 ///
 /// Профиль webview (`webview/`) WebView2 создаёт сам.
 fn ensure_layout(dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir.join("logs"))
+    std::fs::create_dir_all(dir.join("logs"))?;
+    std::fs::create_dir_all(dir.join(extensions::THEMES_DIR))?;
+    std::fs::create_dir_all(dir.join(extensions::PLUGINS_DIR))
 }
 
 // ─────────────────────────────────── вход ───────────────────────────────────
@@ -220,6 +227,8 @@ pub fn run() {
                 capability = capability.permission(*permission);
             }
             app.add_capability(capability)?;
+            app.manage(instance.clone());
+            app.manage(Arc::new(extensions::Extensions::new(data_dir.clone())));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -232,6 +241,7 @@ pub fn run() {
             if desktop.config().discord_rpc {
                 desktop::start_discord(&desktop);
             }
+            extensions::start_watcher(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -242,6 +252,8 @@ pub fn run() {
             desktop::desktop_autostart_get,
             desktop::desktop_autostart_set,
             desktop::set_tray_labels,
+            extensions::extensions_styles,
+            extensions::set_plugin_menu,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");
@@ -285,6 +297,8 @@ mod tests {
         let dir = temp_dir("layout");
         ensure_layout(&dir).unwrap();
         assert!(dir.join("logs").is_dir());
+        assert!(dir.join("themes").is_dir());
+        assert!(dir.join("plugins").is_dir());
         std::fs::remove_dir_all(&dir).ok();
     }
 

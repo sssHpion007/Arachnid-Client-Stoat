@@ -26,7 +26,7 @@ use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEve
 use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::instance::Instance;
-use crate::{CmdResult, CommandError};
+use crate::{CmdResult, CommandError, extensions};
 
 /// Метка главного окна (как в `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
@@ -174,6 +174,7 @@ impl DesktopPatch {
 
 /// Подписи пунктов меню трея на языке системы.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct TrayLabels {
     /// «Версия»
     pub version: String,
@@ -183,6 +184,22 @@ pub struct TrayLabels {
     pub hide: String,
     /// «Выйти из приложения»
     pub quit: String,
+    /// «Расширения»
+    pub extensions: String,
+    /// «Темы»
+    pub themes: String,
+    /// «Плагины»
+    pub plugins: String,
+    /// «Тем нет»
+    pub no_themes: String,
+    /// «Плагинов нет»
+    pub no_plugins: String,
+    /// «Открыть папку»
+    pub open_folder: String,
+    /// «Изменить QuickCSS»
+    pub quick_css: String,
+    /// «Действия плагинов» (пункты `AviaMenu`)
+    pub plugin_actions: String,
 }
 
 impl Default for TrayLabels {
@@ -192,6 +209,14 @@ impl Default for TrayLabels {
             show: "Показать приложение".into(),
             hide: "Скрыть приложение".into(),
             quit: "Выйти из приложения".into(),
+            extensions: "Расширения".into(),
+            themes: "Темы".into(),
+            plugins: "Плагины".into(),
+            no_themes: "Тем нет".into(),
+            no_plugins: "Плагинов нет".into(),
+            open_folder: "Открыть папку".into(),
+            quick_css: "Изменить QuickCSS".into(),
+            plugin_actions: "Действия плагинов".into(),
         }
     }
 }
@@ -385,7 +410,9 @@ pub fn create_main_window(
         .on_new_window(|url, _features| {
             open_external(&url);
             NewWindowResponse::Deny
-        });
+        })
+        // включённые плагины — после загрузки страницы клиента
+        .on_page_load(extensions::on_page_load);
 
     #[cfg(windows)]
     if !config.hardware_acceleration {
@@ -504,7 +531,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "toggle" => toggle_window(app),
             "quit" => quit(app),
-            _ => {}
+            id => extensions::on_menu(app, id),
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -568,22 +595,40 @@ fn tray_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(app, "quit", &labels.quit, true, None::<&str>)?;
-    Menu::with_items(app, &[&title, &version, &separator, &toggle, &quit])
+    let extensions_menu = extensions::tray_submenu(app, &labels)?;
+    let second_separator = PredefinedMenuItem::separator(app)?;
+    Menu::with_items(
+        app,
+        &[
+            &title,
+            &version,
+            &separator,
+            &extensions_menu,
+            &second_separator,
+            &toggle,
+            &quit,
+        ],
+    )
 }
 
-/// Пересобрать меню трея: «Показать» и «Скрыть» зависят от окна.
-fn refresh_tray(app: &AppHandle) {
+/// Пересобрать меню трея: «Показать» и «Скрыть» зависят от окна, список
+/// тем и плагинов — от папок.
+///
+/// Вызывается и из потока слежения за папками. Пункты меню создаются в
+/// главном потоке, поэтому блокировка не держится, пока меню собирается:
+/// иначе главный поток, ждущий её же (щелчок по трею), и этот поток ждали
+/// бы друг друга.
+pub fn refresh_tray(app: &AppHandle) {
     let desktop = app.state::<Arc<Desktop>>();
-    let Ok(slot) = desktop.tray.lock() else {
+    let tray = desktop.tray.lock().ok().and_then(|slot| slot.clone());
+    let Some(tray) = tray else {
         return;
     };
-    if let Some(tray) = slot.as_ref() {
-        match tray_menu(app) {
-            Ok(menu) => {
-                let _ = tray.set_menu(Some(menu));
-            }
-            Err(error) => tracing::warn!(%error, "меню трея не обновилось"),
+    match tray_menu(app) {
+        Ok(menu) => {
+            let _ = tray.set_menu(Some(menu));
         }
+        Err(error) => tracing::warn!(%error, "меню трея не обновилось"),
     }
 }
 

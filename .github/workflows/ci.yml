@@ -9,27 +9,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  core:
-    name: ядро и плагины
+  fmt:
+    name: формат
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-
-      - uses: Swatinem/rust-cache@v2
+          components: rustfmt
 
       - name: fmt
         run: .github/scripts/annotate.sh cargo fmt --all -- --check
-
-      # ядро не тянет GTK/WebKit, поэтому проверяется без системных пакетов
-      - name: clippy
-        run: .github/scripts/annotate.sh cargo clippy -p stoat-core -p stoat-plugin-api --all-targets -- -D warnings
-
-      - name: test
-        run: .github/scripts/annotate.sh cargo test -p stoat-core -p stoat-plugin-api
 
   desktop:
     name: приложение (типы и тесты)

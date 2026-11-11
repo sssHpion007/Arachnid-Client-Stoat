@@ -23,8 +23,8 @@ jobs:
         with:
           key: windows-fast
 
-      - name: Тесты ядра
-        run: cargo test -p stoat-core -p stoat-plugin-api
+      - name: Тесты приложения
+        run: cargo test -p arachnid-client
 
       - name: Сборка приложения
         run: cargo build --release -p arachnid-client
@@ -35,6 +35,8 @@ jobs:
           mkdir -p dist/Arachnid-Client
           cp target/release/arachnid-client.exe dist/Arachnid-Client/
           mkdir -p dist/Arachnid-Client/logs
+          # свои темы (*.css) и плагины (*.js), см. docs/extensions.md
+          mkdir -p dist/Arachnid-Client/themes dist/Arachnid-Client/plugins
           # config.toml рядом с exe включает portable-режим: вход и настройки
           # хранятся в этой же папке
           cp bootstrap/config.toml dist/Arachnid-Client/

@@ -33,16 +33,6 @@ cargo tauri build
 `http://localhost:5173`): положите рядом с бинарником `config.toml` с
 `app_url = "http://localhost:5173"` и запустите клиент.
 
-## Библиотека протокола (без GUI)
-
-`crates/stoat-core` собирается и тестируется без графических библиотек:
-
-```bash
-cargo test -p stoat-core
-cargo run -p stoat-core --example probe           # связь с инстансом
-cargo run -p stoat-core --example gateway_probe   # gateway
-```
-
 ## Автоматическая сборка
 
 `.github/workflows/release.yml` собирает три платформы и прикладывает

@@ -69,10 +69,10 @@ function Report-Environment {
 # ─────────────────────────────── структура ──────────────────────────────────
 function New-Layout {
     Info "каталог: $Dir"
-    foreach ($sub in @("logs", "vendor")) {
+    foreach ($sub in @("logs", "vendor", "themes", "plugins")) {
         New-Item -ItemType Directory -Path (Join-Path $Dir $sub) -Force | Out-Null
     }
-    Ok "созданы logs\, vendor\ (профиль webview\ клиент создаст сам)"
+    Ok "созданы logs\, vendor\, themes\, plugins\ (профиль webview\ клиент создаст сам)"
 
     $config = Join-Path $Dir "config.toml"
     if (-not (Test-Path $config)) {
@@ -101,6 +101,9 @@ Arachnid Client — портативная установка (Windows)
  webview\      вход, сессия и кэш веб-клиента
  logs\         журналы
  vendor\       ответ инстанса и установщик сборки
+ themes\       свои темы (*.css): трей > Расширения > Темы
+ plugins\      плагины (*.js, формат Avia Client): трей > Расширения > Плагины
+ quickcss.css  свой CSS, действует всегда (трей > Расширения)
 
 Запуск: arachnid-client.exe
 Удаление: удалить всю папку. Ничего вне неё клиент не создаёт.
