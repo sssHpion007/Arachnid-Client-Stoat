@@ -30,6 +30,8 @@ directories = "6"
 # прокси медиа: аватары и вложения скачивает Rust, а не webview
 base64 = "0.22"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+# адрес файла в пути запроса протокола media:
+percent-encoding = "2"
 
 [[bin]]
 name = "arachnid-client"

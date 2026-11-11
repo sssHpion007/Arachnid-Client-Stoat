@@ -82,6 +82,7 @@ version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "directories",
+ "percent-encoding",
  "reqwest 0.13.5",
  "revolt-models",
  "serde",
