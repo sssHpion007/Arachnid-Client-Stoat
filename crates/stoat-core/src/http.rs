@@ -59,6 +59,26 @@ impl Token {
     }
 }
 
+/// Какую часть истории канала запросить (`GET /channels/{id}/messages`).
+///
+/// `before` — старше сообщения, `after` — новее, `nearby` — окно вокруг
+/// сообщения (тогда `before` и `after` сервер не учитывает), `limit` —
+/// размер страницы (сервер ограничивает 100), `sort` — порядок.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MessageQuery<'a> {
+    /// Курсор «более старые»
+    pub before: Option<&'a str>,
+    /// Курсор «более новые»
+    pub after: Option<&'a str>,
+    /// Окно вокруг сообщения
+    pub nearby: Option<&'a str>,
+    /// Размер страницы
+    pub limit: Option<u32>,
+    /// Порядок: `Latest` (по умолчанию) или `Oldest` — для `after` нужен
+    /// `Oldest`, иначе сервер отдаст самые свежие, а не ближайшие
+    pub sort: Option<&'a str>,
+}
+
 /// HTTP-клиент одного инстанса.
 ///
 /// Дешево клонируется: внутри `reqwest::Client` (Arc) и общий [`RateLimiter`].
@@ -335,29 +355,30 @@ impl HttpClient {
     }
 
     /// `GET /channels/{id}/messages` — история сообщений.
-    ///
-    /// `before` — курсор «загрузить более старые», `after` — «более новые»,
-    /// `limit` — размер страницы (Stoat обычно ограничивает 100).
     pub async fn fetch_messages(
         &self,
         channel_id: &str,
-        before: Option<&str>,
-        after: Option<&str>,
-        limit: Option<u32>,
+        query: MessageQuery<'_>,
     ) -> Result<v0::BulkMessageResponse> {
         let mut url = self.endpoint(&format!("/channels/{channel_id}/messages"))?;
         {
-            let mut query = url.query_pairs_mut();
-            if let Some(before) = before {
-                query.append_pair("before", before);
+            let mut pairs = url.query_pairs_mut();
+            if let Some(before) = query.before {
+                pairs.append_pair("before", before);
             }
-            if let Some(after) = after {
-                query.append_pair("after", after);
+            if let Some(after) = query.after {
+                pairs.append_pair("after", after);
             }
-            if let Some(limit) = limit {
-                query.append_pair("limit", &limit.to_string());
+            if let Some(nearby) = query.nearby {
+                pairs.append_pair("nearby", nearby);
             }
-            query.append_pair("include_users", "true");
+            if let Some(limit) = query.limit {
+                pairs.append_pair("limit", &limit.to_string());
+            }
+            if let Some(sort) = query.sort {
+                pairs.append_pair("sort", sort);
+            }
+            pairs.append_pair("include_users", "true");
         }
         self.request(Method::GET, url, None::<&()>, None, None)
             .await

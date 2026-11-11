@@ -22,7 +22,6 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 $Repo = "sssHpion007/Arachnid-Client-Stoat"
-$ModelsVersion = "0.16.3"
 $ApiRoot = "https://api.stoat.chat"
 
 function Info($text) { Write-Host ":: $text" -ForegroundColor Cyan }
@@ -70,40 +69,21 @@ function Report-Environment {
 # ─────────────────────────────── структура ──────────────────────────────────
 function New-Layout {
     Info "каталог: $Dir"
-    foreach ($sub in @("cache\autumn", "cache\embeds", "plugins", "themes", "logs", "vendor")) {
+    foreach ($sub in @("logs", "vendor")) {
         New-Item -ItemType Directory -Path (Join-Path $Dir $sub) -Force | Out-Null
     }
-    Ok "созданы cache\, plugins\, themes\, logs\, vendor\"
+    Ok "созданы logs\, vendor\ (профиль webview\ клиент создаст сам)"
 
     $config = Join-Path $Dir "config.toml"
     if (-not (Test-Path $config)) {
         @'
 # Конфигурация Arachnid Client.
-# Токен сюда НЕ пишется: он хранится в системном хранилище (Credential Manager).
+# Клиент открывает официальный веб-клиент Stoat, как Stoat for Desktop.
 
 [instance]
-api_url = "https://api.stoat.chat"
-ws_url  = "wss://events.stoat.chat"
-# Свой сервер:
-# api_url = "https://stoat.example.com/api"
-# ws_url  = "wss://stoat.example.com/events"
-
-[app]
-name = "Arachnid Client"
-check_updates = true
-
-[plugins]
-enabled = true
-dir = "plugins"
-memory_limit_mib = 64
-call_timeout_ms = 50
-
-[ui]
-theme = "dark"
-density = "cozy"
-
-[cache]
-max_size_mib = 512
+# Адрес веб-клиента, который открывается в окне.
+# Свой инстанс: адрес его веб-клиента, например "https://stoat.example.com".
+app_url = "https://stoat.chat/app"
 '@ | Set-Content -Path $config -Encoding UTF8
         Ok "создан config.toml"
     } else {
@@ -116,12 +96,11 @@ max_size_mib = 512
 Arachnid Client — портативная установка (Windows)
 =============================================
 
- config.toml   настройки (инстанс, плагины, кэш)
- plugins\      плагины (папка на плагин: .wasm + manifest.json)
- themes\       темы оформления
- cache\        кэш файлов и картинок, можно удалять целиком
+ config.toml   адрес веб-клиента Stoat (по умолчанию stoat.chat/app)
+ desktop.json  настройки раздела «ПК» (создаётся при первом запуске)
+ webview\      вход, сессия и кэш веб-клиента
  logs\         журналы
- vendor\       скачанные зависимости и установщик сборки
+ vendor\       ответ инстанса и установщик сборки
 
 Запуск: arachnid-client.exe
 Удаление: удалить всю папку. Ничего вне неё клиент не создаёт.
@@ -146,9 +125,6 @@ function Test-Instance {
         Ok "API отвечает, версия $($root.stoat)"
         if ($root.ws) { Ok "gateway: $($root.ws)" }
         if ($root.features.autumn.url) { Ok "файлы: $($root.features.autumn.url)" }
-        if ($root.stoat -and $root.stoat -ne $ModelsVersion) {
-            Warn "API $($root.stoat), модели в коде собраны под $ModelsVersion"
-        }
     } catch {
         Ok "ответ получен (разобрать JSON не удалось)"
     }
@@ -171,21 +147,9 @@ function Test-Token {
 
 # ───────────────────────────────── vendor ───────────────────────────────────
 function Get-Vendor {
-    Info "vendor: скачиваю рабочие файлы"
-    $crate = Join-Path $Dir "vendor\revolt-models-$ModelsVersion.crate"
-    if (Test-Path $crate) {
-        Ok "revolt-models $ModelsVersion уже скачан"
-    } else {
-        try {
-            Download "https://static.crates.io/crates/revolt-models/revolt-models-$ModelsVersion.crate" $crate
-            Ok "revolt-models $ModelsVersion ($([math]::Round((Get-Item $crate).Length / 1MB, 1)) МиБ)"
-        } catch {
-            Warn "не удалось скачать revolt-models — не критично"
-        }
-    }
-
+    Info "vendor: контрольные суммы"
     $lines = @()
-    foreach ($file in @($crate, (Join-Path $Dir "vendor\api-root.json"))) {
+    foreach ($file in @((Join-Path $Dir "vendor\api-root.json"))) {
         if (Test-Path $file) {
             $name = Split-Path -Leaf $file
             $lines += "$(Get-Sha256 $file)  vendor/$name"
@@ -243,9 +207,8 @@ function Show-NextSteps {
     Write-Host ""
     Write-Host "Дальше:"
     Write-Host "  1. Открыть папку:        explorer `"$Dir`""
-    Write-Host "  2. Настроить инстанс:    config.toml"
+    Write-Host "  2. Свой инстанс:         config.toml, app_url (по умолчанию stoat.chat/app)"
     Write-Host "  3. Запустить:            arachnid-client.exe (или установщик из vendor\)"
-    Write-Host "  4. Плагины:              $Dir\plugins (подпапка на плагин)"
     Write-Host ""
     Write-Host "Повторный запуск обновляет файлы, ничего не ломая. Удаление — удалить папку."
     Write-Host ""

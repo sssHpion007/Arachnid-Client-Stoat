@@ -51,7 +51,7 @@ jobs:
         with:
           key: desktop
 
-      # ловит ошибки в командах и представлениях ещё до сборки установщика
+      # ловит ошибки в мосте и командах ещё до сборки установщика
       - name: clippy приложения
         run: .github/scripts/annotate.sh cargo clippy -p arachnid-client --all-targets -- -D warnings
 

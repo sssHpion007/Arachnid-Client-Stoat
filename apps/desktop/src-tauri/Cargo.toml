@@ -1,6 +1,6 @@
 [package]
 name = "arachnid-client"
-description = "Клиент Stoat: Tauri-оболочка поверх stoat-core"
+description = "Arachnid Client: настольная оболочка Tauri для официального веб-клиента Stoat"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,33 +16,21 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-stoat-core = { path = "../../../crates/stoat-core" }
-revolt-models.workspace = true
-# сроки тайм-аутов участников — в правах канала
-iso8601-timestamp.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-shell = "2"
-tauri-plugin-store = "2"
-# раздел «ПК»: запуск вместе с системой и уведомления о сообщениях
+# раздел «ПК»: запуск вместе с системой
 tauri-plugin-autostart = "2"
-tauri-plugin-notification = "2"
 # второй запуск показывает уже открытое окно (оно может прятаться в трее)
 tauri-plugin-single-instance = "2"
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 directories = "6"
-# прокси медиа: аватары и вложения скачивает Rust, а не webview
-base64 = "0.22"
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
-# адрес файла в пути запроса протокола media:
-percent-encoding = "2"
-# QR-код для приложения аутентификации — только SVG, без растровых зависимостей
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
-# Markdown списка изменений («Узнай, что нового») — без генератора HTML
-pulldown-cmark = { version = "0.13", default-features = false }
+# адрес веб-клиента из config.toml
+url.workspace = true
+toml = "1"
+# ссылки из веб-клиента — в системном браузере
+open = "5"
 # «Discord RPC» в разделе «ПК», как в Stoat for Desktop
 discord-rich-presence = "1"
 

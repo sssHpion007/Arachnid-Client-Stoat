@@ -1,10 +1,14 @@
-//! Раздел «ПК»: окно, трей, автозапуск, Discord RPC и уведомления.
+//! Нативный слой: окно, трей, автозапуск, Discord RPC и мост к веб-клиенту.
 //!
 //! Повторяет Stoat for Desktop (`src/native/config.ts`, `window.ts`,
-//! `tray.ts`, `autoLaunch.ts`, `discordRpc.ts`) и его раздел настроек
-//! `Native.tsx`. Настройки лежат в `desktop.json` каталога данных: часть из
-//! них (рамка окна, аппаратное ускорение) нужна до создания окна, когда
-//! webview и его хранилище ещё недоступны.
+//! `tray.ts`, `autoLaunch.ts`, `discordRpc.ts`, `src/world/*.ts`).
+//! Интерфейс — официальный веб-клиент Stoat (for-web), который открывается
+//! в окне как есть; его раздел настроек «ПК» работает через
+//! `window.native` и `window.desktopConfig` (см. `bridge.js`).
+//!
+//! Настройки лежат в `desktop.json` каталога данных: часть из них (рамка
+//! окна, аппаратное ускорение) нужна до создания окна, когда webview и его
+//! хранилище ещё недоступны.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -17,10 +21,11 @@ use discord_rich_presence::{DiscordIpc, DiscordIpcClient};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, State, WebviewWindow, WindowEvent};
+use tauri::webview::NewWindowResponse;
+use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
-use tauri_plugin_notification::NotificationExt as _;
 
+use crate::instance::Instance;
 use crate::{CmdResult, CommandError};
 
 /// Метка главного окна (как в `tauri.conf.json`).
@@ -31,6 +36,13 @@ pub const HIDDEN_ARG: &str = "--hidden";
 
 /// Файл настроек в каталоге данных.
 const CONFIG_FILE: &str = "desktop.json";
+
+/// Профиль webview (вход, кэш, настройки веб-клиента) в каталоге данных:
+/// portable-папку можно перенести вместе с сессией.
+const WEBVIEW_DIR: &str = "webview";
+
+/// Мост `window.native` / `window.desktopConfig` для веб-клиента.
+const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
 
 /// Приложение Discord, от имени которого показывается статус (`discordRpc.ts`).
 const DISCORD_CLIENT_ID: &str = "872068124005007420";
@@ -64,7 +76,9 @@ pub struct WindowState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct DesktopConfig {
-    /// Своя строка заголовка вместо системной рамки
+    /// Первый запуск (сбрасывается после него, как в Stoat for Desktop)
+    pub first_launch: bool,
+    /// Своя строка заголовка вместо системной рамки (после перезапуска)
     pub custom_frame: bool,
     /// Закрытие окна прячет его в трей
     pub minimise_to_tray: bool,
@@ -83,6 +97,7 @@ pub struct DesktopConfig {
 impl Default for DesktopConfig {
     fn default() -> Self {
         Self {
+            first_launch: true,
             custom_frame: true,
             minimise_to_tray: true,
             start_minimised_to_tray: false,
@@ -117,11 +132,13 @@ impl DesktopConfig {
     }
 }
 
-/// Изменение из раздела «ПК»: только присланные поля.
+/// Изменение из раздела «ПК» (`desktopConfig.set`): только присланные поля.
+///
+/// Положение окна страница не меняет — его ведёт оболочка.
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopPatch {
-    autostart: Option<bool>,
+    first_launch: Option<bool>,
     custom_frame: Option<bool>,
     minimise_to_tray: Option<bool>,
     start_minimised_to_tray: Option<bool>,
@@ -130,7 +147,32 @@ pub struct DesktopPatch {
     discord_rpc: Option<bool>,
 }
 
-/// Подписи пунктов меню трея на языке интерфейса.
+impl DesktopPatch {
+    fn apply(&self, config: &mut DesktopConfig) {
+        let fields = [
+            (self.first_launch, &mut config.first_launch),
+            (self.custom_frame, &mut config.custom_frame),
+            (self.minimise_to_tray, &mut config.minimise_to_tray),
+            (
+                self.start_minimised_to_tray,
+                &mut config.start_minimised_to_tray,
+            ),
+            (self.spellchecker, &mut config.spellchecker),
+            (
+                self.hardware_acceleration,
+                &mut config.hardware_acceleration,
+            ),
+            (self.discord_rpc, &mut config.discord_rpc),
+        ];
+        for (value, field) in fields {
+            if let Some(value) = value {
+                *field = value;
+            }
+        }
+    }
+}
+
+/// Подписи пунктов меню трея на языке системы.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TrayLabels {
     /// «Версия»
@@ -154,12 +196,10 @@ impl Default for TrayLabels {
     }
 }
 
-/// Состояние «ПК», общее для команд и обработчиков окна.
+/// Состояние нативного слоя, общее для команд и обработчиков окна.
 pub struct Desktop {
     dir: PathBuf,
     config: Mutex<DesktopConfig>,
-    /// Аппаратное ускорение, с которым запущен текущий процесс
-    started_with_acceleration: bool,
     /// Выход через трей: закрытие окна больше не прячет его
     quitting: AtomicBool,
     discord: Mutex<Option<Sender<()>>>,
@@ -170,10 +210,8 @@ pub struct Desktop {
 impl Desktop {
     /// Прочитать настройки из каталога данных.
     pub fn new(dir: PathBuf) -> Self {
-        let config = DesktopConfig::load(&dir);
         Self {
-            started_with_acceleration: config.hardware_acceleration,
-            config: Mutex::new(config),
+            config: Mutex::new(DesktopConfig::load(&dir)),
             dir,
             quitting: AtomicBool::new(false),
             discord: Mutex::new(None),
@@ -190,7 +228,8 @@ impl Desktop {
             .unwrap_or_default()
     }
 
-    fn update(&self, change: impl FnOnce(&mut DesktopConfig)) -> DesktopConfig {
+    /// Изменить и сохранить настройки.
+    pub fn update(&self, change: impl FnOnce(&mut DesktopConfig)) -> DesktopConfig {
         let Ok(mut config) = self.config.lock() else {
             return DesktopConfig::default();
         };
@@ -201,17 +240,20 @@ impl Desktop {
         config.clone()
     }
 
-    /// Запомнить положение окна (вызывается при перемещении и закрытии).
-    fn remember_window(&self, window: &WebviewWindow) {
+    /// Запомнить положение окна (при перемещении, изменении размера и закрытии).
+    ///
+    /// Возвращает `true`, если окно развернули или вернули из развёрнутого.
+    fn remember_window(&self, window: &WebviewWindow) -> bool {
         let maximised = window.is_maximized().unwrap_or(false);
         let minimised = window.is_minimized().unwrap_or(false);
         let Ok(mut config) = self.config.lock() else {
-            return;
+            return false;
         };
+        let changed = config.window_state.is_maximised != maximised;
         config.window_state.is_maximised = maximised;
         // у свёрнутого и развёрнутого окна размеры не те, что надо вернуть
         if maximised || minimised {
-            return;
+            return changed;
         }
         if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
             config.window_state.x = position.x;
@@ -219,6 +261,7 @@ impl Desktop {
             config.window_state.width = size.width;
             config.window_state.height = size.height;
         }
+        changed
     }
 
     fn persist(&self) {
@@ -230,15 +273,89 @@ impl Desktop {
     }
 }
 
+// ─────────────────────────────────── мост ───────────────────────────────────
+
+/// Версии для раздела настроек веб-клиента (`window.native.versions`).
+#[derive(Debug, Serialize)]
+struct Versions {
+    /// Версия Arachnid Client
+    desktop: &'static str,
+    /// Версия Tauri
+    tauri: &'static str,
+    /// Версия движка webview (WebView2, WebKitGTK, WKWebView)
+    webview: String,
+    /// Система и архитектура
+    os: String,
+    /// `std::env::consts::OS`: мост по нему решает, как перетаскивать окно
+    platform: &'static str,
+}
+
+impl Versions {
+    fn current() -> Self {
+        Self {
+            desktop: env!("CARGO_PKG_VERSION"),
+            tauri: tauri::VERSION,
+            webview: tauri::webview_version().unwrap_or_else(|_| "?".into()),
+            os: format!("{} {}", os_name(), std::env::consts::ARCH),
+            platform: std::env::consts::OS,
+        }
+    }
+}
+
+fn os_name() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "Windows",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        other => other,
+    }
+}
+
+/// Скрипт моста с подставленными настройками, версиями и адресом клиента.
+fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
+    BRIDGE_SCRIPT
+        .replace("__ARACHNID_ORIGIN__", &js_literal(&instance.origin()))
+        .replace("__ARACHNID_CONFIG__", &js_literal(config))
+        .replace("__ARACHNID_VERSIONS__", &js_literal(&Versions::current()))
+}
+
+/// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
+fn js_literal<T: Serialize + ?Sized>(value: &T) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "null".into())
+}
+
+/// Сообщить странице новые настройки (например, окно развернули из системы).
+fn push_config(window: &WebviewWindow, config: &DesktopConfig) {
+    let json = js_literal(config);
+    let _ = window.eval(format!(
+        "window.__arachnidDesktop && window.__arachnidDesktop.update({json});"
+    ));
+}
+
+/// Открыть ссылку в системном браузере или почтовой программе.
+fn open_external(url: &Url) {
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return;
+    }
+    if let Err(error) = open::that_detached(url.as_str()) {
+        tracing::warn!(%error, "не удалось открыть ссылку");
+    }
+}
+
 // ─────────────────────────────────── окно ───────────────────────────────────
 
 /// Создать главное окно по настройкам «ПК».
 ///
-/// В `tauri.conf.json` у окна `create: false`: рамку, аппаратное ускорение
-/// и видимость при запуске нужно задать до появления окна.
-pub fn create_main_window(app: &AppHandle, desktop: &Desktop) -> tauri::Result<WebviewWindow> {
+/// В `tauri.conf.json` у окна `create: false`: адрес веб-клиента берётся из
+/// `config.toml`, а рамка, аппаратное ускорение и видимость при запуске —
+/// из настроек «ПК», и всё это нужно задать до появления окна.
+pub fn create_main_window(
+    app: &AppHandle,
+    desktop: &Desktop,
+    instance: &Instance,
+) -> tauri::Result<WebviewWindow> {
     let config = desktop.config();
-    let window_config = app
+    let mut window_config = app
         .config()
         .app
         .windows
@@ -246,12 +363,29 @@ pub fn create_main_window(app: &AppHandle, desktop: &Desktop) -> tauri::Result<W
         .find(|window| window.label == MAIN_WINDOW)
         .cloned()
         .unwrap_or_default();
+    window_config.url = WebviewUrl::External(instance.app_url.clone());
 
     let hidden = config.start_minimised_to_tray && std::env::args().any(|arg| arg == HIDDEN_ARG);
+    let guard = instance.clone();
 
     let mut builder = tauri::WebviewWindowBuilder::from_config(app, &window_config)?
         .decorations(!config.custom_frame)
-        .visible(false);
+        .visible(false)
+        .data_directory(desktop.dir.join(WEBVIEW_DIR))
+        .initialization_script(bridge_script(&config, instance))
+        // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
+        .on_navigation(move |url| {
+            let allowed = guard.owns(url);
+            if !allowed {
+                tracing::info!(%url, "переход с клиента заблокирован");
+            }
+            allowed
+        })
+        // как `setWindowOpenHandler`: ссылки открываются в системе
+        .on_new_window(|url, _features| {
+            open_external(&url);
+            NewWindowResponse::Deny
+        });
 
     #[cfg(windows)]
     if !config.hardware_acceleration {
@@ -278,6 +412,11 @@ pub fn create_main_window(app: &AppHandle, desktop: &Desktop) -> tauri::Result<W
     }
     if !hidden {
         let _ = window.show();
+    }
+
+    // как в Stoat for Desktop: признак первого запуска сбрасывается сразу
+    if config.first_launch {
+        desktop.update(|config| config.first_launch = false);
     }
     Ok(window)
 }
@@ -320,7 +459,13 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 refresh_tray(app);
             }
         }
-        WindowEvent::Moved(_) | WindowEvent::Resized(_) => desktop.remember_window(&webview),
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
+            let maximised_changed = desktop.remember_window(&webview);
+            // строка заголовка for-web показывает «Развернуть» или «Восстановить»
+            if maximised_changed {
+                push_config(&webview, &desktop.config());
+            }
+        }
         _ => {}
     }
 }
@@ -509,80 +654,40 @@ fn discord_loop(stopped: mpsc::Receiver<()>) {
 }
 
 // ─────────────────────────────────── команды ───────────────────────────────────
+//
+// Команды моста (`bridge.js`). Веб-клиент открыт с адреса из `config.toml`,
+// поэтому доступ к ним выдаётся этому адресу при запуске (см. `lib.rs`).
 
-/// Настройки «ПК» для раздела настроек.
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesktopView {
-    #[serde(flatten)]
-    config: DesktopConfig,
-    /// Запуск вместе с системой
-    autostart: bool,
-    /// Аппаратное ускорение изменено и ждёт перезапуска
-    restart_required: bool,
-    /// Версия клиента
-    version: &'static str,
-}
-
-fn view(app: &AppHandle, desktop: &Desktop) -> DesktopView {
-    let config = desktop.config();
-    DesktopView {
-        restart_required: config.hardware_acceleration != desktop.started_with_acceleration,
-        autostart: app.autolaunch().is_enabled().unwrap_or(false),
-        config,
-        version: env!("CARGO_PKG_VERSION"),
-    }
-}
-
-/// Настройки «ПК».
+/// `window.native.minimise()`
 #[tauri::command]
-pub fn desktop_config(app: AppHandle, desktop: State<'_, Arc<Desktop>>) -> DesktopView {
-    view(&app, &desktop)
+pub fn native_minimise(window: WebviewWindow) -> CmdResult<()> {
+    window.minimize().map_err(CommandError::from)
 }
 
-/// Изменить настройки «ПК» и сразу применить то, что можно без перезапуска.
+/// `window.native.maximise()`: развернуть или вернуть размер.
 #[tauri::command]
-pub fn set_desktop_config(
-    patch: DesktopPatch,
-    app: AppHandle,
-    desktop: State<'_, Arc<Desktop>>,
-) -> CmdResult<DesktopView> {
-    if let Some(enabled) = patch.autostart {
-        let manager = app.autolaunch();
-        let result = if enabled {
-            manager.enable()
-        } else {
-            manager.disable()
-        };
-        result.map_err(|error| CommandError::new("autostart", format!("автозапуск: {error}")))?;
+pub fn native_maximise(window: WebviewWindow) -> CmdResult<()> {
+    if window.is_maximized()? {
+        window.unmaximize()?;
+    } else {
+        window.maximize()?;
     }
+    Ok(())
+}
 
-    let config = desktop.update(|config| {
-        if let Some(value) = patch.custom_frame {
-            config.custom_frame = value;
-        }
-        if let Some(value) = patch.minimise_to_tray {
-            config.minimise_to_tray = value;
-        }
-        if let Some(value) = patch.start_minimised_to_tray {
-            config.start_minimised_to_tray = value;
-        }
-        if let Some(value) = patch.spellchecker {
-            config.spellchecker = value;
-        }
-        if let Some(value) = patch.hardware_acceleration {
-            config.hardware_acceleration = value;
-        }
-        if let Some(value) = patch.discord_rpc {
-            config.discord_rpc = value;
-        }
-    });
+/// `window.native.close()`: закрытие проходит через [`on_window_event`],
+/// поэтому «Сворачивать в трей» соблюдается.
+#[tauri::command]
+pub fn native_close(window: WebviewWindow) -> CmdResult<()> {
+    window.close().map_err(CommandError::from)
+}
 
-    if patch.custom_frame.is_some()
-        && let Some(window) = app.get_webview_window(MAIN_WINDOW)
-    {
-        let _ = window.set_decorations(!config.custom_frame);
-    }
+/// `window.desktopConfig.set(patch)`: сохранить и применить то, что можно
+/// без перезапуска. Рамка окна и аппаратное ускорение — после перезапуска,
+/// как в Stoat for Desktop.
+#[tauri::command]
+pub fn desktop_config_set(patch: DesktopPatch, desktop: State<'_, Arc<Desktop>>) {
+    let config = desktop.update(|config| patch.apply(config));
     if patch.discord_rpc.is_some() {
         if config.discord_rpc {
             start_discord(&desktop);
@@ -590,39 +695,34 @@ pub fn set_desktop_config(
             stop_discord(&desktop);
         }
     }
-    Ok(view(&app, &desktop))
 }
 
-/// Перевести меню трея на язык интерфейса.
+/// `window.desktopConfig.getAutostart()`
+#[tauri::command]
+pub fn desktop_autostart_get(app: AppHandle) -> bool {
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+/// `window.desktopConfig.setAutostart(value)`: возвращает то, что получилось.
+#[tauri::command]
+pub fn desktop_autostart_set(value: bool, app: AppHandle) -> CmdResult<bool> {
+    let manager = app.autolaunch();
+    let result = if value {
+        manager.enable()
+    } else {
+        manager.disable()
+    };
+    result.map_err(|error| CommandError::new("autostart", format!("автозапуск: {error}")))?;
+    Ok(manager.is_enabled().unwrap_or(value))
+}
+
+/// Перевести меню трея на язык системы.
 #[tauri::command]
 pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Arc<Desktop>>) {
     if let Ok(mut current) = desktop.labels.lock() {
         *current = labels;
     }
     refresh_tray(&app);
-}
-
-/// Перезапустить клиент (после смены аппаратного ускорения).
-#[tauri::command]
-pub fn restart_app(app: AppHandle, desktop: State<'_, Arc<Desktop>>) {
-    desktop.quitting.store(true, Ordering::SeqCst);
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        desktop.remember_window(&window);
-    }
-    desktop.persist();
-    stop_discord(&desktop);
-    app.restart();
-}
-
-/// Уведомление о сообщении («Включить уведомления на рабочем столе»).
-#[tauri::command]
-pub fn notify(title: String, body: String, app: AppHandle) -> CmdResult<()> {
-    app.notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show()
-        .map_err(|error| CommandError::new("notification", error.to_string()))
 }
 
 #[cfg(test)]
@@ -632,6 +732,7 @@ mod tests {
     #[test]
     fn defaults_match_stoat_for_desktop() {
         let config = DesktopConfig::default();
+        assert!(config.first_launch);
         assert!(config.custom_frame);
         assert!(config.minimise_to_tray);
         assert!(!config.start_minimised_to_tray);
@@ -646,6 +747,50 @@ mod tests {
         assert!(!config.discord_rpc);
         assert!(config.custom_frame);
         assert_eq!(config.window_state, WindowState::default());
+    }
+
+    #[test]
+    fn config_uses_names_of_web_client() {
+        let value = serde_json::to_value(DesktopConfig::default()).unwrap();
+        for key in [
+            "firstLaunch",
+            "customFrame",
+            "minimiseToTray",
+            "startMinimisedToTray",
+            "spellchecker",
+            "hardwareAcceleration",
+            "discordRpc",
+        ] {
+            assert!(value[key].is_boolean(), "нет поля {key}");
+        }
+        assert_eq!(value["windowState"]["isMaximised"], false);
+    }
+
+    #[test]
+    fn patch_changes_only_sent_fields() {
+        // так `desktopConfig.set` присылает изменение из раздела «ПК»
+        let patch: DesktopPatch =
+            serde_json::from_str(r#"{"spellchecker":false,"windowState":{"x":5}}"#).unwrap();
+        let mut config = DesktopConfig::default();
+        patch.apply(&mut config);
+        assert!(!config.spellchecker);
+        assert_eq!(
+            config,
+            DesktopConfig {
+                spellchecker: false,
+                ..DesktopConfig::default()
+            }
+        );
+    }
+
+    #[test]
+    fn bridge_gets_every_placeholder() {
+        let instance = Instance::default();
+        let script = bridge_script(&DesktopConfig::default(), &instance);
+        assert!(!script.contains("__ARACHNID_"), "осталась метка в мосте");
+        assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
+        assert!(script.contains(r#""customFrame":true"#));
+        assert!(script.contains(env!("CARGO_PKG_VERSION")));
     }
 
     #[test]

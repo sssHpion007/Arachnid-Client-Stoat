@@ -671,6 +671,23 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
                 emitted.push(CacheEvent::ChannelChanged(id));
             }
         }
+        GatewayEvent::ChannelGroupJoin { id, user } => {
+            // как `recipientIds.add` в stoat.js
+            if let Some(v0::Channel::Group { recipients, .. }) = state.channels.get_mut(&id)
+                && !recipients.contains(&user)
+            {
+                recipients.push(user);
+                emitted.push(CacheEvent::ChannelChanged(id));
+            }
+        }
+        GatewayEvent::ChannelGroupLeave { id, user } => {
+            if let Some(v0::Channel::Group { recipients, .. }) = state.channels.get_mut(&id)
+                && let Some(index) = recipients.iter().position(|item| *item == user)
+            {
+                recipients.remove(index);
+                emitted.push(CacheEvent::ChannelChanged(id));
+            }
+        }
         GatewayEvent::ChannelDelete { id } => {
             state.channels.remove(&id);
             state.forget_channel(&id);
@@ -824,6 +841,8 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
         } => {
             let user_id = user.id.clone();
             let mut user = user;
+            // страница «Друзья» читает `relationship`, а не список связей
+            user.relationship = status.clone();
             user.relations = vec![v0::Relationship {
                 user_id: user_id.clone(),
                 status,
@@ -907,8 +926,6 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
         | GatewayEvent::Error(_)
         | GatewayEvent::Logout
         | GatewayEvent::Pong { .. }
-        | GatewayEvent::ChannelGroupJoin { .. }
-        | GatewayEvent::ChannelGroupLeave { .. }
         | GatewayEvent::ServerRoleUpdate { .. }
         | GatewayEvent::ServerRoleDelete { .. }
         | GatewayEvent::Unknown => {}
@@ -1157,6 +1174,41 @@ mod tests {
         }
         // чужое сообщение не отмечает канал прочитанным
         assert!(Unread::is_behind(snapshot.unreads.get("c1"), Some("01C")));
+    }
+
+    #[tokio::test]
+    async fn group_join_and_leave_update_recipients() {
+        let cache = Cache::new();
+        let channel: v0::Channel = serde_json::from_value(json!({
+            "channel_type": "Group",
+            "_id": "g1",
+            "name": "friends",
+            "owner": "u1",
+            "recipients": ["u1", "u2"]
+        }))
+        .unwrap();
+        cache.insert_channel(channel).await;
+        let recipients = |snapshot: Snapshot| match &snapshot.channels[0] {
+            v0::Channel::Group { recipients, .. } => recipients.clone(),
+            other => panic!("не тот канал: {other:?}"),
+        };
+
+        let join = |user: &str| GatewayEvent::ChannelGroupJoin {
+            id: "g1".into(),
+            user: user.into(),
+        };
+        cache.apply(join("u3")).await;
+        // повторное событие не дублирует участника
+        cache.apply(join("u3")).await;
+        assert_eq!(recipients(cache.snapshot().await), ["u1", "u2", "u3"]);
+
+        cache
+            .apply(GatewayEvent::ChannelGroupLeave {
+                id: "g1".into(),
+                user: "u2".into(),
+            })
+            .await;
+        assert_eq!(recipients(cache.snapshot().await), ["u1", "u3"]);
     }
 
     #[tokio::test]

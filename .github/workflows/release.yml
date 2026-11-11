@@ -80,9 +80,9 @@ jobs:
         run: |
           mkdir -p dist/Arachnid-Client
           cp "${{ matrix.bin }}" dist/Arachnid-Client/
-          mkdir -p dist/Arachnid-Client/{cache,plugins,themes,logs}
-          cp bootstrap/config.toml dist/Arachnid-Client/ || true
-          cp bootstrap/README.txt dist/Arachnid-Client/ || true
+          mkdir -p dist/Arachnid-Client/logs
+          cp bootstrap/config.toml dist/Arachnid-Client/
+          cp bootstrap/README.txt dist/Arachnid-Client/
           cd dist
           if [ "${{ matrix.pack }}" = "zip" ]; then
             (command -v 7z >/dev/null && 7z a -tzip "${{ matrix.asset }}.zip" Arachnid-Client) \
@@ -134,8 +134,8 @@ jobs:
             ## Установка
 
             **Самое простое** — portable-архив: распакуйте в любую папку и запустите
-            `arachnid-client.exe`. Рядом с ним уже лежат `config.toml` и каталоги
-            `cache/`, `plugins/`, `themes/`, `logs/` — официальный Stoat не нужен.
+            `arachnid-client.exe`. Рядом с ним лежит `config.toml`: вход и настройки
+            хранятся в этой же папке, её можно переносить.
 
             Либо установщик: `*-setup.exe` (NSIS) или `.msi`.
 
@@ -163,7 +163,7 @@ jobs:
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" \
               --title "Arachnid Client ${GITHUB_REF_NAME}" \
-              --notes "Клиент Stoat: интерфейс, вход по почте и паролю, чат."
+              --notes "Настольный клиент Stoat: официальный веб-клиент в окне Tauri."
 
           # заливаем по одному файлу: отсутствие части артефактов
           # (например, macOS) не должно ломать выпуск

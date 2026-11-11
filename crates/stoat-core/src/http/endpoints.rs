@@ -593,6 +593,51 @@ impl HttpClient {
         .await
     }
 
+    /// `POST /channels/{id}/search` — поиск сообщений в канале.
+    ///
+    /// `query` — тело `DataMessageSearch`: строка поиска или `pinned`,
+    /// порядок `sort` (`Relevance`, `Latest`, `Oldest`), `limit`.
+    pub async fn search_messages(
+        &self,
+        channel_id: &str,
+        query: &Value,
+    ) -> Result<v0::BulkMessageResponse> {
+        let mut body = query.clone();
+        if let Some(fields) = body.as_object_mut() {
+            fields.insert("include_users".into(), Value::Bool(true));
+        }
+        self.send_json(
+            Method::POST,
+            &format!("/channels/{}/search", segment(channel_id)),
+            &body,
+        )
+        .await
+    }
+
+    /// `POST /channels/create` — новая группа с выбранными друзьями.
+    pub async fn create_group(&self, name: &str, users: &[String]) -> Result<v0::Channel> {
+        self.send_json(
+            Method::POST,
+            "/channels/create",
+            &json!({ "name": name, "users": users }),
+        )
+        .await
+    }
+
+    /// `PUT /channels/{group}/recipients/{user}` — добавить друга в группу.
+    pub async fn add_group_member(&self, group_id: &str, user_id: &str) -> Result<()> {
+        self.send_empty(
+            Method::PUT,
+            &format!(
+                "/channels/{}/recipients/{}",
+                segment(group_id),
+                segment(user_id)
+            ),
+            None,
+        )
+        .await
+    }
+
     /// `POST /safety/report` — пожаловаться модераторам Stoat.
     ///
     /// `content` — что именно: `{"type": "Message" | "Server" | "User", "id", "report_reason", …}`.

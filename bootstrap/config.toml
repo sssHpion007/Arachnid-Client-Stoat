@@ -1,27 +1,10 @@
 # Конфигурация Arachnid Client.
-# Токен сюда НЕ пишется: он хранится в системном хранилище секретов.
+#
+# Клиент открывает официальный веб-клиент Stoat, как Stoat for Desktop.
+# Вход, сессия и настройки веб-клиента хранятся в папке webview\ рядом.
 
 [instance]
-api_url = "https://api.stoat.chat"
-ws_url  = "wss://events.stoat.chat"
-# Свой сервер: раскомментируйте и укажите адреса
-# api_url = "https://stoat.example.com/api"
-# ws_url  = "wss://stoat.example.com/events"
-
-[app]
-name = "Arachnid Client"
-check_updates = true
-
-[plugins]
-# Плагины исполняются в песочнице WASM и получают только права из манифеста
-enabled = true
-dir = "plugins"
-memory_limit_mib = 64
-call_timeout_ms = 50
-
-[ui]
-theme = "dark"
-density = "cozy"
-
-[cache]
-max_size_mib = 512
+# Адрес веб-клиента, который открывается в окне.
+# Свой инстанс: адрес его веб-клиента, например "https://stoat.example.com".
+# Нужен https (http — только для localhost).
+app_url = "https://stoat.chat/app"
