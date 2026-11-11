@@ -21,10 +21,10 @@ STOAT_TOKEN=... cargo run -p stoat-core --example gateway_probe
 ## Клиент (Tauri)
 
 ```bash
-cargo build --release -p tauri-stoat
+cargo build --release -p arachnid-client
 ```
 
-Готовый бинарник: `target/release/tauri-stoat` (Windows: `tauri-stoat.exe`).
+Готовый бинарник: `target/release/arachnid-client` (Windows: `arachnid-client.exe`).
 
 Установщики (нужен CLI Tauri):
 
@@ -62,7 +62,7 @@ git push origin v0.1.0
 Чтобы получить переносимую сборку, при запуске укажите папку:
 
 ```bash
-TAURI_STOAT_DIR=/path/to/folder ./tauri-stoat
+ARACHNID_CLIENT_DIR=/path/to/folder ./arachnid-client
 ```
 
 или положите `config.toml` рядом с исполняемым файлом — клиент использует

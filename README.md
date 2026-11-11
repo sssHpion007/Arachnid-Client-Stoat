@@ -1,4 +1,4 @@
-# Tauri-Stoat
+# Arachnid Client
 
 Клиент [Stoat](https://stoat.chat/) (бывший Revolt) на Rust: своё ядро, Tauri-оболочка
 и API плагинов с манифестом прав — без костылей вроде ножниц в чужой DOM.
@@ -38,7 +38,7 @@ powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
 chmod +x bootstrap.sh && ./bootstrap.sh
 ```
 
-По умолчанию ставит в `~/Tauri-Stoat` и создаёт `config.toml`, `cache/`,
+По умолчанию ставит в `~/Arachnid-Client` и создаёт `config.toml`, `cache/`,
 `plugins/`, `themes/`, `logs/`, `vendor/` (там `api-root.json`,
 `revolt-models-0.16.3.crate` и сама сборка клиента). Официальный Stoat при этом
 не задействован, перенос папки ничего не ломает. Подробности —
@@ -53,7 +53,7 @@ chmod +x bootstrap.sh && ./bootstrap.sh
 cargo test --workspace
 cargo run -p stoat-core --example probe            # проверка связи с инстансом
 cargo run -p stoat-core --example gateway_probe    # проверка gateway
-cargo build --release -p tauri-stoat               # клиент (см. docs/build.md)
+cargo build --release -p arachnid-client               # клиент (см. docs/build.md)
 ```
 
 ## Принципы

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use revolt_models::v0;
 use serde::{Deserialize, Serialize};
-use stoat_core::cache::{Snapshot, channel_id as id_of};
+use stoat_core::cache::{Snapshot, Unread, channel_id as id_of};
 
 /// Эмодзи сервера в том виде, который удобен UI.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -34,12 +34,6 @@ impl EmojiView {
             animated: emoji.animated,
         }
     }
-
-    /// Найти эмодзи по имени из текста сообщения.
-    pub fn find<'a>(list: &'a [EmojiView], name: &str) -> Option<&'a EmojiView> {
-        list.iter()
-            .find(|emoji| emoji.name.eq_ignore_ascii_case(name))
-    }
 }
 
 /// Пользователь в том виде, который удобен UI.
@@ -53,19 +47,80 @@ pub struct UserView {
     pub discriminator: String,
     /// Отображаемое имя
     pub display_name: Option<String>,
+    /// Аватар (есть, только если представление собрано через [`UserView::build`])
+    #[serde(default)]
+    pub avatar: Option<String>,
+    /// Присутствие: `Online`, `Idle`, `Focus`, `Busy`, `Offline`
+    #[serde(default)]
+    pub presence: String,
+    /// Текст статуса
+    #[serde(default)]
+    pub status: Option<String>,
+}
+
+/// Присутствие пользователя так, как его показывает браузерный клиент.
+///
+/// Невидимый пользователь для остальных выглядит как не в сети.
+pub fn presence_of(user: &v0::User) -> &'static str {
+    if !user.online {
+        return "Offline";
+    }
+    match user
+        .status
+        .as_ref()
+        .and_then(|status| status.presence.as_ref())
+    {
+        Some(v0::Presence::Idle) => "Idle",
+        Some(v0::Presence::Focus) => "Focus",
+        Some(v0::Presence::Busy) => "Busy",
+        Some(v0::Presence::Invisible) => "Offline",
+        Some(v0::Presence::Online) | None => "Online",
+    }
+}
+
+/// Текст статуса пользователя, если он задан.
+pub fn status_text(user: &v0::User) -> Option<String> {
+    user.status
+        .as_ref()
+        .and_then(|status| status.text.clone())
+        .filter(|text| !text.trim().is_empty())
+}
+
+/// Роли сервера от старшей к младшей.
+///
+/// В Stoat у старшей роли **меньший** `rank` («Smaller values take
+/// priority»), роли участника приходят списком id без порядка.
+fn ordered_roles<'a>(
+    roles: &[String],
+    server_roles: &'a HashMap<String, v0::Role>,
+) -> Vec<&'a v0::Role> {
+    let mut list: Vec<&v0::Role> = roles
+        .iter()
+        .filter_map(|id| server_roles.get(id))
+        .collect();
+    list.sort_by_key(|role| role.rank);
+    list
 }
 
 /// Цвет роли участника.
 ///
-/// В Stoat ник красится цветом роли с наибольшим приоритетом, а не первой
-/// попавшейся: роли приходят списком id, и порядок в нём ничего не значит.
+/// Ник красится цветом старшей роли, у которой цвет задан, а не первой
+/// попавшейся.
 pub fn role_colour(roles: &[String], server_roles: &HashMap<String, v0::Role>) -> Option<String> {
-    roles
-        .iter()
-        .filter_map(|id| server_roles.get(id))
-        .filter_map(|role| role.colour.clone().map(|colour| (role.rank, colour)))
-        .max_by_key(|(rank, _)| *rank)
-        .map(|(_, colour)| colour)
+    ordered_roles(roles, server_roles)
+        .into_iter()
+        .find_map(|role| role.colour.clone())
+}
+
+/// Роль, под которой участник показывается в правой панели.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct HoistView {
+    /// Id роли
+    pub id: String,
+    /// Название роли
+    pub name: String,
+    /// Позиция роли: чем меньше, тем выше группа
+    pub rank: i64,
 }
 
 /// Участник сервера в том виде, который нужен интерфейсу.
@@ -85,6 +140,12 @@ pub struct MemberView {
     pub roles: Vec<String>,
     /// В сети
     pub online: bool,
+    /// Присутствие: `Online`, `Idle`, `Focus`, `Busy`, `Offline`
+    pub presence: String,
+    /// Текст статуса
+    pub status: Option<String>,
+    /// Старшая роль с флагом `hoist`: по ней участник попадает в группу
+    pub hoist: Option<HoistView>,
 }
 
 impl UserView {
@@ -95,15 +156,27 @@ impl UserView {
             .filter(|name| !name.trim().is_empty())
             .unwrap_or_else(|| format!("{}#{}", self.username, self.discriminator))
     }
+
+    /// Представление с адресом аватара.
+    pub fn build(user: v0::User, cdn: Option<&str>) -> Self {
+        let avatar = user.avatar.as_ref().and_then(|file| file_url(file, cdn));
+        Self {
+            avatar,
+            ..Self::from(user)
+        }
+    }
 }
 
 impl From<v0::User> for UserView {
     fn from(user: v0::User) -> Self {
         Self {
+            presence: presence_of(&user).to_string(),
+            status: status_text(&user),
             id: user.id,
             username: user.username,
             discriminator: user.discriminator,
             display_name: user.display_name,
+            avatar: None,
         }
     }
 }
@@ -119,6 +192,8 @@ pub struct WorkspaceView {
     pub servers: Vec<ServerView>,
     /// Личные сообщения и группы
     pub dms: Vec<ChannelView>,
+    /// Канал «Заметки» (сохранённые сообщения), если он уже создан
+    pub notes: Option<String>,
     /// Канал, который стоит открыть по умолчанию
     pub last_channel: Option<String>,
     /// Базовый URL файлов (аватары, вложения)
@@ -192,16 +267,40 @@ impl WorkspaceView {
             servers.sort_by_key(|server| server.name.to_lowercase());
         }
 
+        for server in &mut servers {
+            for category in &mut server.categories {
+                for channel in &mut category.channels {
+                    channel.apply_unread(&snapshot.unreads);
+                }
+            }
+            let listed = server
+                .categories
+                .iter()
+                .flat_map(|category| &category.channels);
+            server.unread = listed.clone().any(|channel| channel.unread);
+            server.mentions = listed.map(|channel| channel.mentions).sum();
+        }
+
+        let me = snapshot.me.as_ref().map(|user| user.id.as_str());
+        // закрытые личные переписки (`active: false`) браузер не показывает
         let mut dms: Vec<ChannelView> = channels
             .iter()
-            .filter(|channel| {
-                matches!(
-                    channel,
-                    v0::Channel::DirectMessage { .. } | v0::Channel::Group { .. }
-                )
+            .filter(|channel| match channel {
+                v0::Channel::DirectMessage { active, .. } => *active,
+                v0::Channel::Group { .. } => true,
+                _ => false,
             })
-            .map(|channel| ChannelView::build(channel, &snapshot.users, None, cdn.as_deref()))
+            .map(|channel| {
+                let mut view =
+                    ChannelView::build(channel, &snapshot.users, None, me, cdn.as_deref());
+                view.apply_unread(&snapshot.unreads);
+                view
+            })
             .collect();
+        let notes = channels.iter().find_map(|channel| match channel {
+            v0::Channel::SavedMessages { id, .. } => Some(id.clone()),
+            _ => None,
+        });
         dms.sort_by(|a, b| {
             b.last_message_id
                 .cmp(&a.last_message_id)
@@ -218,9 +317,12 @@ impl WorkspaceView {
             .or_else(|| dms.first().map(|channel| channel.id.clone()));
 
         Self {
-            me: snapshot.me.map(UserView::from),
+            me: snapshot
+                .me
+                .map(|user| UserView::build(user, cdn.as_deref())),
             servers,
             dms,
+            notes,
             last_channel,
             cdn,
         }
@@ -240,6 +342,10 @@ pub struct ServerView {
     pub icon: Option<String>,
     /// Категории с каналами (в порядке сервера)
     pub categories: Vec<CategoryView>,
+    /// Есть ли непрочитанное хотя бы в одном канале
+    pub unread: bool,
+    /// Сколько непрочитанных упоминаний во всех каналах
+    pub mentions: usize,
 }
 
 impl ServerView {
@@ -271,7 +377,7 @@ impl ServerView {
                 .filter_map(|channel_id| {
                     let channel = own.iter().find(|c| id_of(c) == channel_id)?;
                     placed.push(channel_id.clone());
-                    Some(ChannelView::build(channel, &[], Some(&members), cdn))
+                    Some(ChannelView::build(channel, &[], Some(&members), None, cdn))
                 })
                 .collect();
             if !list.is_empty() {
@@ -289,7 +395,7 @@ impl ServerView {
         let mut rest: Vec<ChannelView> = own
             .iter()
             .filter(|channel| !placed.contains(&id_of(channel).to_string()))
-            .map(|channel| ChannelView::build(channel, &[], Some(&members), cdn))
+            .map(|channel| ChannelView::build(channel, &[], Some(&members), None, cdn))
             .collect();
 
         if !rest.is_empty() {
@@ -321,6 +427,8 @@ impl ServerView {
             name: server.name.clone(),
             icon: server.icon.as_ref().and_then(|file| file_url(file, cdn)),
             categories,
+            unread: false,
+            mentions: 0,
         }
     }
 }
@@ -354,13 +462,25 @@ pub struct ChannelView {
     pub last_message_id: Option<String>,
     /// Идёт ли голосовая сессия
     pub voice: bool,
+    /// Собеседник в личных сообщениях
+    pub recipient: Option<String>,
+    /// Присутствие собеседника в личных сообщениях
+    pub presence: Option<String>,
+    /// Есть ли непрочитанные сообщения
+    pub unread: bool,
+    /// Сколько непрочитанных упоминаний
+    pub mentions: usize,
+    /// Последнее прочитанное сообщение: по нему ставится разделитель «новое»
+    pub last_read: Option<String>,
 }
 
 impl ChannelView {
+    /// `me` нужен для личных сообщений: собеседник — тот, кто не я.
     fn build(
         channel: &v0::Channel,
         users: &[v0::User],
         members: Option<&Vec<v0::Member>>,
+        me: Option<&str>,
         cdn: Option<&str>,
     ) -> Self {
         match channel {
@@ -380,21 +500,43 @@ impl ChannelView {
                 icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
                 last_message_id: last_message_id.clone(),
                 voice: voice.is_some(),
+                recipient: None,
+                presence: None,
+                unread: false,
+                mentions: 0,
+                last_read: None,
             },
             v0::Channel::DirectMessage {
                 id,
                 recipients,
                 last_message_id,
                 ..
-            } => Self {
-                id: id.clone(),
-                name: recipient_name(recipients, users, members),
-                kind: "dm".into(),
-                description: None,
-                icon: None,
-                last_message_id: last_message_id.clone(),
-                voice: false,
-            },
+            } => {
+                let others: Vec<String> = recipients
+                    .iter()
+                    .filter(|recipient| Some(recipient.as_str()) != me)
+                    .cloned()
+                    .collect();
+                let other = others
+                    .first()
+                    .and_then(|recipient| users.iter().find(|user| &user.id == recipient));
+                Self {
+                    id: id.clone(),
+                    name: recipient_name(&others, users, members),
+                    kind: "dm".into(),
+                    description: other.and_then(status_text),
+                    icon: other
+                        .and_then(|user| user.avatar.as_ref())
+                        .and_then(|file| file_url(file, cdn)),
+                    last_message_id: last_message_id.clone(),
+                    voice: false,
+                    recipient: others.first().cloned(),
+                    presence: other.map(|user| presence_of(user).to_string()),
+                    unread: false,
+                    mentions: 0,
+                    last_read: None,
+                }
+            }
             v0::Channel::Group {
                 id,
                 name,
@@ -410,17 +552,38 @@ impl ChannelView {
                 icon: icon.as_ref().and_then(|file| file_url(file, cdn)),
                 last_message_id: last_message_id.clone(),
                 voice: false,
+                recipient: None,
+                presence: None,
+                unread: false,
+                mentions: 0,
+                last_read: None,
             },
             v0::Channel::SavedMessages { id, .. } => Self {
                 id: id.clone(),
-                name: "Избранное".into(),
+                name: "Заметки".into(),
                 kind: "notes".into(),
                 description: None,
                 icon: None,
                 last_message_id: None,
                 voice: false,
+                recipient: None,
+                presence: None,
+                unread: false,
+                mentions: 0,
+                last_read: None,
             },
         }
+    }
+
+    /// Отметить непрочитанное по отметкам из `Ready`/`ChannelAck`.
+    fn apply_unread(&mut self, unreads: &HashMap<String, Unread>) {
+        if self.kind == "notes" {
+            return;
+        }
+        let unread = unreads.get(&self.id);
+        self.unread = Unread::is_behind(unread, self.last_message_id.as_deref());
+        self.mentions = unread.map_or(0, |unread| unread.mentions.len());
+        self.last_read = unread.and_then(|unread| unread.last_id.clone());
     }
 }
 
@@ -463,6 +626,8 @@ pub struct ChatMessage {
     pub colour: Option<String>,
     /// Встраивания: превью ссылок, картинки, видео
     pub embeds: Vec<EmbedView>,
+    /// Id сообщений, на которые это сообщение отвечает
+    pub replies: Vec<String>,
 }
 
 /// Собрать список участников сервера для правой панели.
@@ -483,13 +648,16 @@ pub fn members_of(
                 .as_ref()
                 .and_then(|file| file_url(file, cdn))
                 .or_else(|| user.avatar.as_ref().and_then(|file| file_url(file, cdn)));
-            let mut roles: Vec<&v0::Role> = member
-                .roles
-                .iter()
-                .filter_map(|id| server.roles.get(id))
-                .collect();
             // как в клиенте: сначала старшие роли
-            roles.sort_by_key(|role| std::cmp::Reverse(role.rank));
+            let roles = ordered_roles(&member.roles, &server.roles);
+            let hoist = roles
+                .iter()
+                .find(|role| role.hoist)
+                .map(|role| HoistView {
+                    id: role.id.clone(),
+                    name: role.name.clone(),
+                    rank: role.rank,
+                });
             Some(MemberView {
                 id: member.id.user.clone(),
                 name: user_label_with(user, Some(member)),
@@ -498,6 +666,9 @@ pub fn members_of(
                 colour: role_colour(&member.roles, &server.roles),
                 roles: roles.iter().map(|role| role.name.clone()).collect(),
                 online: user.online,
+                presence: presence_of(user).to_string(),
+                status: status_text(user),
+                hoist,
             })
         })
         .collect();
@@ -539,37 +710,52 @@ pub struct EmbedView {
     pub height: Option<usize>,
 }
 
-/// Имена эмодзи, которые встречаются в тексте как `:имя:`.
+/// Текст системного сообщения, как в браузерном клиенте.
 ///
-/// Отдаём интерфейсу карту «имя → пусто»: адрес картинки подставит команда
-/// `server_emojis`, когда получит список эмодзи сервера.
-pub fn emoji_names(text: &str) -> HashMap<String, String> {
+/// `who` превращает id пользователя в имя для показа.
+pub fn system_text(event: &v0::SystemMessage, who: impl Fn(&str) -> String) -> String {
+    use v0::SystemMessage::*;
+    match event {
+        Text { content } => content.clone(),
+        UserAdded { id, by } => format!("{} добавляет {} в группу", who(by), who(id)),
+        UserRemove { id, by } => format!("{} убирает {} из группы", who(by), who(id)),
+        UserJoined { id } => format!("{} присоединяется", who(id)),
+        UserLeft { id } => format!("{} выходит", who(id)),
+        UserKicked { id } => format!("{} исключён(а) с сервера", who(id)),
+        UserBanned { id } => format!("{} заблокирован(а) на сервере", who(id)),
+        ChannelRenamed { name, by } => format!("{} переименовывает канал в «{name}»", who(by)),
+        ChannelDescriptionChanged { by } => format!("{} меняет описание канала", who(by)),
+        ChannelIconChanged { by } => format!("{} меняет значок канала", who(by)),
+        ChannelOwnershipChanged { from, to } => {
+            format!("{} передаёт группу {}", who(from), who(to))
+        }
+        MessagePinned { by, .. } => format!("{} закрепляет сообщение", who(by)),
+        MessageUnpinned { by, .. } => format!("{} открепляет сообщение", who(by)),
+        CallStarted { by, .. } => format!("{} начинает звонок", who(by)),
+    }
+}
+
+/// Свои эмодзи из текста: id → адрес картинки.
+///
+/// Браузерный клиент Stoat хранит в тексте не имя, а id эмодзи — `:ULID:`
+/// (26 символов `0-9A-Z`), а картинку берёт из `{cdn}/emojis/{id}`.
+pub fn custom_emojis(text: &str, cdn: Option<&str>) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        if chars[index] != ':' {
-            index += 1;
+    let Some(base) = cdn.map(|base| base.trim_end_matches('/')) else {
+        return out;
+    };
+    for (index, _) in text.match_indices(':') {
+        let Some(candidate) = text.get(index + 1..index + 28) else {
             continue;
-        }
-        let start = index + 1;
-        let mut end = start;
-        while end < chars.len()
-            && end - start < 32
-            && (chars[end].is_alphanumeric() || chars[end] == '_')
-        {
-            end += 1;
-        }
-        let valid = end > start
-            && end - start >= 2
-            && end < chars.len()
-            && chars[end] == ':'
-            && chars[start].is_alphabetic();
-        if valid {
-            out.insert(chars[start..end].iter().collect(), String::new());
-            index = end + 1;
-        } else {
-            index += 1;
+        };
+        let bytes = candidate.as_bytes();
+        let is_id = bytes[26] == b':'
+            && bytes[..26]
+                .iter()
+                .all(|byte| byte.is_ascii_digit() || byte.is_ascii_uppercase());
+        if is_id {
+            let id = &candidate[..26];
+            out.insert(id.to_string(), format!("{base}/emojis/{id}"));
         }
     }
     out
@@ -639,6 +825,14 @@ impl ChatMessage {
                     .and_then(|hook| hook.avatar.as_ref())
                     .and_then(|id| webhook_avatar_url(id, cdn))
             })
+            // как в браузере: аватар участника сервера важнее аватара профиля
+            .or_else(|| {
+                message
+                    .member
+                    .as_ref()
+                    .and_then(|member| member.avatar.as_ref())
+                    .and_then(|file| file_url(file, cdn))
+            })
             .or_else(|| {
                 message
                     .user
@@ -646,12 +840,11 @@ impl ChatMessage {
                     .and_then(|user| user.avatar.as_ref())
                     .and_then(|file| file_url(file, cdn))
             })
+            // в событиях шлюза профиля нет — берём аватар автора из кэша
             .or_else(|| {
-                message
-                    .member
-                    .as_ref()
-                    .and_then(|member| member.avatar.as_ref())
-                    .and_then(|file| file_url(file, cdn))
+                authors
+                    .get(&message.author)
+                    .and_then(|author| author.avatar.clone())
             });
 
         // ник без серверного — для подсказки при наведении
@@ -662,13 +855,11 @@ impl ChatMessage {
             .or_else(|| authors.get(&message.author).map(UserView::label));
 
         let member_roles = message.member.as_ref().map(|member| member.roles.clone());
-        let roles: Vec<String> = member_roles
-            .clone()
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|id| server_roles.get(id))
-            .map(|role| role.name.clone())
-            .collect();
+        let roles: Vec<String> =
+            ordered_roles(member_roles.as_deref().unwrap_or_default(), server_roles)
+                .into_iter()
+                .map(|role| role.name.clone())
+                .collect();
 
         // маска сообщения важнее роли, иначе нику достаётся цвет главной роли
         let colour = masquerade
@@ -695,8 +886,18 @@ impl ChatMessage {
             .filter_map(EmbedView::build)
             .collect();
 
-        let content = message.content.unwrap_or_default();
-        let emoji = emoji_names(&content);
+        // у системного сообщения нет текста: его собирает клиент
+        let content = match &message.system {
+            Some(event) => system_text(event, |id| {
+                member_nickname
+                    .get(id)
+                    .cloned()
+                    .or_else(|| authors.get(id).map(UserView::label))
+                    .unwrap_or_else(|| "Пользователь".into())
+            }),
+            None => message.content.unwrap_or_default(),
+        };
+        let emoji = custom_emojis(&content, cdn);
         let mentions = mentioned_users(&content);
 
         Self {
@@ -719,6 +920,7 @@ impl ChatMessage {
             username,
             roles,
             mentions,
+            replies: message.replies.unwrap_or_default(),
         }
     }
 }
@@ -1294,6 +1496,88 @@ mod tests {
     }
 
     #[test]
+    fn unread_and_direct_messages_are_marked() {
+        let snapshot = Snapshot {
+            users: serde_json::from_str(
+                r#"[{"_id":"me","username":"me","discriminator":"0001","relationship":"User","online":true},
+                    {"_id":"u2","username":"friend","discriminator":"0002","display_name":"Друг",
+                     "status":{"text":"занят","presence":"Busy"},
+                     "relationship":"Friend","online":true}]"#,
+            )
+            .unwrap(),
+            servers: serde_json::from_str(
+                r#"[{"_id":"s1","owner":"me","name":"Сервер","channels":["c1","c2"],
+                     "roles":{},"default_permissions":0,"approximate_member_count":1}]"#,
+            )
+            .unwrap(),
+            channels: serde_json::from_str(
+                r#"[{"channel_type":"TextChannel","_id":"c1","server":"s1","name":"прочитан",
+                     "last_message_id":"01B"},
+                    {"channel_type":"TextChannel","_id":"c2","server":"s1","name":"новое",
+                     "last_message_id":"01C"},
+                    {"channel_type":"DirectMessage","_id":"d1","active":true,
+                     "recipients":["me","u2"],"last_message_id":"01D"},
+                    {"channel_type":"DirectMessage","_id":"d2","active":false,
+                     "recipients":["me","u2"]},
+                    {"channel_type":"SavedMessages","_id":"n1","user":"me"}]"#,
+            )
+            .unwrap(),
+            me: serde_json::from_str(
+                r#"{"_id":"me","username":"me","discriminator":"0001","relationship":"User","online":true}"#,
+            )
+            .unwrap(),
+            unreads: [
+                (
+                    "c1".to_string(),
+                    Unread {
+                        last_id: Some("01B".into()),
+                        mentions: Vec::new(),
+                    },
+                ),
+                (
+                    "c2".to_string(),
+                    Unread {
+                        last_id: Some("01A".into()),
+                        mentions: vec!["01C".into()],
+                    },
+                ),
+                (
+                    "d1".to_string(),
+                    Unread {
+                        last_id: Some("01D".into()),
+                        mentions: Vec::new(),
+                    },
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            ..Default::default()
+        };
+
+        let workspace = WorkspaceView::build_ordered(snapshot, None, &Ordering::default());
+        let server = &workspace.servers[0];
+        assert!(server.unread);
+        assert_eq!(server.mentions, 1);
+        let channels = &server.categories[0].channels;
+        let read = channels.iter().find(|channel| channel.id == "c1").unwrap();
+        let fresh = channels.iter().find(|channel| channel.id == "c2").unwrap();
+        assert!(!read.unread);
+        assert!(fresh.unread);
+        assert_eq!(fresh.mentions, 1);
+
+        // закрытая переписка скрыта, заметки — отдельно
+        assert_eq!(workspace.dms.len(), 1);
+        assert_eq!(workspace.notes.as_deref(), Some("n1"));
+        let dm = &workspace.dms[0];
+        assert_eq!(dm.name, "Друг", "в имени нет самого пользователя");
+        assert_eq!(dm.recipient.as_deref(), Some("u2"));
+        assert_eq!(dm.presence.as_deref(), Some("Busy"));
+        assert_eq!(dm.description.as_deref(), Some("занят"));
+        assert!(!dm.unread);
+        assert_eq!(workspace.me.unwrap().presence, "Online");
+    }
+
+    #[test]
     fn ordering_from_settings_is_applied() {
         let snapshot = Snapshot {
             users: Vec::new(),
@@ -1445,16 +1729,21 @@ mod tests {
     }
 
     #[test]
-    fn emoji_names_are_found() {
-        let found = emoji_names("привет :cat: и :dog_1: но не :x: и не 12:30");
-        let mut names: Vec<&str> = found.keys().map(String::as_str).collect();
-        names.sort();
-        assert_eq!(names, vec!["cat", "dog_1"]);
-        assert!(emoji_names("обычный текст").is_empty());
-        assert!(
-            emoji_names(":1bad:").is_empty(),
-            "имя должно начинаться с буквы"
+    fn custom_emojis_are_found_by_id() {
+        let cdn = Some("https://cdn.example/");
+        let found = custom_emojis(
+            "привет :01GZ8K1WZ6J0X8Y4V3T2R1Q0PN: и :cat: и 12:30 и :01GZ8K1WZ6J0X8Y4V3T2R1Q0P:",
+            cdn,
         );
+        assert_eq!(found.len(), 1, "только полный ULID между двоеточиями");
+        assert_eq!(
+            found["01GZ8K1WZ6J0X8Y4V3T2R1Q0PN"],
+            "https://cdn.example/emojis/01GZ8K1WZ6J0X8Y4V3T2R1Q0PN"
+        );
+        assert!(custom_emojis("обычный текст", cdn).is_empty());
+        assert!(custom_emojis(":01GZ8K1WZ6J0X8Y4V3T2R1Q0PN:", None).is_empty());
+        // многобайтовые символы рядом с двоеточием не ломают разбор
+        assert!(custom_emojis(":ёёёёёёёёёёёёёёё:", cdn).is_empty());
     }
 
     #[test]
@@ -1467,10 +1756,6 @@ mod tests {
         let view = EmojiView::build(&emoji, Some("https://cdn.example/"));
         assert_eq!(view.url.as_deref(), Some("https://cdn.example/emojis/e1"));
         assert!(view.animated);
-        assert_eq!(
-            EmojiView::find(&[view], "CAT").map(|e| e.name.as_str()),
-            Some("cat")
-        );
     }
 
     #[test]
@@ -1571,11 +1856,17 @@ let a = 1;
     #[test]
     fn colour_comes_from_highest_role() {
         let roles = roles_json();
-        let member_roles = vec!["r1".to_string(), "r3".to_string(), "r2".to_string()];
+        // в Stoat старшая роль — с меньшим rank: «Гость» (1) выше «Админа» (10)
+        let member_roles = vec!["r3".to_string(), "r2".to_string(), "r1".to_string()];
         assert_eq!(
             role_colour(&member_roles, &roles),
-            Some("#ff0000".to_string()),
+            Some("#00ff00".to_string()),
             "цвет берётся у старшей роли, а не у первой в списке"
+        );
+        assert_eq!(
+            role_colour(&["r3".to_string(), "r2".to_string()], &roles),
+            Some("#ff0000".to_string()),
+            "роль без цвета пропускается"
         );
         assert_eq!(role_colour(&["r3".to_string()], &roles), None);
         assert_eq!(role_colour(&[], &roles), None);
@@ -1637,5 +1928,74 @@ let a = 1;
         assert_eq!(list[1].colour.as_deref(), Some("#ff0000"));
         assert_eq!(list[1].roles, vec!["Админ"]);
         assert!(!list[1].online);
+        assert_eq!(list[1].presence, "Offline");
+        assert_eq!(list[0].presence, "Online");
+        assert_eq!(list[1].hoist, None, "роль без hoist не создаёт группу");
+    }
+
+    #[test]
+    fn hoisted_role_is_the_most_senior_one() {
+        let server: v0::Server = serde_json::from_str(
+            r##"{"_id":"s1","owner":"u1","name":"С","channels":[],"roles":{
+                 "low":{"_id":"low","name":"Участник","permissions":{"a":0,"d":0},"rank":20,"hoist":true},
+                 "top":{"_id":"top","name":"Модератор","permissions":{"a":0,"d":0},"rank":2,"hoist":true}},
+                 "default_permissions":0,"approximate_member_count":1}"##,
+        )
+        .unwrap();
+        let members: Vec<v0::Member> = serde_json::from_str(
+            r#"[{"_id":{"server":"s1","user":"u1"},"joined_at":"2026-01-01T00:00:00Z",
+                 "roles":["low","top"]}]"#,
+        )
+        .unwrap();
+        let users: HashMap<String, v0::User> = serde_json::from_str(
+            r#"{"u1":{"_id":"u1","username":"mod","discriminator":"0001","relationship":"User","online":true}}"#,
+        )
+        .unwrap();
+
+        let list = members_of(&server, &members, &users, None);
+        let hoist = list[0].hoist.as_ref().unwrap();
+        assert_eq!(hoist.name, "Модератор");
+        assert_eq!(hoist.rank, 2);
+        assert_eq!(list[0].roles, vec!["Модератор", "Участник"]);
+    }
+
+    #[test]
+    fn system_message_gets_text() {
+        let message: v0::Message = serde_json::from_str(
+            r#"{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"00000000000000000000000000",
+                "system":{"type":"user_joined","id":"u1"}}"#,
+        )
+        .unwrap();
+        let nicknames: HashMap<String, String> = [("u1".to_string(), "Новичок".to_string())]
+            .into_iter()
+            .collect();
+        let view = ChatMessage::build(
+            message,
+            &HashMap::new(),
+            &HashMap::new(),
+            &nicknames,
+            &HashMap::new(),
+            None,
+        );
+        assert!(view.system);
+        assert_eq!(view.content, "Новичок присоединяется");
+    }
+
+    #[test]
+    fn replies_are_kept() {
+        let message: v0::Message = serde_json::from_str(
+            r#"{"_id":"01K9Z6R0B0AAAAAAAAAAAAAAAA","channel":"c1","author":"u1",
+                "content":"ответ","replies":["01K9Z6R0B0AAAAAAAAAAAAAAA0"]}"#,
+        )
+        .unwrap();
+        let view = ChatMessage::build(
+            message,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        );
+        assert_eq!(view.replies, vec!["01K9Z6R0B0AAAAAAAAAAAAAAA0"]);
     }
 }

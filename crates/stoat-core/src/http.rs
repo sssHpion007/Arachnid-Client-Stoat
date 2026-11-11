@@ -19,8 +19,11 @@ use crate::ratelimit::RateLimiter;
 
 const HEADER_SESSION: &str = "x-session-token";
 const HEADER_BOT: &str = "x-bot-token";
-const HEADER_USER_AGENT: &str = "user-agent"; // HeaderName::from_static требует нижний регистр
-const HEADER_IDEMPOTENCY: &str = "Idempotency-Key";
+// `HeaderName::from_static` принимает только имена в нижнем регистре и паникует
+// на любых других: заглавные буквы здесь роняли каждую отправку сообщения.
+// По HTTP имена заголовков регистронезависимы, сервер видит то же самое.
+const HEADER_USER_AGENT: &str = "user-agent";
+const HEADER_IDEMPOTENCY: &str = "idempotency-key";
 
 /// Кто именно обращается к API.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,11 +68,7 @@ impl HttpClient {
     pub fn new(base: Url) -> Self {
         install_crypto_provider();
         let http = reqwest::Client::builder()
-            .user_agent(format!(
-                "{}/{}",
-                crate::DEFAULT_APP_NAME,
-                env!("CARGO_PKG_VERSION")
-            ))
+            .user_agent(user_agent(crate::DEFAULT_APP_NAME))
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
@@ -304,6 +303,13 @@ impl HttpClient {
             .await
     }
 
+    /// `PUT /channels/{id}/ack/{msg}` — отметить канал прочитанным до сообщения.
+    pub async fn ack_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
+        let url = self.endpoint(&format!("/channels/{channel_id}/ack/{message_id}"))?;
+        self.request_empty(Method::PUT, url, None::<&()>, None)
+            .await
+    }
+
     /// `GET /channels/{id}/messages` — история сообщений.
     ///
     /// `before` — курсор «загрузить более старые», `after` — «более новые»,
@@ -393,20 +399,10 @@ impl HttpClient {
         let bucket = bucket.unwrap_or_else(|| Self::bucket_for(&url));
         self.limiter.acquire(&bucket).await;
 
-        let mut headers = HeaderMap::new();
-        if let Some(token) = &self.token {
-            headers.insert(token.header(), token.value());
-        }
-        if let Some(value) = idempotency_key
-            .as_deref()
-            .and_then(|key| HeaderValue::from_str(key).ok())
-        {
-            headers.insert(HeaderName::from_static(HEADER_IDEMPOTENCY), value);
-        }
-        headers.insert(
-            HeaderName::from_static(HEADER_USER_AGENT),
-            HeaderValue::from_str(&format!("{}/{}", self.app_name, env!("CARGO_PKG_VERSION")))
-                .unwrap_or_else(|_| HeaderValue::from_static("Tauri-Stoat")),
+        let headers = request_headers(
+            self.token.as_ref(),
+            idempotency_key.as_deref(),
+            &self.app_name,
         );
 
         let mut request = self
@@ -541,12 +537,46 @@ fn install_crypto_provider() {
     });
 }
 
+/// Заголовки одного запроса: токен, ключ идемпотентности и `User-Agent`.
+///
+/// Вынесено из [`HttpClient::send`], чтобы сборку заголовков можно было
+/// проверить тестом без сети.
+fn request_headers(
+    token: Option<&Token>,
+    idempotency_key: Option<&str>,
+    app_name: &str,
+) -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    if let Some(token) = token {
+        headers.insert(token.header(), token.value());
+    }
+    if let Some(value) = idempotency_key.and_then(|key| HeaderValue::from_str(key).ok()) {
+        headers.insert(HeaderName::from_static(HEADER_IDEMPOTENCY), value);
+    }
+    headers.insert(
+        HeaderName::from_static(HEADER_USER_AGENT),
+        HeaderValue::from_str(&user_agent(app_name))
+            .unwrap_or_else(|_| HeaderValue::from_static("Arachnid-Client")),
+    );
+    headers
+}
+
+/// `User-Agent` вида `Arachnid-Client/0.5.0`.
+///
+/// Название продукта в этом заголовке — один токен без пробелов (RFC 9110),
+/// поэтому «Arachnid Client» превращается в «Arachnid-Client».
+fn user_agent(app_name: &str) -> String {
+    let product = app_name.split_whitespace().collect::<Vec<_>>().join("-");
+    format!("{product}/{}", env!("CARGO_PKG_VERSION"))
+}
+
 /// Заголовки, которые клиент выставляет сам (для тестов и диагностики).
 pub fn default_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(
         HeaderName::from_static(HEADER_USER_AGENT),
-        HeaderValue::from_static(crate::DEFAULT_APP_NAME),
+        HeaderValue::from_str(&user_agent(crate::DEFAULT_APP_NAME))
+            .unwrap_or_else(|_| HeaderValue::from_static("Arachnid-Client")),
     );
     headers
 }
@@ -585,6 +615,34 @@ mod tests {
             "x-session-token"
         );
         assert_eq!(Token::Bot("t".into()).header().as_str(), "x-bot-token");
+    }
+
+    #[test]
+    fn header_names_are_lowercase() {
+        // `HeaderName::from_static` паникует на заглавных буквах
+        for name in [HEADER_SESSION, HEADER_BOT, HEADER_USER_AGENT, HEADER_IDEMPOTENCY] {
+            assert_eq!(name, name.to_ascii_lowercase(), "{name}");
+        }
+    }
+
+    #[test]
+    fn send_headers_carry_idempotency_key() {
+        let token = Token::Session("secret".into());
+        let headers = request_headers(Some(&token), Some("01KEY"), "Arachnid Client");
+        assert_eq!(headers.get("Idempotency-Key").unwrap(), "01KEY");
+        assert_eq!(headers.get("x-session-token").unwrap(), "secret");
+        assert!(
+            headers
+                .get("user-agent")
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .starts_with("Arachnid-Client/")
+        );
+
+        let anonymous = request_headers(None, None, "Arachnid Client");
+        assert!(anonymous.get("Idempotency-Key").is_none());
+        assert!(anonymous.get("x-session-token").is_none());
     }
 
     #[test]

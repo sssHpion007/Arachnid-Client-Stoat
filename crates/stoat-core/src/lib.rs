@@ -118,7 +118,7 @@ impl Instance {
 }
 
 /// Имя приложения по умолчанию (видно в Stoat → Настройки → Сессии).
-pub const DEFAULT_APP_NAME: &str = "Tauri-Stoat";
+pub const DEFAULT_APP_NAME: &str = "Arachnid Client";
 
 /// Поля, которые нужно прислать в событии `Ready`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

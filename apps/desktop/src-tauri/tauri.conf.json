@@ -1,15 +1,15 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Tauri-Stoat",
-  "version": "0.4.1",
-  "identifier": "com.tauristoat.client",
+  "productName": "Arachnid Client",
+  "version": "0.5.0",
+  "identifier": "com.arachnid.client",
   "build": {
     "frontendDist": "../ui"
   },
   "app": {
     "windows": [
       {
-        "title": "Tauri-Stoat",
+        "title": "Arachnid Client",
         "width": 1280,
         "height": 820,
         "minWidth": 900,

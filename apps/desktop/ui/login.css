@@ -1,0 +1,283 @@
+/* Окно входа: те же токены, что у клиента (theme.css), компоненты M3 —
+   поля с обводкой и заполненная кнопка, как на странице входа Stoat. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  padding: var(--gap-xl);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.43;
+  -webkit-font-smoothing: antialiased;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.card {
+  width: min(400px, 100%);
+  padding: var(--gap-xl);
+  border-radius: var(--border-radius-xl);
+  background: var(--md-sys-color-surface-container-lowest);
+  box-shadow: var(--elevation-2);
+}
+
+/* ─────────────────────────── заголовок ─────────────────────────── */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-l);
+  margin-bottom: var(--gap-x);
+}
+
+.logo {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--border-radius-md);
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 500;
+  line-height: 1.75rem;
+}
+
+.sub {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+}
+
+/* ─────────────────────────── поля ─────────────────────────── */
+
+form {
+  display: flex;
+  flex-direction: column;
+}
+
+label {
+  margin: var(--gap-l) 0 var(--gap-sm);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+form > label:first-child {
+  margin-top: 0;
+}
+
+input[type="email"],
+input[type="password"],
+input[type="text"] {
+  width: 100%;
+  height: 48px;
+  padding: 0 var(--gap-lg);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--border-radius-sm);
+  outline: none;
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  font: inherit;
+  font-size: 1rem;
+  transition: border-color var(--transition-fast);
+}
+
+input::placeholder {
+  color: var(--md-sys-color-outline);
+}
+
+input:hover {
+  border-color: var(--md-sys-color-on-surface);
+}
+
+input:focus {
+  border-color: var(--md-sys-color-primary);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-md);
+  margin: var(--gap-lg) 0 var(--gap-sm);
+}
+
+.checkbox input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--md-sys-color-primary);
+}
+
+.checkbox label {
+  margin: 0;
+  color: var(--md-sys-color-on-surface);
+  font-size: 0.875rem;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.mfa-hint {
+  margin-top: var(--gap-s);
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.75rem;
+}
+
+/* ─────────────────────────── кнопки ─────────────────────────── */
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-md);
+  height: 40px;
+  padding: 0 24px;
+  border: none;
+  border-radius: var(--border-radius-full);
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+}
+
+button.primary {
+  width: 100%;
+  margin-top: var(--gap-lg);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+button.primary:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-primary) 8%, var(--md-sys-color-primary));
+  box-shadow: var(--elevation-1);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+  box-shadow: none;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: 2px;
+}
+
+.row {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--gap-md);
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ─────────────────────────── сообщения ─────────────────────────── */
+
+.msg {
+  margin-top: var(--gap-lg);
+  border-radius: var(--border-radius-md);
+  font-size: 0.875rem;
+}
+
+.msg:empty {
+  display: none;
+}
+
+.msg.ok,
+.msg.warn,
+.msg.err {
+  padding: var(--gap-l) var(--gap-lg);
+}
+
+.msg.ok {
+  background: var(--md-sys-color-primary-container);
+  color: var(--md-sys-color-on-primary-container);
+}
+
+.msg.warn {
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+}
+
+.msg.err {
+  background: var(--md-sys-color-error-container);
+  color: var(--md-sys-color-on-error-container);
+}
+
+/* ─────────────────────────── вход по токену ─────────────────────────── */
+
+.footer {
+  margin-top: var(--gap-x);
+  padding-top: var(--gap-lg);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+}
+
+summary {
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+summary:hover {
+  color: var(--md-sys-color-on-surface);
+}
+
+.inner {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--gap-l);
+}
+
+.inner label {
+  margin-top: 0;
+}
+
+.instance {
+  margin-top: var(--gap-lg);
+  color: var(--md-sys-color-outline);
+  font-size: 0.75rem;
+  text-align: center;
+}

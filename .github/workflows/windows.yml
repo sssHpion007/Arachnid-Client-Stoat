@@ -27,26 +27,26 @@ jobs:
         run: cargo test -p stoat-core -p stoat-plugin-api
 
       - name: Сборка приложения
-        run: cargo build --release -p tauri-stoat
+        run: cargo build --release -p arachnid-client
 
       - name: Собрать папку и архив
         shell: bash
         run: |
-          mkdir -p dist/Tauri-Stoat
-          cp target/release/tauri-stoat.exe dist/Tauri-Stoat/
-          mkdir -p dist/Tauri-Stoat/cache dist/Tauri-Stoat/plugins \
-                   dist/Tauri-Stoat/themes dist/Tauri-Stoat/logs
-          cp bootstrap/config.toml dist/Tauri-Stoat/ || true
-          cp bootstrap/README.txt dist/Tauri-Stoat/ || true
+          mkdir -p dist/Arachnid-Client
+          cp target/release/arachnid-client.exe dist/Arachnid-Client/
+          mkdir -p dist/Arachnid-Client/cache dist/Arachnid-Client/plugins \
+                   dist/Arachnid-Client/themes dist/Arachnid-Client/logs
+          cp bootstrap/config.toml dist/Arachnid-Client/ || true
+          cp bootstrap/README.txt dist/Arachnid-Client/ || true
           # интерфейс и эмодзи лежат внутри exe, но копия рядом не мешает
           cd dist
-          powershell -Command "Compress-Archive -Path Tauri-Stoat -DestinationPath 'tauri-stoat-windows-x86_64.zip' -Force"
+          powershell -Command "Compress-Archive -Path Arachnid-Client -DestinationPath 'arachnid-client-windows-x86_64.zip' -Force"
           ls -la
-          du -h tauri-stoat-windows-x86_64.zip
+          du -h arachnid-client-windows-x86_64.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: tauri-stoat-windows-x86_64
-          path: dist/tauri-stoat-windows-x86_64.zip
+          name: arachnid-client-windows-x86_64
+          path: dist/arachnid-client-windows-x86_64.zip
           if-no-files-found: error
           retention-days: 30

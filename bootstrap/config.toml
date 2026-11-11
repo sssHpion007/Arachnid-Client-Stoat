@@ -1,4 +1,4 @@
-# Конфигурация Tauri-Stoat.
+# Конфигурация Arachnid Client.
 # Токен сюда НЕ пишется: он хранится в системном хранилище секретов.
 
 [instance]
@@ -9,7 +9,7 @@ ws_url  = "wss://events.stoat.chat"
 # ws_url  = "wss://stoat.example.com/events"
 
 [app]
-name = "Tauri-Stoat"
+name = "Arachnid Client"
 check_updates = true
 
 [plugins]

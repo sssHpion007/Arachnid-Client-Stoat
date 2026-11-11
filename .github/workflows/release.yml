@@ -41,16 +41,16 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            asset: tauri-stoat-windows-x86_64
-            bin: target/release/tauri-stoat.exe
+            asset: arachnid-client-windows-x86_64
+            bin: target/release/arachnid-client.exe
             pack: zip
           - os: ubuntu-22.04
-            asset: tauri-stoat-linux-x86_64
-            bin: target/release/tauri-stoat
+            asset: arachnid-client-linux-x86_64
+            bin: target/release/arachnid-client
             pack: tar.gz
           - os: macos-latest
-            asset: tauri-stoat-macos-aarch64
-            bin: target/release/tauri-stoat
+            asset: arachnid-client-macos-aarch64
+            bin: target/release/arachnid-client
             pack: tar.gz
 
     runs-on: ${{ matrix.os }}
@@ -73,22 +73,22 @@ jobs:
         run: cargo test -p stoat-core
 
       - name: Сборка клиента
-        run: cargo build --release -p tauri-stoat
+        run: cargo build --release -p arachnid-client
 
       - name: Собрать portable-архив
         shell: bash
         run: |
-          mkdir -p dist/Tauri-Stoat
-          cp "${{ matrix.bin }}" dist/Tauri-Stoat/
-          mkdir -p dist/Tauri-Stoat/{cache,plugins,themes,logs}
-          cp bootstrap/config.toml dist/Tauri-Stoat/ || true
-          cp bootstrap/README.txt dist/Tauri-Stoat/ || true
+          mkdir -p dist/Arachnid-Client
+          cp "${{ matrix.bin }}" dist/Arachnid-Client/
+          mkdir -p dist/Arachnid-Client/{cache,plugins,themes,logs}
+          cp bootstrap/config.toml dist/Arachnid-Client/ || true
+          cp bootstrap/README.txt dist/Arachnid-Client/ || true
           cd dist
           if [ "${{ matrix.pack }}" = "zip" ]; then
-            (command -v 7z >/dev/null && 7z a -tzip "${{ matrix.asset }}.zip" Tauri-Stoat) \
-              || powershell -Command "Compress-Archive -Path Tauri-Stoat -DestinationPath '${{ matrix.asset }}.zip'"
+            (command -v 7z >/dev/null && 7z a -tzip "${{ matrix.asset }}.zip" Arachnid-Client) \
+              || powershell -Command "Compress-Archive -Path Arachnid-Client -DestinationPath '${{ matrix.asset }}.zip'"
           else
-            tar czf "${{ matrix.asset }}.tar.gz" Tauri-Stoat
+            tar czf "${{ matrix.asset }}.tar.gz" Arachnid-Client
           fi
           ls -la
 
@@ -129,12 +129,12 @@ jobs:
         with:
           projectPath: apps/desktop/src-tauri
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && format('Tauri-Stoat {0}', github.ref_name) || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && format('Arachnid Client {0}', github.ref_name) || '' }}
           releaseBody: |
             ## Установка
 
             **Самое простое** — portable-архив: распакуйте в любую папку и запустите
-            `Tauri-Stoat.exe`. Рядом с ним уже лежат `config.toml` и каталоги
+            `arachnid-client.exe`. Рядом с ним уже лежат `config.toml` и каталоги
             `cache/`, `plugins/`, `themes/`, `logs/` — официальный Stoat не нужен.
 
             Либо установщик: `*-setup.exe` (NSIS) или `.msi`.
@@ -162,7 +162,7 @@ jobs:
           # не появился — создаём сами
           gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
             gh release create "${GITHUB_REF_NAME}" \
-              --title "Tauri-Stoat ${GITHUB_REF_NAME}" \
+              --title "Arachnid Client ${GITHUB_REF_NAME}" \
               --notes "Клиент Stoat: интерфейс, вход по почте и паролю, чат."
 
           # заливаем по одному файлу: отсутствие части артефактов
