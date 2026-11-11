@@ -7,7 +7,7 @@
 //! Любое изменение отдаётся наружу как [`CacheEvent`] — по нему Tauri-слой
 //! рассылает обновления в webview, а plugin-host — плагинам в рамках их прав.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::Arc;
 
 use revolt_models::v0;
@@ -112,12 +112,64 @@ struct State {
     channels: HashMap<String, v0::Channel>,
     members: HashMap<String, HashMap<String, v0::Member>>,
     emojis: HashMap<String, v0::Emoji>,
-    /// сообщения: канал → сообщение (без ограничения истории — историю грузит UI пакетами)
-    messages: HashMap<String, HashMap<String, v0::Message>>,
+    /// сообщения: канал → id → сообщение (по возрастанию ULID, не больше
+    /// [`MESSAGES_PER_CHANNEL`] на канал и [`MESSAGE_CHANNELS`] каналов)
+    messages: HashMap<String, BTreeMap<String, v0::Message>>,
+    /// каналы с сообщениями в кэше: от давно тронутых к свежим
+    message_channels: VecDeque<String>,
     /// кто печатает: канал → множество пользователей
     typing: HashMap<String, std::collections::HashSet<String>>,
     /// отметки о прочтении: канал → что прочитано
     unreads: HashMap<String, Unread>,
+}
+
+/// Сколько последних сообщений канала держит кэш.
+///
+/// Кэш нужен, чтобы собрать сообщение целиком после `MessageUpdate`; историю
+/// интерфейс грузит сам, поэтому хранить её всю незачем — за часы работы
+/// сообщения со всех серверов съедали бы память без предела.
+pub const MESSAGES_PER_CHANNEL: usize = 200;
+
+/// Сколько каналов с сообщениями держит кэш (давно не тронутые выгружаются).
+pub const MESSAGE_CHANNELS: usize = 32;
+
+impl State {
+    /// Положить сообщение, соблюдая пределы кэша.
+    fn store_message(&mut self, message: v0::Message) {
+        let channel = message.channel.clone();
+        let map = self.messages.entry(channel.clone()).or_default();
+        map.insert(message.id.clone(), message);
+        while map.len() > MESSAGES_PER_CHANNEL {
+            map.pop_first();
+        }
+        self.touch_channel(&channel);
+    }
+
+    /// Отметить канал свежим; самый давний вытесняется вместе с сообщениями.
+    fn touch_channel(&mut self, channel: &str) {
+        if self.message_channels.back().map(String::as_str) == Some(channel) {
+            return;
+        }
+        if let Some(index) = self
+            .message_channels
+            .iter()
+            .position(|item| item == channel)
+        {
+            self.message_channels.remove(index);
+        }
+        self.message_channels.push_back(channel.to_string());
+        while self.message_channels.len() > MESSAGE_CHANNELS {
+            if let Some(oldest) = self.message_channels.pop_front() {
+                self.messages.remove(&oldest);
+            }
+        }
+    }
+
+    /// Убрать канал из кэша сообщений.
+    fn forget_channel(&mut self, channel: &str) {
+        self.messages.remove(channel);
+        self.message_channels.retain(|item| item != channel);
+    }
 }
 
 /// Потокобезопасный кэш.
@@ -169,6 +221,7 @@ impl Cache {
         state.members.clear();
         state.emojis.clear();
         state.messages.clear();
+        state.message_channels.clear();
         state.typing.clear();
         state.unreads.clear();
 
@@ -220,14 +273,7 @@ impl Cache {
     pub async fn insert_message(&self, message: v0::Message) {
         let channel = message.channel.clone();
         let id = message.id.clone();
-        {
-            let mut state = self.state.write().await;
-            state
-                .messages
-                .entry(channel.clone())
-                .or_default()
-                .insert(id.clone(), message);
-        }
+        self.state.write().await.store_message(message);
         self.publish(CacheEvent::MessageChanged {
             channel,
             message: id,
@@ -283,14 +329,7 @@ impl Cache {
     /// Нужно при массовой загрузке истории: UI получает список целиком и не
     /// должен перерисовываться на каждое сообщение.
     pub async fn insert_message_no_event(&self, message: v0::Message) {
-        let channel = message.channel.clone();
-        let id = message.id.clone();
-        let mut state = self.state.write().await;
-        state
-            .messages
-            .entry(channel)
-            .or_default()
-            .insert(id, message);
+        self.state.write().await.store_message(message);
     }
 
     /// Вставить канал.
@@ -365,13 +404,11 @@ impl Cache {
     /// Сообщения канала, отсортированные по id (id в Stoat — ULID, растёт со временем).
     pub async fn messages(&self, channel: &str) -> Vec<v0::Message> {
         let state = self.state.read().await;
-        let mut messages: Vec<v0::Message> = state
+        state
             .messages
             .get(channel)
             .map(|map| map.values().cloned().collect())
-            .unwrap_or_default();
-        messages.sort_by(|a, b| a.id.cmp(&b.id));
-        messages
+            .unwrap_or_default()
     }
 
     /// Id текущего пользователя.
@@ -497,11 +534,7 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
             if state.me.as_deref() == Some(message.author.as_str()) {
                 mark_read(state, &channel, &id);
             }
-            state
-                .messages
-                .entry(channel.clone())
-                .or_default()
-                .insert(id.clone(), *message);
+            state.store_message(*message);
             emitted.push(CacheEvent::MessageChanged {
                 channel,
                 message: id,
@@ -564,7 +597,7 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
         }
         GatewayEvent::ChannelDelete { id } => {
             state.channels.remove(&id);
-            state.messages.remove(&id);
+            state.forget_channel(&id);
             emitted.push(CacheEvent::ChannelRemoved(id));
         }
         GatewayEvent::ChannelStartTyping { id, user } => {
@@ -972,6 +1005,41 @@ mod tests {
             .await;
 
         assert!(cache.messages("c1").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn message_cache_is_bounded() {
+        let cache = Cache::new();
+        // в одном канале остаются только последние сообщения
+        for index in 0..MESSAGES_PER_CHANNEL + 50 {
+            cache
+                .insert_message_no_event(message(&format!("01{index:06}"), "c1", "текст"))
+                .await;
+        }
+        let kept = cache.messages("c1").await;
+        assert_eq!(kept.len(), MESSAGES_PER_CHANNEL);
+        assert_eq!(kept[0].id, "01000050");
+
+        // давно не тронутые каналы выгружаются целиком
+        for channel in 0..MESSAGE_CHANNELS {
+            cache
+                .insert_message_no_event(message("01A", &format!("other{channel}"), "текст"))
+                .await;
+        }
+        assert!(cache.messages("c1").await.is_empty());
+        assert_eq!(cache.messages("other0").await.len(), 1);
+
+        // удалённый канал забывается и не занимает место в очереди
+        cache
+            .apply(GatewayEvent::ChannelDelete {
+                id: "other0".into(),
+            })
+            .await;
+        assert!(cache.messages("other0").await.is_empty());
+        assert_eq!(
+            cache.state.read().await.message_channels.len(),
+            MESSAGE_CHANNELS - 1
+        );
     }
 
     #[tokio::test]
