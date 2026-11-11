@@ -14,6 +14,7 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod profile;
 mod views;
 use tokio::sync::{Mutex, RwLock};
 use views::{ChatMessage, HistoryView, UserView, WorkspaceView};
@@ -36,6 +37,10 @@ pub struct AppState {
     pub media: RwLock<MediaCache>,
     /// Эмодзи серверов: id сервера → список (меняется редко)
     pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
+    /// Серверы, полный список участников которых уже получен в этом подключении
+    pub members_synced: RwLock<std::collections::HashSet<String>>,
+    /// Подписки на присутствие участников: id сервера → когда отправлена
+    pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
 }
 
 /// Кэш скачанных картинок.
@@ -83,6 +88,8 @@ impl AppState {
             cdn_url: RwLock::new(None),
             media: RwLock::new(MediaCache::default()),
             emojis: RwLock::new(std::collections::HashMap::new()),
+            members_synced: RwLock::new(std::collections::HashSet::new()),
+            subscriptions: Mutex::new(std::collections::HashMap::new()),
         }
     }
 }
@@ -142,6 +149,17 @@ impl From<stoat_core::Error> for CommandError {
 }
 
 type CmdResult<T> = Result<T, CommandError>;
+
+/// REST-клиент текущей сессии или ошибка «сначала войдите».
+async fn http_client(state: &AppState) -> CmdResult<HttpClient> {
+    state
+        .http
+        .read()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))
+}
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
@@ -512,6 +530,9 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
         while let Some(event) = events.recv().await {
             if let GatewayEvent::Ready(ready) = &event {
                 cache.apply_ready((**ready).clone()).await;
+                // после переподключения списки участников и подписки собираются заново
+                app_state.members_synced.write().await.clear();
+                app_state.subscriptions.lock().await.clear();
             } else {
                 cache.apply(event.clone()).await;
             }
@@ -842,10 +863,19 @@ async fn user_avatar(
         .and_then(|file| views::file_url(file, cdn.as_deref())))
 }
 
+/// Сервер «большой», если участников больше этого числа: тогда, как и
+/// браузерный клиент (`largeServer.ts`), не скачиваем тех, кто не в сети.
+const LARGE_SERVER: usize = 1000;
+
+/// Через сколько повторять подписку на присутствие (сервер держит её 15 минут).
+const SUBSCRIPTION_REFRESH: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 /// Участники сервера для правой панели.
 ///
-/// Данные берутся из кэша (шлюз присылает участников при подключении),
-/// участника без имени пропускаем — рисовать «неизвестного» незачем.
+/// `Ready` присылает только тех, кто в сети, поэтому при первом открытии
+/// сервера в этом подключении весь список запрашивается отдельно
+/// (`GET /servers/{id}/members`), как `server.syncMembers()` в браузере.
+/// Участника без имени пропускаем — рисовать «неизвестного» незачем.
 #[tauri::command]
 async fn server_members(
     server_id: String,
@@ -854,6 +884,22 @@ async fn server_members(
     let Some(server) = state.cache.server(&server_id).await else {
         return Ok(Vec::new());
     };
+
+    if !state.members_synced.read().await.contains(&server_id) {
+        let http = http_client(&state).await?;
+        let exclude_offline = server.approximate_member_count > LARGE_SERVER;
+        // ошибка сети не страшна: покажем тех, кто уже известен из `Ready`
+        match http.fetch_members(&server_id, exclude_offline).await {
+            Ok(all) => {
+                state
+                    .cache
+                    .insert_members(&server_id, all.members, all.users)
+                    .await;
+                state.members_synced.write().await.insert(server_id.clone());
+            }
+            Err(error) => tracing::warn!(%error, server = %server_id, "участники не получены"),
+        }
+    }
 
     let members = state.cache.members(&server_id).await;
     let mut users = std::collections::HashMap::new();
@@ -865,6 +911,31 @@ async fn server_members(
 
     let cdn = state.cdn_url.read().await.clone();
     Ok(views::members_of(&server, &members, &users, cdn.as_deref()))
+}
+
+/// Подписаться на присутствие участников открытого сервера.
+///
+/// Без подписки шлюз не присылает `UserUpdate` о тех, с кем нет общих
+/// личных переписок, и точки статуса в списке участников «замерзают».
+/// Подписка живёт 15 минут, поэтому повторяется не чаще раза в 10 минут.
+#[tauri::command]
+async fn subscribe_server(server_id: String, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    {
+        let mut subscriptions = state.subscriptions.lock().await;
+        let fresh = subscriptions
+            .get(&server_id)
+            .is_some_and(|at| at.elapsed() < SUBSCRIPTION_REFRESH);
+        if fresh {
+            return Ok(());
+        }
+        subscriptions.insert(server_id.clone(), std::time::Instant::now());
+    }
+    if let Some(handle) = state.gateway.lock().await.as_ref() {
+        handle
+            .send(gateway::ClientEvent::Subscribe { server_id })
+            .await?;
+    }
+    Ok(())
 }
 
 /// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
@@ -1235,6 +1306,14 @@ pub fn run() {
             fetch_emoji,
             server_emojis,
             server_members,
+            subscribe_server,
+            profile::user_profile,
+            profile::user_mutual,
+            profile::set_presence,
+            profile::set_status_text,
+            profile::open_dm,
+            profile::set_relationship,
+            profile::send_friend_request,
             user_avatar,
             message_link,
             channel_history,

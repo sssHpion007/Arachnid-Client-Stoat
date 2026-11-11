@@ -104,27 +104,23 @@
       </div>
     </div>
 
-    <!-- меню аккаунта -->
-    <div class="menu account-menu hidden" id="account-menu">
-      <div class="account-card">
-        <span id="menu-avatar"></span>
-        <span class="account-text">
-          <span class="account-name" id="menu-name"></span>
-          <span class="account-id" id="menu-id"></span>
-        </span>
-      </div>
-      <div class="menu-divider"></div>
-      <button class="menu-item" id="menu-switch" type="button"></button>
-      <button class="menu-item danger" id="menu-logout" type="button"></button>
-    </div>
+    <!-- меню своего аватара (UserMenu) -->
+    <div class="menu account-menu hidden" id="account-menu" role="menu"></div>
+
+    <!-- карточка профиля (UserCard) -->
+    <div class="user-card hidden" id="user-card"></div>
 
     <!-- контекстное меню -->
     <div class="menu context-menu hidden" id="ctx-menu" role="menu"></div>
+
+    <!-- модальные окна -->
+    <div class="modal-backdrop hidden" id="modal"></div>
 
     <div class="toast hidden" id="toast" role="status"></div>
 
     <script src="icons.js"></script>
     <script src="emoji/map.js"></script>
+    <script src="profile.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>

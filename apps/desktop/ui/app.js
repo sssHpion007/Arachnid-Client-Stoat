@@ -424,7 +424,7 @@ function customEmojiUrl(id) {
 
 function mentionNode(userId) {
   const node = h("span", { class: "mention", text: "@" + userName(userId) });
-  node.onclick = (event) => openUserMenu(event, { id: userId, name: userName(userId) });
+  node.onclick = (event) => openUserCard(event, userId);
   return node;
 }
 
@@ -558,7 +558,7 @@ function userName(userId) {
 
 function myName() {
   const me = state.me;
-  return me ? me.display_name || `${me.username}#${me.discriminator}` : "";
+  return me ? me.display_name || me.username : "";
 }
 
 // ─────────────────────────── непрочитанное ───────────────────────────
@@ -1107,7 +1107,7 @@ function messageNode(message, tail) {
     info.append(h("time", { text: message.edited ? "(изм.)" : clockText(date), title: date ? date.toLocaleString() : "" }));
   } else {
     const picture = avatar({ url: message.avatar, name: message.author, size: 36 });
-    picture.onclick = (event) => openUserMenu(event, { id: message.author_id, name: message.author });
+    picture.onclick = (event) => openUserCard(event, message.author_id);
     info.append(picture);
   }
 
@@ -1115,7 +1115,8 @@ function messageNode(message, tail) {
   if (!tail && !message.system) {
     const name = h("span", { class: "username", text: message.author, title: message.username || message.author });
     paintName(name, message.colour);
-    name.onclick = (event) => openUserMenu(event, { id: message.author_id, name: message.author });
+    name.onclick = (event) => openUserCard(event, message.author_id);
+    name.oncontextmenu = (event) => openUserMenu(event, { id: message.author_id, name: message.author });
     const head = h("div", { class: "message-head" }, [
       name,
       h("time", { text: calendarText(date), title: date ? date.toLocaleString() : "" }),
@@ -1572,7 +1573,10 @@ const membersCache = new Map(); // id сервера → участники
 
 async function loadMembers(serverId) {
   renderMembers();
-  if (serverId === null || membersCache.has(serverId)) return;
+  if (serverId === null) return;
+  // присутствие участников приходит только по подписке; ядро само решает, пора ли её продлить
+  call("subscribe_server", { serverId }).catch((error) => console.warn("подписка на сервер:", error));
+  if (membersCache.has(serverId)) return;
   membersCache.set(serverId, null);
   try {
     membersCache.set(serverId, (await call("server_members", { serverId })) || []);
@@ -1648,7 +1652,7 @@ function memberRow(member) {
       ]),
     ],
   );
-  row.onclick = (event) => openUserMenu(event, member);
+  row.onclick = (event) => openUserCard(event, member.id);
   row.oncontextmenu = (event) => openUserMenu(event, member);
   return row;
 }
@@ -1859,6 +1863,7 @@ let menuClosed = null;
 function closeMenus() {
   el("ctx-menu").classList.add("hidden");
   el("account-menu").classList.add("hidden");
+  closeUserCard();
   if (menuClosed) {
     menuClosed();
     menuClosed = null;
@@ -1948,13 +1953,39 @@ function openMessageMenu(event, message, onClose) {
   );
 }
 
-function openUserMenu(event, user) {
+/** Контекстное меню пользователя (UserContextMenu.tsx). */
+function openUserMenu(event, user, serverId = state.serverId) {
+  const me = Boolean(state.me && state.me.id === user.id);
+  const relate = (kind) => async () => {
+    await call("set_relationship", { userId: user.id, action: kind });
+    toast(relationshipToast(kind, kind === "add" ? "Outgoing" : ""));
+  };
+  const canWrite = Boolean(currentChannel()) && !el("message-box").classList.contains("hidden");
   openContextMenu(event, [
-    {
+    { icon: "person", label: "Профиль", action: () => openProfileModal(user.id, serverId) },
+    !me && { icon: "chat", label: "Написать сообщение", action: () => openDirectMessage(user.id) },
+    canWrite && {
       icon: "alternate_email",
       label: "Упомянуть",
       action: () => insertText(`<@${user.id}>`),
     },
+    { divider: true },
+    !me &&
+      user.relationship === "Friend" && {
+        icon: "person_remove",
+        label: "Удалить из друзей",
+        danger: true,
+        action: relate("remove"),
+      },
+    !me &&
+      user.relationship !== "Blocked" && {
+        icon: "block",
+        label: "Заблокировать",
+        danger: true,
+        action: relate("block"),
+      },
+    !me && user.relationship === "Blocked" && { icon: "block", label: "Разблокировать", action: relate("unblock") },
+    !me && { divider: true },
     { icon: "content_copy", label: "Копировать имя", action: () => copyText(user.username || user.name) },
     { icon: "fingerprint", label: "Копировать ID", action: () => copyText(user.id) },
   ]);
@@ -1986,22 +2017,6 @@ function openServerMenu(event, server) {
     { icon: "content_copy", label: "Копировать название", action: () => copyText(server.name) },
     { icon: "fingerprint", label: "Копировать ID", action: () => copyText(server.id) },
   ]);
-}
-
-function toggleAccountMenu(event) {
-  event.stopPropagation();
-  const menu = el("account-menu");
-  const wasOpen = !menu.classList.contains("hidden");
-  closeMenus();
-  if (wasOpen || !state.me) return;
-  el("menu-avatar").replaceChildren(
-    avatar({ url: state.me.avatar, name: myName(), size: 40, presence: state.me.presence || "Online" }),
-  );
-  el("menu-name").textContent = myName();
-  el("menu-id").textContent = `${state.me.username}#${state.me.discriminator}`;
-  const rect = event.currentTarget.getBoundingClientRect();
-  menu.style.top = Math.min(rect.top, window.innerHeight - 200) + "px";
-  menu.classList.remove("hidden");
 }
 
 async function logout() {
@@ -2157,6 +2172,15 @@ function onGateway(payload) {
       if (event.type.startsWith("ServerMember")) membersCache.delete(event.id);
       scheduleWorkspaceRefresh();
       break;
+    case "ServerMemberUpdate": {
+      // ник или роли поменялись: список участников соберётся заново
+      const serverId = event.id && event.id.server;
+      if (serverId && membersCache.has(serverId)) {
+        membersCache.delete(serverId);
+        if (state.serverId === serverId) loadMembers(serverId);
+      }
+      break;
+    }
     default:
       break;
   }
@@ -2196,7 +2220,11 @@ function applyPresence(event) {
     changed = true;
   }
   if (state.me && state.me.id === event.id) {
-    patch(state.me);
+    // себе показываем выбранное присутствие (и «невидимку»), а не то, что видят другие
+    if (status && status.presence) state.me.presence = status.presence;
+    if (clear.includes("StatusPresence")) state.me.presence = "Online";
+    if (status && "text" in status) state.me.status = status.text || null;
+    if (clear.includes("StatusText")) state.me.status = null;
     changed = true;
   }
   if (changed) {
@@ -2212,8 +2240,6 @@ function bindUi() {
   setIcon(el("btn-emoji"), "mood", 24);
   setIcon(el("btn-send"), "send", 24);
   setIcon(el("btn-members"), "group", 24);
-  el("menu-switch").replaceChildren(symbol("swap_horiz"), "Сменить аккаунт");
-  el("menu-logout").replaceChildren(symbol("logout"), "Выйти");
 
   messagesEl.addEventListener("scroll", () => {
     state.stickToBottom = distanceFromBottom() < 40;
@@ -2238,8 +2264,8 @@ function bindUi() {
   });
   el("emoji-picker").addEventListener("click", (event) => event.stopPropagation());
   el("account-menu").addEventListener("click", (event) => event.stopPropagation());
-  el("menu-logout").onclick = logout;
-  el("menu-switch").onclick = () => location.replace("login.html");
+  el("user-card").addEventListener("click", (event) => event.stopPropagation());
+  el("modal").addEventListener("click", closeModal);
 
   document.addEventListener("click", () => {
     closeMenus();
@@ -2250,7 +2276,9 @@ function bindUi() {
     if (!event.defaultPrevented) closeMenus();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") closeMenus();
+    if (event.key !== "Escape") return;
+    if (modalOpen()) closeModal();
+    else closeMenus();
   });
   window.addEventListener("resize", closeMenus);
   window.addEventListener("focus", ackVisible);

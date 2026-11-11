@@ -244,6 +244,30 @@ impl Cache {
         self.publish(CacheEvent::UserChanged(id));
     }
 
+    /// Записать полный список участников сервера (ответ `GET /servers/{id}/members`).
+    ///
+    /// `Ready` присылает только тех, кто в сети, поэтому список участников
+    /// дополняется отдельным запросом. Уже известные участники перезаписываются
+    /// свежими данными, а пришедшие тем временем по gateway — сохраняются.
+    pub async fn insert_members(
+        &self,
+        server: &str,
+        members: Vec<v0::Member>,
+        users: Vec<v0::User>,
+    ) {
+        {
+            let mut state = self.state.write().await;
+            for user in users {
+                state.users.insert(user.id.clone(), user);
+            }
+            let map = state.members.entry(server.to_string()).or_default();
+            for member in members {
+                map.insert(member.id.user.clone(), member);
+            }
+        }
+        self.publish(CacheEvent::ServerChanged(server.to_string()));
+    }
+
     /// Вставить сообщение без публикации события.
     ///
     /// Нужно при массовой загрузке истории: UI получает список целиком и не
@@ -333,6 +357,11 @@ impl Cache {
             .unwrap_or_default();
         messages.sort_by(|a, b| a.id.cmp(&b.id));
         messages
+    }
+
+    /// Id текущего пользователя.
+    pub async fn me_id(&self) -> Option<String> {
+        self.state.read().await.me.clone()
     }
 
     /// Участник сервера: нужен для ролей и цвета ника.

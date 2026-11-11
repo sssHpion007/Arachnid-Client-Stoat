@@ -146,12 +146,15 @@ pub struct MemberView {
 }
 
 impl UserView {
-    /// Имя для показа: отображаемое, иначе `ник#0001`.
+    /// Имя для показа: отображаемое, иначе имя пользователя.
+    ///
+    /// Дискриминатор (`#0001`) в браузерном клиенте виден только в профиле,
+    /// рядом с именем в чате его нет.
     pub fn label(&self) -> String {
         self.display_name
             .clone()
             .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| format!("{}#{}", self.username, self.discriminator))
+            .unwrap_or_else(|| self.username.clone())
     }
 
     /// Представление с адресом аватара.
@@ -316,7 +319,7 @@ impl WorkspaceView {
         Self {
             me: snapshot
                 .me
-                .map(|user| UserView::build(user, cdn.as_deref())),
+                .map(|user| crate::profile::own_view(user, cdn.as_deref())),
             servers,
             dms,
             notes,
@@ -1061,7 +1064,7 @@ pub fn display_name(user: &v0::User) -> String {
     user.display_name
         .clone()
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| format!("{}#{}", user.username, user.discriminator))
+        .unwrap_or_else(|| user.username.clone())
 }
 
 /// Стилизация текста сообщения (жирный, курсив, код, ссылка).
@@ -1806,7 +1809,8 @@ let a = 1;
                 .unwrap();
         assert_eq!(
             recipient_name(&["u2".to_string()], &users, None),
-            "friend#0002"
+            "friend",
+            "дискриминатор в имени не показывается"
         );
         assert_eq!(
             recipient_name(&["нет".to_string()], &users, None),

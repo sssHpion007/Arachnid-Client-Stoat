@@ -1314,13 +1314,21 @@ span.emoji {
 .account-menu {
   left: 64px;
   top: 64px;
+  min-width: 240px;
 }
 
+/* шапка меню: аватар 32, имя и имя#0000 (UserMenu.tsx) */
 .account-card {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: var(--gap-l);
   padding: var(--gap-sm) var(--gap-l) var(--gap-md);
+  text-align: start;
+}
+
+.account-card:hover {
+  background: var(--state-hover);
 }
 
 .account-text {
@@ -1339,6 +1347,411 @@ span.emoji {
 .account-id {
   font-size: 0.75rem;
   color: var(--md-sys-color-outline);
+}
+
+.menu-item-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.menu-item.selected {
+  color: var(--md-sys-color-on-primary-container);
+  background: color-mix(in srgb, var(--md-sys-color-primary-container) 60%, transparent);
+}
+
+/* точка присутствия 10px перед пунктом меню */
+.presence-dot {
+  width: 10px;
+  height: 10px;
+  margin: 0 5px;
+  flex-shrink: 0;
+  border-radius: var(--border-radius-full);
+  background: var(--presence-invisible);
+}
+
+.presence-dot.Online {
+  background: var(--presence-online);
+}
+
+.presence-dot.Idle {
+  background: var(--presence-idle);
+}
+
+.presence-dot.Busy {
+  background: var(--presence-busy);
+}
+
+.presence-dot.Focus {
+  background: var(--presence-focus);
+}
+
+/* ─────────────────────────── окна ─────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--gap-xl);
+  background: color-mix(in srgb, var(--md-sys-color-scrim) 50%, transparent);
+}
+
+.modal-backdrop.hidden {
+  display: none;
+}
+
+.modal {
+  min-width: 320px;
+  max-width: min(560px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-lg);
+  padding: var(--gap-x);
+  overflow-y: auto;
+  border-radius: var(--border-radius-xl);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--elevation-3);
+}
+
+.modal.wide {
+  min-width: min(560px, 100%);
+  max-width: min(760px, 100%);
+  padding: var(--gap-lg);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 400;
+}
+
+.modal-body {
+  min-height: 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--gap-md);
+}
+
+/* кнопки Material 3: заполненная, тональная, текстовая */
+.button {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-md);
+  padding: 0 var(--gap-xl) 0 var(--gap-xl);
+  border-radius: var(--border-radius-full);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: background var(--transition-fast);
+}
+
+.button:has(.symbol) {
+  padding-inline-start: var(--gap-lg);
+  padding-inline-end: var(--gap-x);
+}
+
+.button.filled {
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+}
+
+.button.tonal {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+
+.button.text {
+  color: var(--md-sys-color-primary);
+}
+
+.button:hover:not(:disabled) {
+  background-image: linear-gradient(var(--state-hover), var(--state-hover));
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+.field-label {
+  font-size: 0.75rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.field-counter {
+  align-self: flex-end;
+  font-size: 0.75rem;
+  color: var(--md-sys-color-outline);
+}
+
+.text-field {
+  height: 48px;
+  padding: 0 var(--gap-lg);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--border-radius-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.text-field:focus {
+  border-color: var(--md-sys-color-primary);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-primary);
+}
+
+/* ─────────────────────────── профиль ─────────────────────────── */
+
+/* карточка по клику на имя: 340 в ширину, до 400 в высоту (UserCard.tsx) */
+.user-card {
+  position: fixed;
+  z-index: 45;
+  width: 340px;
+  max-height: 400px;
+  padding: var(--gap-md);
+  overflow-y: auto;
+  border-radius: var(--border-radius-xl);
+  background: var(--md-sys-color-surface-container-high);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--elevation-3);
+}
+
+.user-card.hidden {
+  display: none;
+}
+
+.profile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-md);
+}
+
+.profile-grid.wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.profile-grid .w2 {
+  grid-column: span 2;
+}
+
+.profile-grid.wide .w2,
+.profile-grid.wide .w3 {
+  grid-column: 1 / -1;
+}
+
+.profile-loading {
+  grid-column: 1 / -1;
+  padding: var(--gap-lg);
+  text-align: center;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+/* шапка 120px, белый текст поверх затемнённого фона (ProfileBanner.tsx) */
+.profile-banner {
+  height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: var(--gap-lg);
+  border-radius: var(--border-radius-xl);
+  background-color: var(--md-sys-color-primary-container);
+  background-size: cover;
+  background-position: center;
+  color: #fff;
+}
+
+.profile-banner.clickable,
+.profile-card.clickable {
+  cursor: pointer;
+}
+
+.profile-banner-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-l);
+}
+
+.profile-banner .avatar text {
+  font-size: 12px;
+}
+
+.profile-names {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+}
+
+.profile-display-name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.profile-username {
+  font-size: 0.875rem;
+  opacity: 0.9;
+}
+
+.profile-username:hover {
+  text-decoration: underline;
+}
+
+.profile-pronouns {
+  font-size: 0.75rem;
+  opacity: 0.8;
+}
+
+.profile-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-md);
+}
+
+.profile-actions .spacer {
+  flex-grow: 1;
+}
+
+/* карточки внутри профиля (ProfileCard.tsx) */
+.profile-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+  padding: var(--gap-lg);
+  border-radius: var(--border-radius-lg);
+  background: var(--md-sys-color-surface-container-low);
+}
+
+.profile-card.hidden {
+  display: none;
+}
+
+.profile-card-title {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--md-sys-color-on-surface);
+}
+
+.profile-subtitle {
+  margin-top: var(--gap-sm);
+  font-size: 0.75rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.profile-muted {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.profile-status {
+  overflow-wrap: anywhere;
+}
+
+.profile-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-md);
+  color: var(--md-sys-color-primary);
+}
+
+.profile-badge {
+  display: inline-grid;
+  place-items: center;
+}
+
+.profile-joined {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-sm) var(--gap-md);
+  font-size: 0.875rem;
+}
+
+.profile-joined .symbol {
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.profile-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+}
+
+.profile-role {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-s);
+  padding: var(--gap-xs) var(--gap-md);
+  border-radius: var(--border-radius-full);
+  background: var(--md-sys-color-surface-container-highest);
+  font-size: 0.8125rem;
+}
+
+.role-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--border-radius-full);
+  background: var(--md-sys-color-outline);
+}
+
+.profile-bio {
+  font-size: 0.875rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.profile-bio.clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.mutual-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-sm);
+}
+
+.mutual-item {
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-md);
+  padding: var(--gap-sm) var(--gap-l) var(--gap-sm) var(--gap-sm);
+  border-radius: var(--border-radius-full);
+  text-align: start;
+}
+
+.mutual-item:hover {
+  background: var(--state-hover);
+}
+
+.mutual-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 0.875rem;
 }
 
 /* ─────────────────────────── панель эмодзи ─────────────────────────── */
