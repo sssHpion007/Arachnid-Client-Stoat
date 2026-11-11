@@ -687,6 +687,14 @@ function renderRail() {
     });
     rail.append(entry.entry);
   }
+
+  const add = railEntry({
+    title: "Добавить сервер",
+    content: symbol("add", 24),
+    onclick: () => addServerModal(),
+  });
+  add.button.classList.add("home");
+  rail.append(add.entry);
 }
 
 // ─────────────────────────── боковая панель ───────────────────────────
@@ -1870,6 +1878,10 @@ function closeMenus() {
   }
 }
 
+function menusOpen() {
+  return ["ctx-menu", "account-menu", "user-card"].some((id) => !el(id).classList.contains("hidden"));
+}
+
 /** Контекстное меню у курсора, не вылезая за край окна. */
 function openContextMenu(event, items, onClose) {
   event.preventDefault();
@@ -1999,9 +2011,32 @@ function openChannelMenu(event, channel) {
         label: "Отметить прочитанным",
         action: () => ackChannel(channel.id, channel.last_message_id),
       },
+    ...channelAdminItems(channel),
     { icon: "content_copy", label: "Копировать название", action: () => copyText(channel.name) },
     { icon: "fingerprint", label: "Копировать ID", action: () => copyText(channel.id) },
   ]);
+}
+
+/** Права на сервере канала (у личных каналов — пусто). */
+function serverAllows(server, bit) {
+  return Boolean(server) && (server.owner || hasBit(server.permissions, bit));
+}
+
+function channelAdminItems(channel) {
+  const found = findChannel(channel.id);
+  const server = found && found.server && found.server.id ? serverById(found.server.id) : null;
+  if (!server) return [];
+  const items = [];
+  if (serverAllows(server, PERM.INVITE)) {
+    items.push({ icon: "person_add", label: "Пригласить", action: () => showInvite(channel.id) });
+  }
+  if (serverAllows(server, PERM.MANAGE_CHANNEL)) {
+    items.push(
+      { icon: "edit", label: "Изменить канал", action: () => editChannelModal(channel) },
+      { icon: "delete", label: "Удалить канал", danger: true, action: () => deleteChannelModal(channel) },
+    );
+  }
+  return items.length ? [...items, { divider: true }] : [];
 }
 
 function openServerMenu(event, server) {
@@ -2014,9 +2049,36 @@ function openServerMenu(event, server) {
       label: "Отметить прочитанным",
       action: () => unread.forEach((channel) => ackChannel(channel.id, channel.last_message_id)),
     },
+    { divider: true },
+    firstInviteChannel(server) && {
+      icon: "person_add",
+      label: "Пригласить",
+      action: () => showInvite(firstInviteChannel(server).id),
+    },
+    serverAllows(server, PERM.MANAGE_CHANNEL) && {
+      icon: "add",
+      label: "Создать канал",
+      action: () => createChannelModal(server.id),
+    },
+    { icon: "settings", label: "Настройки сервера", action: () => openServerSettings(server.id) },
+    { divider: true },
     { icon: "content_copy", label: "Копировать название", action: () => copyText(server.name) },
     { icon: "fingerprint", label: "Копировать ID", action: () => copyText(server.id) },
+    { divider: true },
+    {
+      icon: server.owner ? "delete" : "logout",
+      label: server.owner ? "Удалить сервер" : "Выйти с сервера",
+      danger: true,
+      action: () => confirmLeaveServer(server),
+    },
   ]);
+}
+
+/** Канал для приглашения: открытый, иначе первый текстовый. */
+function firstInviteChannel(server) {
+  if (!serverAllows(server, PERM.INVITE)) return null;
+  const channels = server.categories.flatMap((category) => category.channels).filter((channel) => !channel.voice);
+  return channels.find((channel) => channel.id === state.channelId) || channels[0] || null;
 }
 
 async function logout() {
@@ -2285,7 +2347,8 @@ function bindUi() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     if (modalOpen()) closeModal();
-    else closeMenus();
+    else if (menusOpen()) closeMenus();
+    else if (settingsOpen()) closeSettings();
   });
   window.addEventListener("resize", closeMenus);
   window.addEventListener("focus", ackVisible);
@@ -2301,6 +2364,7 @@ async function boot() {
     );
     return;
   }
+  applyAppearance();
   bindUi();
   closeChannel();
 

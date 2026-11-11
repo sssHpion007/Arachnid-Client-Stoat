@@ -119,20 +119,19 @@ function toggleAccountMenu(event) {
       [typeof icon === "string" ? symbol(icon, 20) : icon, h("span", { class: "menu-item-label", text: label })],
     );
 
-  const card = h("button", { type: "button", class: "account-card", title: "Открыть профиль" }, [
+  // как в оригинале: шапка меню открывает настройки
+  const card = h("button", { type: "button", class: "account-card", title: "Настройки" }, [
     avatar({ url: me.avatar, name: myName(), size: 32, presence: me.presence || "Online" }),
     h("span", { class: "account-text" }, [
       h("span", { class: "account-name", text: myName() }),
       h("span", { class: "account-id", text: `${me.username}#${me.discriminator}` }),
     ]),
   ]);
-  card.onclick = () => {
-    closeMenus();
-    openProfileModal(me.id, null);
-  };
+  card.onclick = () => openUserSettings();
 
   const children = [
     card,
+    item("person", "Мой профиль", () => openProfileModal(me.id, null)),
     item("swap_horiz", "Сменить аккаунт", () => location.replace("login.html?switch")),
     h("div", { class: "menu-divider" }),
   ];

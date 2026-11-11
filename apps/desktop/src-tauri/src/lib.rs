@@ -321,7 +321,8 @@ async fn login_with_token(
     *state.http.write().await = Some(client);
     *state.session_id.write().await = session_id;
     show_client(&app);
-    Ok(UserView::from(me))
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(profile::own_view(me, cdn.as_deref()))
 }
 
 /// Результат шага входа, который видит форма.
@@ -457,8 +458,9 @@ async fn finish_login(
 
             show_client(&app);
 
+            let cdn = state.cdn_url.read().await.clone();
             Ok(LoginStep::Success {
-                user: UserView::from(me),
+                user: profile::own_view(me, cdn.as_deref()),
                 token: session.token,
                 session_id: session.id,
             })
@@ -489,6 +491,7 @@ async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
     state.cache.clear().await;
     *state.session_id.write().await = None;
     state.members_synced.write().await.clear();
+    state.subscriptions.lock().await.clear();
     state.emojis.write().await.clear();
     Ok(())
 }

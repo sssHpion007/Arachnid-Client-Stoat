@@ -10,7 +10,7 @@
 | `crates/stoat-core` — REST, gateway, кэш, rate-limit | готово, 23 теста, проверено на живом API 0.16.3 |
 | `crates/stoat-plugin-api` — ABI плагинов и манифест прав | каркас |
 | `crates/stoat-plugin-host` — WASM-хост на `wasmi` | план |
-| `apps/desktop` — Tauri 2 + webview | каркас: команды, интерфейс, конфиг, иконки |
+| `apps/desktop` — Tauri 2 + webview | чаты, профили, статус, настройки пользователя и сервера (роли, участники, баны, приглашения, эмодзи) |
 | `bootstrap/` — скачиваемый установщик | готово: `bootstrap.sh` и `bootstrap.ps1` |
 
 ## Структура

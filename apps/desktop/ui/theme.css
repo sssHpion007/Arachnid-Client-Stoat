@@ -43,42 +43,42 @@
   --md-sys-color-shadow: #000000;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color-scheme: light;
-    --md-sys-color-primary: #505b92;
-    --md-sys-color-on-primary: #ffffff;
-    --md-sys-color-primary-container: #dde1ff;
-    --md-sys-color-on-primary-container: #384379;
-    --md-sys-color-secondary: #5a5d72;
-    --md-sys-color-on-secondary: #ffffff;
-    --md-sys-color-secondary-container: #dfe1f9;
-    --md-sys-color-on-secondary-container: #424659;
-    --md-sys-color-tertiary: #76546e;
-    --md-sys-color-on-tertiary: #ffffff;
-    --md-sys-color-tertiary-container: #ffd7f3;
-    --md-sys-color-on-tertiary-container: #5c3c55;
-    --md-sys-color-error: #ba1a1a;
-    --md-sys-color-on-error: #ffffff;
-    --md-sys-color-error-container: #ffdad6;
-    --md-sys-color-on-error-container: #93000a;
-    --md-sys-color-surface-dim: #dbd9e0;
-    --md-sys-color-surface: #fbf8ff;
-    --md-sys-color-surface-bright: #fbf8ff;
-    --md-sys-color-surface-variant: #e3e1ec;
-    --md-sys-color-surface-container-lowest: #ffffff;
-    --md-sys-color-surface-container-low: #f5f2fa;
-    --md-sys-color-surface-container: #efedf4;
-    --md-sys-color-surface-container-high: #e9e7ef;
-    --md-sys-color-surface-container-highest: #e3e1e9;
-    --md-sys-color-on-surface: #1b1b21;
-    --md-sys-color-on-surface-variant: #45464f;
-    --md-sys-color-outline: #767680;
-    --md-sys-color-outline-variant: #c6c5d0;
-    --md-sys-color-inverse-surface: #303036;
-    --md-sys-color-inverse-on-surface: #f2f0f7;
-    --md-sys-color-inverse-primary: #b9c3ff;
-  }
+/* Светлая тема: атрибут data-theme ставит theme.js (выбор в настройках
+   или системная тема) */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --md-sys-color-primary: #505b92;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-primary-container: #dde1ff;
+  --md-sys-color-on-primary-container: #384379;
+  --md-sys-color-secondary: #5a5d72;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #dfe1f9;
+  --md-sys-color-on-secondary-container: #424659;
+  --md-sys-color-tertiary: #76546e;
+  --md-sys-color-on-tertiary: #ffffff;
+  --md-sys-color-tertiary-container: #ffd7f3;
+  --md-sys-color-on-tertiary-container: #5c3c55;
+  --md-sys-color-error: #ba1a1a;
+  --md-sys-color-on-error: #ffffff;
+  --md-sys-color-error-container: #ffdad6;
+  --md-sys-color-on-error-container: #93000a;
+  --md-sys-color-surface-dim: #dbd9e0;
+  --md-sys-color-surface: #fbf8ff;
+  --md-sys-color-surface-bright: #fbf8ff;
+  --md-sys-color-surface-variant: #e3e1ec;
+  --md-sys-color-surface-container-lowest: #ffffff;
+  --md-sys-color-surface-container-low: #f5f2fa;
+  --md-sys-color-surface-container: #efedf4;
+  --md-sys-color-surface-container-high: #e9e7ef;
+  --md-sys-color-surface-container-highest: #e3e1e9;
+  --md-sys-color-on-surface: #1b1b21;
+  --md-sys-color-on-surface-variant: #45464f;
+  --md-sys-color-outline: #767680;
+  --md-sys-color-outline-variant: #c6c5d0;
+  --md-sys-color-inverse-surface: #303036;
+  --md-sys-color-inverse-on-surface: #f2f0f7;
+  --md-sys-color-inverse-primary: #b9c3ff;
 }
 
 /* Константы темы Stoat (stoatWebTheme.ts) */
