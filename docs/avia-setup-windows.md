@@ -1,30 +1,33 @@
-# Stoat на Windows: темы + избранные гифки + переводчик
+# Темы, избранные гифки и переводчик: плагины Avia Client в Arachnid Client
 
-Краткий вывод: Rust-клиенты Stoat (Ermine, RuSToat, VimStoat) **не имеют plugin API**, поэтому
-темы/плагины с заменой текста сообщений там недоступны без форка UI.
-Нужный набор даёт **Avia Client** — форк официального desktop-клиента, аналог Vencord/BetterDiscord.
+Arachnid Client запускает плагины и темы, написанные для
+[Avia Client](https://github.com/AvaLilac/for-desktop) (мод официального
+desktop-клиента Stoat, аналог Vencord/BetterDiscord), без изменений. Отдельный
+Avia ставить не нужно. Как устроены расширения — в [extensions.md](extensions.md).
 
 ---
 
-## 1. Установка Avia Client (desktop, Windows)
+## 1. Как поставить плагин
 
-1. Скачать последний релиз: https://github.com/AvaLilac/for-desktop/releases
-   (на момент проверки — `1.8.4`, assets: Windows `.exe` / portable)
-2. Запустить, залогиниться в свой аккаунт Stoat (включая self-hosted инстанс, если нужен)
-3. В настройках клиента появится раздел **Avia**: плагины, QuickCSS, Themes, Fonts, Local Plugins
+1. Каталог: https://avalilac.github.io/PluginRepo/ (44 плагина, у каждого кнопка
+   **View source**).
+2. Откройте исходник плагина и сохраните файл `.js` в папку `plugins\` рядом с
+   `arachnid-client.exe` (трей → «Расширения → Плагины → Открыть папку»).
+3. Прочитайте код (см. раздел 6).
+4. Трей → «Расширения → Плагины» → флажок у файла. Страница перезагрузится, вход
+   сохранится.
 
-Альтернатива без установки приложения: **userscript** в Tampermonkey на `web.stoat.chat`
-https://github.com/AvaLilac/Ava-Client/raw/refs/heads/main/userscript/AviaClient.user.js
-
-Сайт/док: https://avalilac.codeberg.page/Avia-Client-Home/
-Репозиторий плагинов: https://avalilac.github.io/PluginRepo/ (44 плагина, кнопка View source у каждого)
+Настройки плагинов, которые Avia показывает в своём меню (`AviaMenu`), здесь
+находятся в трее: «Расширения → Действия плагинов».
 
 ---
 
 ## 2. Темы
 
-- **Панель Themes** внутри Avia (создание/включение своих тем, без QuickCSS)
-- **QuickCSS** — живое редактирование CSS, применяется без перезагрузки
+- **Темы** — файлы `.css` в папке `themes\`, включаются флажками в трее
+  («Расширения → Темы») и применяются сразу
+- **QuickCSS** — трей → «Расширения → Изменить QuickCSS»: файл открывается в
+  редакторе, изменения применяются при сохранении
 - Готовые темы от сообщества: https://rvlt.gg/discover/themes
   (Catppuccin Frappé/Latte/Macchiato/Mocha, Dracula, Gruvbox, AMOLED, Deep Ocean,
    Material Dark, Discord / Discord Colours & Layout, Horizon, Solarized и др.)
@@ -54,13 +57,19 @@ https://github.com/AvaLilac/Ava-Client/raw/refs/heads/main/userscript/AviaClient
 **`KlipyV2`** (AvaLilac)
 - подменяет встроенный GIF-провайдер Stoat на Klipy, используя нативный пикер
 - кнопка favorite на каждой карточке гифки, лимиты загрузки (в коде: `GIF_LOAD_LIMIT`, `TRENDING_LOAD_LIMIT`)
-- требует бесплатный API key с https://klipy.com (вводится в модалке плагина, хранится в `localStorage`)
+- требует бесплатный API key с https://klipy.com: трей → «Расширения → Действия плагинов →
+  Set API Key», ключ хранится в `localStorage`
 
-Плюс встроенная **Favourites system** Avia — хранит избранные ссылки YouTube/картинок и выводит их
-отдельной панелью.
+**Панель избранного** (кнопка ⭐ рядом с кнопкой GIF, список, вставка ссылки) в Avia — часть самого
+клиента, а не плагин: модуль `avia_core/aviafavsystem.js`. Это обычный самостоятельный скрипт,
+поэтому он работает и как плагин Arachnid Client:
 
-Порядок: поставить `BetterFavourites`, затем `KlipyV2` (или наоборот — они работают с одним и тем же
-ключом `avia_favorites` в localStorage).
+1. Сохраните https://github.com/AvaLilac/for-desktop/blob/main/avia_core/aviafavsystem.js
+   (кнопка **Download raw file**) в `plugins\`.
+2. Включите в трее `aviafavsystem.js`, затем `BetterFavourites.js` и при желании `KlipyV2.js`.
+
+Все три пишут в один и тот же ключ `avia_favorites` в localStorage, поэтому избранное общее.
+`BetterFavourites` находит панель сам, когда её открывают, так что порядок файлов не важен.
 
 ---
 
@@ -101,24 +110,11 @@ https://github.com/AvaLilac/Ava-Client/raw/refs/heads/main/userscript/AviaClient
 
 ## 6. Риски и гигиена
 
-- Avia — форк одного разработчика; после обновлений upstream Stoat плагины ломаются
-  (в KlipyV2 прямо есть changelog «Fix the plugin after stoat update broke everything»)
+- плагины пишут разные авторы; после обновлений Stoat они ломаются
+  (в KlipyV2 прямо есть changelog «Fix the plugin after stoat update broke everything»).
+  Сломанный плагин выключается в трее или удалением файла из `plugins\`
 - плагины исполняют JS с доступом к сессии/токену. В репозитории есть `Gradient roles`,
   помеченный автором как **TOKEN GRABBER** (ему нужен токен для создания ролей через API) —
   пример того, что код надо читать
-- всегда смотреть исходник кнопкой **View** перед включением; не ставить плагины «пачкой»
+- всегда смотреть исходник перед включением; не включать плагины «пачкой»
 - не вводить пароль/токен в сторонние модалки плагинов, кроме явно необходимых (Klipy API key)
-
----
-
-## 7. Если всё-таки хочется на Rust
-
-| Вариант | Что даёт | Цена |
-|---|---|---|
-| Форк [Ermine](https://github.com/Zomatree/ermine) (Freya/Skia) | свои экраны/фичи прямо в коде | нет CSS-тем; UI-код руками; апстрим мержить больно |
-| Свой клиент на [`stoat-rs`](https://crates.io/crates/stoat-rs) (Apache-2.0, есть `voice`) | плагинная архитектура закладывается сразу, полный контроль | писать UI с нуля |
-| Бот/автоматизация на `stoat-rs` / `kaho` | команды, бриджи, уведомления | без UI |
-
-Практичный компромисс: интерфейс и плагины — Avia (JS), а «мозги» для сложной автоматизации
-(перевод через свой бэкенд с кэшем, зеркалирование, статистика) — отдельный сервис на Rust,
-к которому плагин Avia обращается по HTTP.

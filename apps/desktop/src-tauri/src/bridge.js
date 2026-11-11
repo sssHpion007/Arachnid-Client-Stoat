@@ -143,10 +143,174 @@
     setAutostart: (value) => invoke("desktop_autostart_set", { value: Boolean(value) }),
   });
 
-  // Rust сообщает об изменениях, сделанных не со страницы (окно развернули
-  // кнопкой системы, перетаскиванием к краю экрана и т. п.).
+  // ─────────────────────────── темы и QuickCSS ───────────────────────────
+  // Темы из папки themes/ и quickcss.css (extensions.rs): по элементу <style>
+  // на каждую, в конце документа, чтобы перекрывать стили клиента. Через
+  // элементы, а не adoptedStyleSheets: так их видно в инструментах
+  // разработчика, как у Avia Client.
+  const styleNodes = new Map();
+  let stylesPushed = false;
+
+  function mountStyles() {
+    const root = document.documentElement;
+    if (!root) return;
+    // appendChild переносит уже вставленный элемент в конец
+    for (const node of styleNodes.values()) root.appendChild(node);
+  }
+
+  function setStyles(styles) {
+    const next = new Map();
+    for (const { id, css } of styles) {
+      let node = styleNodes.get(id);
+      if (!node) {
+        node = document.createElement("style");
+        node.dataset.arachnidStyle = id;
+      }
+      if (node.textContent !== css) node.textContent = css;
+      next.set(id, node);
+    }
+    for (const [id, node] of styleNodes) if (!next.has(id)) node.remove();
+    styleNodes.clear();
+    for (const [id, node] of next) styleNodes.set(id, node);
+    mountStyles();
+  }
+
+  // стили нужны до первой отрисовки клиента; <head> и <body> парсер
+  // добавит позже, поэтому после разбора документа стили снова в конец
+  void invoke("extensions_styles").then(
+    (styles) => {
+      if (!stylesPushed) setStyles(styles);
+    },
+    () => {},
+  );
+  document.addEventListener("DOMContentLoaded", mountStyles, { once: true });
+
+  // ───────────────────────── меню плагинов (AviaMenu) ─────────────────────────
+  // Плагины Avia Client добавляют свои пункты (ключ API, звуки, переключатели)
+  // через window.AviaMenu (avia_core/menu.js). Здесь тот же объект с теми же
+  // проверками, но пункты показываются в меню трея («Действия плагинов»):
+  // Rust получает их список, а при выборе пункта вызывает runMenuItem.
+  const menuHandlers = new Map(); // id действия → onClick
+  const menuActions = []; // AviaMenu.register: { id, name }
+  const menuGroups = []; // AviaMenu.submenuregister: { id, name, items: [{ id, name }] }
+  let menuSyncQueued = false;
+
+  function syncMenu() {
+    if (menuSyncQueued) return;
+    menuSyncQueued = true;
+    // плагин обычно регистрирует несколько пунктов подряд: отправляем один раз
+    setTimeout(() => {
+      menuSyncQueued = false;
+      const entries = [
+        ...menuActions.map(({ id, name }) => ({ id, name })),
+        ...menuGroups.map(({ id, name, items }) => ({
+          id,
+          name,
+          items: items.map((item) => ({ id: item.id, name: item.name })),
+        })),
+      ];
+      void invoke("set_plugin_menu", { entries });
+    }, 0);
+  }
+
+  const nonEmpty = (value) => typeof value === "string" && value.trim() !== "";
+  const menuIdTaken = (id) => menuHandlers.has(id) || menuGroups.some((group) => group.id === id);
+  const menuError = (method, message, item) => console.error(`[AviaMenu] ${method}: ${message}`, item);
+
+  const AviaMenu = Object.freeze({
+    register(item) {
+      if (!item || typeof item !== "object") return menuError("register", "item must be an object", item);
+      if (!nonEmpty(item.id)) return menuError("register", "item.id must be a non-empty string", item);
+      if (!nonEmpty(item.name)) return menuError("register", "item.name must be a non-empty string", item);
+      if (typeof item.onClick !== "function") return menuError("register", "item.onClick must be a function", item);
+      const id = item.id.trim();
+      if (menuIdTaken(id)) return menuError("register", `id '${id}' is already registered`, item);
+      menuActions.push({ id, name: item.name });
+      menuHandlers.set(id, item.onClick);
+      syncMenu();
+    },
+    submenuregister(item) {
+      if (!item || typeof item !== "object") return menuError("submenuregister", "item must be an object", item);
+      if (!nonEmpty(item.id)) return menuError("submenuregister", "item.id must be a non-empty string", item);
+      if (!nonEmpty(item.name)) return menuError("submenuregister", "item.name must be a non-empty string", item);
+      const id = item.id.trim();
+      if (menuIdTaken(id)) return menuError("submenuregister", `id '${id}' is already registered`, item);
+      menuGroups.push({ id, name: item.name, items: [] });
+      syncMenu();
+    },
+    submenu(item) {
+      if (!item || typeof item !== "object") return menuError("submenu", "item must be an object", item);
+      if (!nonEmpty(item.parent)) return menuError("submenu", "item.parent must be a non-empty string", item);
+      if (!nonEmpty(item.id)) return menuError("submenu", "item.id must be a non-empty string", item);
+      if (!nonEmpty(item.name)) return menuError("submenu", "item.name must be a non-empty string", item);
+      if (typeof item.onClick !== "function") return menuError("submenu", "item.onClick must be a function", item);
+      const group = menuGroups.find((entry) => entry.id === item.parent.trim());
+      if (!group) return menuError("submenu", `no submenuregister found with id '${item.parent.trim()}'`, item);
+      const id = item.id.trim();
+      if (menuIdTaken(id)) return menuError("submenu", `id '${id}' is already registered`, item);
+      group.items.push({ id, name: item.name });
+      menuHandlers.set(id, item.onClick);
+      syncMenu();
+    },
+    updatesubmenu(item) {
+      if (!item || typeof item !== "object") return menuError("updatesubmenu", "item must be an object", item);
+      if (!nonEmpty(item.parent)) return menuError("updatesubmenu", "item.parent must be a non-empty string", item);
+      if (!nonEmpty(item.id)) return menuError("updatesubmenu", "item.id must be a non-empty string", item);
+      const group = menuGroups.find((entry) => entry.id === item.parent.trim());
+      const entry = group?.items.find((child) => child.id === item.id.trim());
+      if (!entry) return menuError("updatesubmenu", `no submenu item found with id '${item.id.trim()}'`, item);
+      if (nonEmpty(item.text)) entry.name = item.text.trim();
+      syncMenu();
+    },
+    unregister(item) {
+      if (!item || !nonEmpty(item.id)) return menuError("unregister", "item.id must be a non-empty string", item);
+      const id = item.id.trim();
+      const action = menuActions.findIndex((entry) => entry.id === id);
+      const group = menuGroups.findIndex((entry) => entry.id === id);
+      if (action !== -1) {
+        menuActions.splice(action, 1);
+        menuHandlers.delete(id);
+      } else if (group !== -1) {
+        for (const child of menuGroups[group].items) menuHandlers.delete(child.id);
+        menuGroups.splice(group, 1);
+      } else {
+        const parent = menuGroups.findIndex((entry) => entry.items.some((child) => child.id === id));
+        if (parent === -1) return;
+        const items = menuGroups[parent].items;
+        items.splice(items.findIndex((child) => child.id === id), 1);
+        menuHandlers.delete(id);
+        // как у Avia: группа без пунктов исчезает
+        if (items.length === 0) menuGroups.splice(parent, 1);
+      }
+      syncMenu();
+    },
+  });
+  Object.defineProperty(window, "AviaMenu", { value: AviaMenu });
+
+  function runMenuItem(id) {
+    const handler = menuHandlers.get(id);
+    if (!handler) return;
+    try {
+      handler();
+    } catch (error) {
+      console.error(`[AviaMenu] ${id}:`, error);
+    }
+  }
+
+  // меню от прошлой загрузки страницы больше не действует
+  syncMenu();
+
+  // Rust сообщает об изменениях, сделанных не со страницы: окно развернули
+  // кнопкой системы или перетаскиванием к краю экрана, сохранили тему.
   Object.defineProperty(window, "__arachnidDesktop", {
-    value: Object.freeze({ update: replaceConfig }),
+    value: Object.freeze({
+      update: replaceConfig,
+      setStyles(styles) {
+        stylesPushed = true;
+        setStyles(styles);
+      },
+      runMenuItem,
+    }),
   });
 
   applySpellcheck();
@@ -156,8 +320,34 @@
   const russian = /^ru\b/i.test(navigator.language || "");
   void invoke("set_tray_labels", {
     labels: russian
-      ? { version: "Версия", show: "Показать приложение", hide: "Скрыть приложение", quit: "Выйти из приложения" }
-      : { version: "Version", show: "Show App", hide: "Hide App", quit: "Quit App" },
+      ? {
+          version: "Версия",
+          show: "Показать приложение",
+          hide: "Скрыть приложение",
+          quit: "Выйти из приложения",
+          extensions: "Расширения",
+          themes: "Темы",
+          plugins: "Плагины",
+          noThemes: "Тем нет",
+          noPlugins: "Плагинов нет",
+          openFolder: "Открыть папку",
+          quickCss: "Изменить QuickCSS",
+          pluginActions: "Действия плагинов",
+        }
+      : {
+          version: "Version",
+          show: "Show App",
+          hide: "Hide App",
+          quit: "Quit App",
+          extensions: "Extensions",
+          themes: "Themes",
+          plugins: "Plugins",
+          noThemes: "No themes",
+          noPlugins: "No plugins",
+          openFolder: "Open Folder",
+          quickCss: "Edit QuickCSS",
+          pluginActions: "Plugin Actions",
+        },
   });
 
   // ───────────────────────── перетаскивание окна ─────────────────────────

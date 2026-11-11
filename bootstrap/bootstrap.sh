@@ -148,8 +148,10 @@ create_layout() {
   info "каталог" "$INSTALL_DIR"
   mkdir -p \
     "$INSTALL_DIR/logs" \
-    "$INSTALL_DIR/vendor"
-  ok "созданы logs/, vendor/ (профиль webview/ клиент создаст сам)"
+    "$INSTALL_DIR/vendor" \
+    "$INSTALL_DIR/themes" \
+    "$INSTALL_DIR/plugins"
+  ok "созданы logs/, vendor/, themes/, plugins/ (профиль webview/ клиент создаст сам)"
 
   # конфиги берём из файлов рядом со скриптом; иначе пишем минимальный вариант
   local here

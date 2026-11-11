@@ -11,6 +11,8 @@ const COMMANDS: &[&str] = &[
     "desktop_autostart_get",
     "desktop_autostart_set",
     "set_tray_labels",
+    "extensions_styles",
+    "set_plugin_menu",
 ];
 
 fn main() {

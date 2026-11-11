@@ -17,6 +17,7 @@ WKWebView в macOS.
          │ IPC Tauri (только адрес клиента, только окно main)
          ▼
   desktop.rs: окно, настройки «ПК», трей, автозапуск, Discord RPC
+  extensions.rs: темы, QuickCSS, плагины (docs/extensions.md)
 ```
 
 ## Договор с веб-клиентом
@@ -37,6 +38,18 @@ for-web проверяет `window.native`. Если объект есть, он
 | `desktopConfig.set(patch)` | `desktop_config_set` | сохранить в `desktop.json`, включить или выключить Discord RPC |
 | `desktopConfig.getAutostart()` | `desktop_autostart_get` | включён ли автозапуск |
 | `desktopConfig.setAutostart(v)` | `desktop_autostart_set` | включить или выключить, вернуть итог |
+
+Команды самого моста (их вызывает `bridge.js`, а не for-web):
+
+| Команда | Что делает |
+|---|---|
+| `set_tray_labels` | подписи меню трея на языке системы (русские или английские) |
+| `extensions_styles` | включённые темы и QuickCSS при загрузке страницы |
+| `set_plugin_menu` | пункты `window.AviaMenu` для раздела «Действия плагинов» в трее |
+
+В обратную сторону Rust вызывает `window.__arachnidDesktop`: `update(config)`
+(новые настройки), `setStyles(styles)` (сохранили тему), `runMenuItem(id)`
+(выбрали пункт плагина в трее).
 
 `native.versions` выводятся в настройках как «Stoat for Desktop 0.12.0» и строка
 `Tauri 2.x, Windows x86_64, WebView 1xx` (поля `electron`, `node`, `chrome`).

@@ -69,8 +69,8 @@ jobs:
         with:
           key: portable-${{ matrix.os }}
 
-      - name: Тесты ядра
-        run: cargo test -p stoat-core
+      - name: Тесты приложения
+        run: cargo test -p arachnid-client
 
       - name: Сборка клиента
         run: cargo build --release -p arachnid-client
@@ -81,6 +81,7 @@ jobs:
           mkdir -p dist/Arachnid-Client
           cp "${{ matrix.bin }}" dist/Arachnid-Client/
           mkdir -p dist/Arachnid-Client/logs
+          mkdir -p dist/Arachnid-Client/themes dist/Arachnid-Client/plugins
           cp bootstrap/config.toml dist/Arachnid-Client/
           cp bootstrap/README.txt dist/Arachnid-Client/
           cd dist

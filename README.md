@@ -15,7 +15,9 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 | Возможность | Как |
 |---|---|
 | Своя рамка окна | рамка for-web (`customFrame`), кнопки «Свернуть / Развернуть / Закрыть» — команды Rust; перетаскивание по `-webkit-app-region` |
-| Трей | значок с меню «Версия», «Показать / Скрыть», «Выйти»; закрытие окна прячет его в трей («Сворачивать в трей») |
+| Трей | значок с меню «Версия», «Расширения», «Показать / Скрыть», «Выйти»; закрытие окна прячет его в трей («Сворачивать в трей») |
+| Темы и QuickCSS | `themes/*.css` включаются флажками в трее и применяются сразу, `quickcss.css` действует всегда ([docs/extensions.md](docs/extensions.md)) |
+| Плагины | `plugins/*.js` в формате Avia Client, включаются флажками в трее; меню плагинов `window.AviaMenu` — в трее |
 | Автозапуск | «Запускать вместе с компьютером» и «Запускать свёрнутым в трей» |
 | Discord RPC | статус «Chatting with others», как у Stoat for Desktop |
 | Проверка орфографии | вкл./выкл. из раздела «ПК»; подсказки и «Добавить в словарь» — в контекстном меню WebView2 |
@@ -36,9 +38,8 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 apps/desktop/src-tauri/   оболочка: окно, мост к веб-клиенту, трей, Discord RPC
   src/bridge.js           window.native и window.desktopConfig для for-web
   src/desktop.rs          окно, настройки «ПК», трей, автозапуск, команды моста
+  src/extensions.rs       темы, QuickCSS, плагины, меню плагинов в трее
   src/instance.rs         адрес веб-клиента из config.toml
-crates/stoat-core/        клиентская библиотека протокола Stoat (REST, gateway, кэш)
-crates/stoat-plugin-api/  ABI плагинов, манифест прав (каркас)
 bootstrap/                скачиваемые установщики: bootstrap.sh, bootstrap.ps1
 docs/                     документация
 ```
@@ -57,8 +58,8 @@ powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1
 chmod +x bootstrap.sh && ./bootstrap.sh
 ```
 
-По умолчанию ставит в `~/Arachnid-Client`: `config.toml`, `logs/`, `vendor/`
-(ответ инстанса и сама сборка клиента). Официальный Stoat при этом не
+По умолчанию ставит в `~/Arachnid-Client`: `config.toml`, `logs/`, `themes/`,
+`plugins/`, `vendor/` (ответ инстанса и сама сборка клиента). Официальный Stoat при этом не
 задействован, перенос папки ничего не ломает. Подробности —
 [docs/install.md](docs/install.md).
 
@@ -79,14 +80,15 @@ app_url = "https://stoat.example.com"
 ## Быстрый старт для разработки
 
 ```bash
-cargo test --workspace
+cargo test -p arachnid-client
 cargo build --release -p arachnid-client           # клиент (см. docs/build.md)
 ```
 
 ## Принципы
 
 - **Интерфейс не переписывается.** Окно показывает официальный for-web как есть;
-  оболочка не правит его DOM и не подменяет скрипты.
+  оболочка сама не правит его DOM и не подменяет скрипты. Темы и плагины
+  применяются, только если вы их включили.
 - **Тот же договор, что у Stoat for Desktop.** `window.native` и
   `window.desktopConfig` повторяют preload официального клиента, поэтому for-web
   сам включает свою рамку окна и раздел «ПК».
@@ -98,10 +100,10 @@ cargo build --release -p arachnid-client           # клиент (см. docs/bu
 - [docs/desktop.md](docs/desktop.md) — как устроена оболочка: мост, права, окно
 - [docs/install.md](docs/install.md) — установка бутстрапом, структура папки, portable-режим
 - [docs/build.md](docs/build.md) — сборка из исходников и релизы
-- [docs/stoat-core.md](docs/stoat-core.md) — ядро: протокол, решения, что проверено
-- [docs/avia-setup-windows.md](docs/avia-setup-windows.md) — референс по Avia Client
-  (темы/плагины в JS-клиенте, для сравнения подходов)
-- [docs/plugin-api-notes.md](docs/plugin-api-notes.md) — заметки по API плагинов
+- [docs/extensions.md](docs/extensions.md) — темы, QuickCSS и плагины: где лежат, как
+  включать, как устроено, безопасность
+- [docs/avia-setup-windows.md](docs/avia-setup-windows.md) — избранные гифки,
+  переводчик и другие плагины Avia Client в Arachnid Client
 
 ## Лицензия
 

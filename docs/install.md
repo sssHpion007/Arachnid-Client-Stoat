@@ -15,7 +15,7 @@
 ## Что делает бутстрап
 
 1. Создаёт папку (`~/Arachnid-Client` по умолчанию, можно указать свою через `--dir`).
-2. Раскладывает структуру: `logs/`, `vendor/`.
+2. Раскладывает структуру: `logs/`, `vendor/`, `themes/`, `plugins/`.
 3. Пишет `config.toml` с адресом веб-клиента и `README.txt` (существующие не
    перезаписывает).
 4. Проверяет связь с API и сохраняет ответ `GET /` в `vendor/api-root.json` —
@@ -53,11 +53,15 @@ PowerShell) только проверяет окружение и связь с 
 
 ```
 Arachnid-Client/
-├── config.toml      настройки: инстанс, плагины, кэш, UI
+├── config.toml      адрес веб-клиента
 ├── README.txt       краткая памятка
 ├── arachnid-client.exe  клиент (после распаковки релиза)
 ├── desktop.json     настройки раздела «ПК» (создаёт клиент)
 ├── webview/         вход, сессия, кэш веб-клиента (создаёт клиент)
+├── themes/          свои темы *.css (docs/extensions.md)
+├── plugins/         плагины *.js в формате Avia Client
+├── quickcss.css     свой CSS (создаётся из меню трея)
+├── extensions.json  включённые темы и плагины (создаёт клиент)
 ├── logs/            журналы
 └── vendor/          api-root.json, checksums.txt, сборка
 ```
