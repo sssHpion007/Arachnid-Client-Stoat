@@ -1415,9 +1415,27 @@ span.emoji {
   background: var(--presence-online);
 }
 
+/* окно списка участников: строки стоят на своих местах внутри полной высоты */
+.member-list {
+  position: relative;
+  contain: strict;
+  width: 100%;
+}
+
+.member-list > * {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
 .member-group {
+  box-sizing: border-box;
+  height: 48px;
   padding: 28px 14px 0;
-  margin-bottom: var(--gap-sm);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 0.6875rem;
   font-weight: 500;
   line-height: 1rem;
@@ -2023,6 +2041,15 @@ span.emoji {
   place-items: center;
   border-radius: var(--border-radius-sm);
   font-size: 22px;
+}
+
+/* заготовка эмодзи до загрузки картинки: занимает место, чтобы её было видно наблюдателю */
+.emoji-slot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1em;
+  min-height: 1em;
+  line-height: 1;
 }
 
 .emoji-item:hover {

@@ -172,6 +172,25 @@ impl State {
     }
 }
 
+/// Сколько чего лежит в кэше — для страницы «Приложение» в настройках.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct CacheStats {
+    /// Пользователи
+    pub users: usize,
+    /// Серверы
+    pub servers: usize,
+    /// Каналы
+    pub channels: usize,
+    /// Участники всех серверов
+    pub members: usize,
+    /// Эмодзи
+    pub emojis: usize,
+    /// Сообщения
+    pub messages: usize,
+    /// Каналы, у которых в кэше есть сообщения
+    pub message_channels: usize,
+}
+
 /// Потокобезопасный кэш.
 #[derive(Debug, Clone)]
 pub struct Cache {
@@ -399,6 +418,20 @@ impl Cache {
     /// Сервер по id.
     pub async fn server(&self, id: &str) -> Option<v0::Server> {
         self.state.read().await.servers.get(id).cloned()
+    }
+
+    /// Размеры кэша.
+    pub async fn stats(&self) -> CacheStats {
+        let state = self.state.read().await;
+        CacheStats {
+            users: state.users.len(),
+            servers: state.servers.len(),
+            channels: state.channels.len(),
+            members: state.members.values().map(HashMap::len).sum(),
+            emojis: state.emojis.len(),
+            messages: state.messages.values().map(BTreeMap::len).sum(),
+            message_channels: state.message_channels.len(),
+        }
     }
 
     /// Сообщения канала, отсортированные по id (id в Stoat — ULID, растёт со временем).
@@ -1040,6 +1073,9 @@ mod tests {
             cache.state.read().await.message_channels.len(),
             MESSAGE_CHANNELS - 1
         );
+        let stats = cache.stats().await;
+        assert_eq!(stats.message_channels, MESSAGE_CHANNELS - 1);
+        assert_eq!(stats.messages, MESSAGE_CHANNELS - 1);
     }
 
     #[tokio::test]

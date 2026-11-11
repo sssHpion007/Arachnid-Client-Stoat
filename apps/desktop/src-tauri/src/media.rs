@@ -141,6 +141,17 @@ impl ByteRange {
     }
 }
 
+/// Заполненность кэша файлов.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct MediaStats {
+    /// Файлов в памяти
+    pub files: usize,
+    /// Занято байт
+    pub bytes: usize,
+    /// Предел, байт
+    pub limit: usize,
+}
+
 /// Прокси файлов для webview.
 pub struct MediaProxy {
     client: reqwest::Client,
@@ -165,6 +176,16 @@ impl MediaProxy {
         Self {
             client,
             store: Mutex::new(Store::default()),
+        }
+    }
+
+    /// Сколько файлов и байт сейчас в памяти, и каков предел.
+    pub async fn stats(&self) -> MediaStats {
+        let store = self.store.lock().await;
+        MediaStats {
+            files: store.items.len(),
+            bytes: store.total,
+            limit: CACHE_TOTAL_MAX,
         }
     }
 

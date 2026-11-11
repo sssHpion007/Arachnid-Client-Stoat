@@ -762,9 +762,10 @@ function applyAppearance(appearance = readAppearance()) {
 // ─────────────────────────── приложение ───────────────────────────
 
 async function renderDesktopPage(column, alive) {
-  const [dir, version] = await Promise.all([
+  const [dir, version, stats] = await Promise.all([
     call("data_dir").catch(() => ""),
     window.__TAURI__ && window.__TAURI__.app ? window.__TAURI__.app.getVersion().catch(() => "") : "",
+    call("diagnostics").catch(() => null),
   ]);
   if (!alive()) return;
   put(column,
@@ -787,7 +788,40 @@ async function renderDesktopPage(column, alive) {
           ])
         : null,
     ]),
+    stats ? memorySection(stats) : null,
   );
+}
+
+/** Что сейчас лежит в памяти: помогает понять, откуда расход ОЗУ. */
+function memorySection(stats) {
+  const row = (icon, title, hint) =>
+    h("div", { class: "settings-row" }, [
+      symbol(icon, 24),
+      h("span", { class: "settings-row-text" }, [
+        h("span", { class: "settings-row-title", text: title }),
+        h("span", { class: "settings-hint", text: hint }),
+      ]),
+    ]);
+  const { cache, media } = stats;
+  const heap = performance && performance.memory ? performance.memory.usedJSHeapSize : 0;
+  return section("Память", [
+    row(
+      "image",
+      "Файлы в памяти ядра",
+      `${media.files} шт., ${humanSize(media.bytes) || "0 Б"} из ${humanSize(media.limit)}`,
+    ),
+    row(
+      "forum",
+      "Сообщения в кэше ядра",
+      `${cache.messages} в ${cache.message_channels} каналах (не больше 200 на канал и 32 каналов)`,
+    ),
+    row(
+      "group",
+      "Пользователи и участники",
+      `${cache.users} пользователей, ${cache.members} участников, ${cache.servers} серверов, ${cache.channels} каналов`,
+    ),
+    heap ? row("description", "Интерфейс (куча JavaScript)", humanSize(heap)) : null,
+  ]);
 }
 
 // ─────────────────────────── сервер: обзор ───────────────────────────
