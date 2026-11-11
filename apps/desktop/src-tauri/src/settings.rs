@@ -28,15 +28,24 @@ const REMOVABLE: [&str; 6] = [
     "StatusText",
 ];
 
-/// Раздел «Мой аккаунт».
+/// Раздел «Мой аккаунт» (`UserSummary` и `EditAccount`).
 #[derive(Debug, Serialize)]
 pub struct AccountView {
-    /// Почта
-    pub email: String,
     /// Имя пользователя
     pub username: String,
     /// Дискриминатор
     pub discriminator: String,
+    /// Имя для показа
+    pub display_name: String,
+    /// Аватар
+    pub avatar: Option<String>,
+    /// Фон профиля — баннер карточки
+    pub background: Option<String>,
+    /// Когда создан аккаунт (ISO-8601, из ULID)
+    pub created_at: Option<String>,
+    /// Сколько серверов принадлежит пользователю: пока они есть,
+    /// удалить аккаунт нельзя
+    pub owned_servers: usize,
 }
 
 /// Сессия в разделе «Сессии».
@@ -52,11 +61,13 @@ pub struct SessionView {
     pub created_at: Option<String>,
 }
 
-/// Почта и имя аккаунта.
+/// Карточка аккаунта: имя, аватар, баннер, дата создания.
+///
+/// Почту браузерный клиент показывает только по «Показать» — её отдаёт
+/// [`account_email`].
 #[tauri::command]
 pub async fn account_info(state: State<'_, Arc<AppState>>) -> CmdResult<AccountView> {
     let http = http_client(&state).await?;
-    let account = http.fetch_account().await?;
     let me = match state.cache.me_id().await {
         Some(id) => state.cache.user(&id).await,
         None => None,
@@ -65,11 +76,66 @@ pub async fn account_info(state: State<'_, Arc<AppState>>) -> CmdResult<AccountV
         Some(user) => user,
         None => http.fetch_self().await?,
     };
+    let cdn = state.cdn_url.read().await.clone();
+    // без фона карточка просто останется цвета темы
+    let background = http
+        .fetch_profile(&me.id)
+        .await
+        .ok()
+        .and_then(|profile| profile.background)
+        .and_then(|file| views::file_url(&file, cdn.as_deref()));
     Ok(AccountView {
-        email: account.email,
+        display_name: views::display_name(&me),
+        avatar: me
+            .avatar
+            .as_ref()
+            .and_then(|file| views::file_url(file, cdn.as_deref())),
+        created_at: views::ulid_time_ms(&me.id).map(views::iso_from_ms),
+        owned_servers: state.cache.owned_servers().await,
+        background,
         username: me.username,
         discriminator: me.discriminator,
     })
+}
+
+/// Почта аккаунта (кнопка «Показать»).
+#[tauri::command]
+pub async fn account_email(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
+    let http = http_client(&state).await?;
+    Ok(http.fetch_account().await?.email)
+}
+
+/// Версия клиента и ссылки на правила инстанса — подвал списка разделов.
+#[derive(Debug, Serialize)]
+pub struct AboutView {
+    /// Версия Arachnid Client
+    pub version: &'static str,
+    /// Версия Tauri
+    pub tauri: &'static str,
+    /// Версия WebView2 / WebKit, если известна
+    pub webview: Option<String>,
+    /// Условия, конфиденциальность и правила
+    pub legal: stoat_core::LegalLinks,
+    /// Официальный инстанс stoat.chat (кнопка Stoat Lounge в «Обратной связи»)
+    pub official: bool,
+}
+
+/// Что показать под списком разделов.
+#[tauri::command]
+pub async fn about(state: State<'_, Arc<AppState>>) -> CmdResult<AboutView> {
+    let official = is_official(&state.instance.read().await.api_url);
+    Ok(AboutView {
+        version: env!("CARGO_PKG_VERSION"),
+        tauri: tauri::VERSION,
+        webview: tauri::webview_version().ok(),
+        legal: state.legal.read().await.clone(),
+        official,
+    })
+}
+
+/// Адрес API официального инстанса — как `Instance.isStoat` в браузерном клиенте.
+fn is_official(api_url: &tauri::Url) -> bool {
+    api_url.host_str() == Some("api.stoat.chat")
 }
 
 /// Новое имя пользователя (нужен текущий пароль).
@@ -103,22 +169,6 @@ pub async fn change_password(
     Ok(())
 }
 
-/// Новая почта: Stoat пришлёт письмо для подтверждения.
-#[tauri::command]
-pub async fn change_email(
-    email: String,
-    current_password: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<()> {
-    let email = email.trim();
-    if !email.contains('@') {
-        return Err(CommandError::new("invalid", "это не похоже на адрес почты"));
-    }
-    let http = http_client(&state).await?;
-    http.change_email(email, &current_password).await?;
-    Ok(())
-}
-
 /// Все сессии аккаунта; текущая — первой, остальные от новых к старым.
 #[tauri::command]
 pub async fn sessions(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<SessionView>> {
@@ -139,19 +189,19 @@ pub async fn sessions(state: State<'_, Arc<AppState>>) -> CmdResult<Vec<SessionV
     Ok(list)
 }
 
-/// Завершить одну сессию.
+/// Переименовать сессию.
 #[tauri::command]
-pub async fn revoke_session(session_id: String, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+pub async fn rename_session(
+    session_id: String,
+    name: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CommandError::new("invalid", "укажите имя сессии"));
+    }
     let http = http_client(&state).await?;
-    http.revoke_session(&session_id).await?;
-    Ok(())
-}
-
-/// Завершить все сессии, кроме текущей.
-#[tauri::command]
-pub async fn revoke_other_sessions(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    let http = http_client(&state).await?;
-    http.revoke_other_sessions().await?;
+    http.rename_session(&session_id, name).await?;
     Ok(())
 }
 
@@ -274,6 +324,14 @@ pub async fn upload_file(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn official_instance_by_api_host() {
+        assert!(is_official(&"https://api.stoat.chat".parse().unwrap()));
+        assert!(!is_official(
+            &"https://chat.example.org/api".parse().unwrap()
+        ));
+    }
 
     #[test]
     fn empty_fields_become_removals() {

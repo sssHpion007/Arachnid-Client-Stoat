@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "store:default",
+    "shell:allow-open",
     "core:window:allow-set-focus"
   ]
 }

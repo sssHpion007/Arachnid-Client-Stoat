@@ -101,7 +101,7 @@ impl UploadTag {
 
 /// Часть пути: id и коды из API — ULID и латиница, но имя пользователя или
 /// эмодзи-символ нужно экранировать, чтобы не сломать адрес.
-fn segment(value: &str) -> String {
+pub(super) fn segment(value: &str) -> String {
     url::form_urlencoded::byte_serialize(value.as_bytes())
         .collect::<String>()
         // в пути пробел — это %20, а не «+», как в формах
@@ -109,13 +109,13 @@ fn segment(value: &str) -> String {
 }
 
 impl HttpClient {
-    async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
+    pub(super) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = self.endpoint(path)?;
         self.request::<T, ()>(Method::GET, url, None, None, None)
             .await
     }
 
-    async fn send_json<T: serde::de::DeserializeOwned>(
+    pub(super) async fn send_json<T: serde::de::DeserializeOwned>(
         &self,
         method: Method,
         path: &str,
@@ -125,7 +125,12 @@ impl HttpClient {
         self.request(method, url, Some(body), None, None).await
     }
 
-    async fn send_empty(&self, method: Method, path: &str, body: Option<&Value>) -> Result<()> {
+    pub(super) async fn send_empty(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<()> {
         let url = self.endpoint(path)?;
         self.request_empty(method, url, body, None).await
     }
@@ -220,32 +225,9 @@ impl HttpClient {
             .await
     }
 
-    /// `PATCH /auth/account/change/email` — на новую почту придёт письмо.
-    pub async fn change_email(&self, email: &str, current_password: &str) -> Result<()> {
-        let body = json!({ "email": email, "current_password": current_password });
-        self.send_empty(Method::PATCH, "/auth/account/change/email", Some(&body))
-            .await
-    }
-
     /// `GET /auth/session/all` — все сессии аккаунта.
     pub async fn fetch_sessions(&self) -> Result<Vec<SessionInfo>> {
         self.get_json("/auth/session/all").await
-    }
-
-    /// `DELETE /auth/session/{id}` — завершить одну сессию.
-    pub async fn revoke_session(&self, session_id: &str) -> Result<()> {
-        self.send_empty(
-            Method::DELETE,
-            &format!("/auth/session/{}", segment(session_id)),
-            None,
-        )
-        .await
-    }
-
-    /// `DELETE /auth/session/all` — завершить все сессии, кроме текущей.
-    pub async fn revoke_other_sessions(&self) -> Result<()> {
-        self.send_empty(Method::DELETE, "/auth/session/all?revoke_self=false", None)
-            .await
     }
 
     /// `PATCH /auth/session/{id}` — переименовать сессию.

@@ -199,4 +199,55 @@ impl ApiRoot {
         }
         january.get("url").and_then(|v| v.as_str())
     }
+
+    /// Правовые документы инстанса (`features.legal_links`): ссылки внизу
+    /// списка разделов в настройках.
+    pub fn legal_links(&self) -> LegalLinks {
+        self.features
+            .get("legal_links")
+            .cloned()
+            .and_then(|links| serde_json::from_value(links).ok())
+            .unwrap_or_default()
+    }
+}
+
+/// Ссылки на правила инстанса; пустые поля сервер не присылает.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LegalLinks {
+    /// Условия использования
+    #[serde(default)]
+    pub terms_of_service: Option<String>,
+    /// Политика конфиденциальности
+    #[serde(default)]
+    pub privacy_policy: Option<String>,
+    /// Правила сообщества
+    #[serde(default)]
+    pub guidelines: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legal_links_from_features() {
+        let root: ApiRoot = serde_json::from_value(serde_json::json!({
+            "features": {
+                "legal_links": {
+                    "terms_of_service": "https://stoat.chat/terms",
+                    "privacy_policy": "https://stoat.chat/privacy"
+                }
+            }
+        }))
+        .unwrap();
+        let links = root.legal_links();
+        assert_eq!(
+            links.terms_of_service.as_deref(),
+            Some("https://stoat.chat/terms")
+        );
+        assert_eq!(links.guidelines, None);
+
+        let bare: ApiRoot = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(bare.legal_links(), LegalLinks::default());
+    }
 }

@@ -17,6 +17,7 @@ use tauri::{Manager, State};
 mod media;
 mod permissions;
 mod profile;
+mod security;
 mod server_admin;
 mod settings;
 mod views;
@@ -51,6 +52,8 @@ pub struct AppState {
     pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
     /// Id текущей сессии, если известен (после входа или из запомненного)
     pub session_id: RwLock<Option<String>>,
+    /// Ссылки на правила инстанса (подвал списка разделов настроек)
+    pub legal: RwLock<stoat_core::LegalLinks>,
 }
 
 impl AppState {
@@ -68,6 +71,7 @@ impl AppState {
             members_synced: RwLock::new(std::collections::HashSet::new()),
             subscriptions: Mutex::new(std::collections::HashMap::new()),
             session_id: RwLock::new(None),
+            legal: RwLock::new(stoat_core::LegalLinks::default()),
         }
     }
 }
@@ -87,6 +91,8 @@ pub struct InstanceInfo {
     pub voice: bool,
     /// Адрес файлового сервиса (Autumn)
     pub autumn_url: Option<String>,
+    /// Условия, конфиденциальность и правила инстанса
+    pub legal: stoat_core::LegalLinks,
 }
 
 /// Проблема, которую нужно показать пользователю.
@@ -267,6 +273,7 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
         version: root.stoat.clone(),
         voice: root.voice_enabled(),
         autumn_url: root.autumn_url().map(str::to_string),
+        legal: root.legal_links(),
     }
 }
 
@@ -1078,6 +1085,7 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
     let url = root.autumn_url().map(str::to_string);
     *state.cdn_url.write().await = url.clone();
     *state.proxy_url.write().await = root.january_url().map(str::to_string);
+    *state.legal.write().await = root.legal_links();
     url
 }
 
@@ -1417,12 +1425,23 @@ pub fn run() {
             profile::set_relationship,
             profile::send_friend_request,
             settings::account_info,
+            settings::account_email,
+            settings::about,
             settings::change_username,
             settings::change_password,
-            settings::change_email,
             settings::sessions,
-            settings::revoke_session,
-            settings::revoke_other_sessions,
+            settings::rename_session,
+            security::mfa_status,
+            security::mfa_recovery_codes,
+            security::mfa_generate_recovery_codes,
+            security::mfa_totp_secret,
+            security::mfa_enable_totp,
+            security::mfa_disable_totp,
+            security::disable_account,
+            security::delete_account,
+            security::change_email,
+            security::revoke_session,
+            security::revoke_other_sessions,
             settings::edit_profile,
             settings::upload_file,
             server_admin::server_settings,

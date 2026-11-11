@@ -17,9 +17,13 @@ use url::Url;
 use crate::error::{Error, Result};
 use crate::ratelimit::RateLimiter;
 
+mod bots;
 mod endpoints;
+mod mfa;
 
+pub use bots::{BotInfo, BotWithUser, DiscoverStatus, OwnedBots, PublicBot};
 pub use endpoints::{AccountInfo, MutualResponse, SessionInfo, UploadTag};
+pub use mfa::{MfaMethod, MfaResponse, MfaStatus, MfaTicket};
 
 const HEADER_SESSION: &str = "x-session-token";
 const HEADER_BOT: &str = "x-bot-token";
@@ -416,14 +420,32 @@ impl HttpClient {
     where
         B: serde::Serialize + ?Sized,
     {
+        self.send_with(method, url, body, idempotency_key, bucket, HeaderMap::new())
+            .await
+    }
+
+    /// Запрос с дополнительными заголовками (например, `X-MFA-Ticket`).
+    async fn send_with<B>(
+        &self,
+        method: Method,
+        url: Url,
+        body: Option<&B>,
+        idempotency_key: Option<String>,
+        bucket: Option<String>,
+        extra: HeaderMap,
+    ) -> Result<reqwest::Response>
+    where
+        B: serde::Serialize + ?Sized,
+    {
         let bucket = bucket.unwrap_or_else(|| self.bucket_of(&url));
         self.limiter.acquire(&bucket).await;
 
-        let headers = request_headers(
+        let mut headers = request_headers(
             self.token.as_ref(),
             idempotency_key.as_deref(),
             &self.app_name,
         );
+        headers.extend(extra);
 
         let mut request = self
             .http
