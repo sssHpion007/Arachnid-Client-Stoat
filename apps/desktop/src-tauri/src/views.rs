@@ -840,7 +840,7 @@ pub fn group_members_of(users: &[v0::User], cdn: Option<&str>) -> Vec<MemberView
         })
         .collect();
     // как в клиенте: `recipients.toSorted((a, b) => a.displayName.localeCompare(b.displayName))`
-    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list.sort_by_cached_key(|member| member.name.to_lowercase());
     list
 }
 
