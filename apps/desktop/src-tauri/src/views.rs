@@ -247,18 +247,21 @@ impl WorkspaceView {
     /// Собрать дерево с учётом пользовательского порядка.
     pub fn build_ordered(snapshot: Snapshot, cdn: Option<String>, ordering: &Ordering) -> Self {
         let channels: Vec<&v0::Channel> = snapshot.channels.iter().collect();
+        let me_id = snapshot.me.as_ref().map(|user| user.id.as_str());
 
         let mut servers: Vec<ServerView> = snapshot
             .servers
             .iter()
             .map(|server| {
-                ServerView::build(
-                    server,
-                    &channels,
-                    snapshot.members.get(&server.id),
-                    ordering,
-                    cdn.as_deref(),
-                )
+                let members = snapshot.members.get(&server.id);
+                let mut view =
+                    ServerView::build(server, &channels, members, ordering, cdn.as_deref());
+                let mine = me_id.and_then(|id| {
+                    members.and_then(|list| list.iter().find(|member| member.id.user == id))
+                });
+                view.owner = me_id == Some(server.owner.as_str());
+                view.permissions = crate::permissions::server(server, me_id, mine);
+                view
             })
             .collect();
         // порядок как в браузере: сначала серверы из настроек, затем новые
@@ -346,6 +349,10 @@ pub struct ServerView {
     pub unread: bool,
     /// Сколько непрочитанных упоминаний во всех каналах
     pub mentions: usize,
+    /// Мои права на сервере (биты API): какие пункты меню и настроек показывать
+    pub permissions: u64,
+    /// Я владелец сервера
+    pub owner: bool,
 }
 
 impl ServerView {
@@ -429,6 +436,8 @@ impl ServerView {
             categories,
             unread: false,
             mentions: 0,
+            permissions: 0,
+            owner: false,
         }
     }
 }

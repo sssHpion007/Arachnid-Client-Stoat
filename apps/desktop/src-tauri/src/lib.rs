@@ -14,7 +14,10 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod permissions;
 mod profile;
+mod server_admin;
+mod settings;
 mod views;
 use tokio::sync::{Mutex, RwLock};
 use views::{ChatMessage, HistoryView, UserView, WorkspaceView};
@@ -41,6 +44,8 @@ pub struct AppState {
     pub members_synced: RwLock<std::collections::HashSet<String>>,
     /// Подписки на присутствие участников: id сервера → когда отправлена
     pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    /// Id текущей сессии, если известен (после входа или из запомненного)
+    pub session_id: RwLock<Option<String>>,
 }
 
 /// Кэш скачанных картинок.
@@ -90,6 +95,7 @@ impl AppState {
             emojis: RwLock::new(std::collections::HashMap::new()),
             members_synced: RwLock::new(std::collections::HashSet::new()),
             subscriptions: Mutex::new(std::collections::HashMap::new()),
+            session_id: RwLock::new(None),
         }
     }
 }
@@ -292,14 +298,16 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
     }
 }
 
-/// Сохранить токен и выполнить вход.
+/// Войти по токену сессии.
 ///
-/// Токен не пишется в конфиг: только в память процесса и, если доступно,
-/// в системное хранилище секретов (через плагин store на стороне UI).
+/// Так же восстанавливается запомненная сессия при запуске: форма входа
+/// хранит токен и id сессии, если стоит «Запомнить сессию». Id нужен, чтобы
+/// в настройках отметить текущую сессию среди всех.
 #[tauri::command]
 async fn login_with_token(
     app: tauri::AppHandle,
     token: String,
+    session_id: Option<String>,
     state: State<'_, Arc<AppState>>,
 ) -> CmdResult<UserView> {
     let instance = state.instance.read().await.clone();
@@ -311,6 +319,7 @@ async fn login_with_token(
     state.cache.set_me(me.clone()).await;
 
     *state.http.write().await = Some(client);
+    *state.session_id.write().await = session_id;
     show_client(&app);
     Ok(UserView::from(me))
 }
@@ -323,8 +332,10 @@ pub enum LoginStep {
     Success {
         /// Профиль пользователя
         user: UserView,
-        /// Токен сессии, чтобы UI мог сохранить его в системное хранилище
+        /// Токен сессии, чтобы форма могла запомнить вход
         token: String,
+        /// Id сессии (отмечается как текущая в настройках)
+        session_id: String,
     },
     /// Нужен второй фактор
     Mfa {
@@ -442,12 +453,14 @@ async fn finish_login(
             let me = client.fetch_self().await?;
             state.cache.set_me(me.clone()).await;
             *state.http.write().await = Some(client);
+            *state.session_id.write().await = Some(session.id.clone());
 
             show_client(&app);
 
             Ok(LoginStep::Success {
                 user: UserView::from(me),
                 token: session.token,
+                session_id: session.id,
             })
         }
         ResponseLogin::MFA {
@@ -474,6 +487,9 @@ async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
         let _ = client.logout().await; // ошибку не показываем: локально вышли в любом случае
     }
     state.cache.clear().await;
+    *state.session_id.write().await = None;
+    state.members_synced.write().await.clear();
+    state.emojis.write().await.clear();
     Ok(())
 }
 
@@ -1314,6 +1330,39 @@ pub fn run() {
             profile::open_dm,
             profile::set_relationship,
             profile::send_friend_request,
+            settings::account_info,
+            settings::change_username,
+            settings::change_password,
+            settings::change_email,
+            settings::sessions,
+            settings::revoke_session,
+            settings::revoke_other_sessions,
+            settings::edit_profile,
+            settings::upload_file,
+            server_admin::server_settings,
+            server_admin::edit_server,
+            server_admin::leave_server,
+            server_admin::create_role,
+            server_admin::edit_role,
+            server_admin::delete_role,
+            server_admin::set_permissions,
+            server_admin::server_member_list,
+            server_admin::edit_member,
+            server_admin::kick_member,
+            server_admin::ban_member,
+            server_admin::server_bans,
+            server_admin::unban_member,
+            server_admin::server_invites,
+            server_admin::create_invite,
+            server_admin::delete_invite,
+            server_admin::preview_invite,
+            server_admin::join_invite,
+            server_admin::create_server,
+            server_admin::create_channel,
+            server_admin::edit_channel,
+            server_admin::delete_channel,
+            server_admin::create_emoji,
+            server_admin::delete_emoji,
             user_avatar,
             message_link,
             channel_history,

@@ -133,7 +133,7 @@ function toggleAccountMenu(event) {
 
   const children = [
     card,
-    item("swap_horiz", "Сменить аккаунт", () => location.replace("login.html")),
+    item("swap_horiz", "Сменить аккаунт", () => location.replace("login.html?switch")),
     h("div", { class: "menu-divider" }),
   ];
   for (const presence of PRESENCES) {

@@ -346,7 +346,7 @@ pub async fn user_mutual(
 }
 
 /// Записать обновлённого себя в кэш и вернуть своё представление.
-async fn store_me(state: &AppState, mut user: v0::User) -> UserView {
+pub(crate) async fn store_me(state: &AppState, mut user: v0::User) -> UserView {
     // `PATCH /users/@me` отвечает «как видят другие», без отметки «в сети»;
     // себя мы видим подключённым, иначе аватар на миг становился серым
     user.online = true;

@@ -244,6 +244,16 @@ impl Cache {
         self.publish(CacheEvent::UserChanged(id));
     }
 
+    /// Вставить или заменить сервер (ответ REST после изменения настроек).
+    ///
+    /// Событие `ServerUpdate` придёт и по шлюзу, но интерфейсу нужно сразу
+    /// показать результат, не дожидаясь его.
+    pub async fn insert_server(&self, server: v0::Server) {
+        let id = server.id.clone();
+        self.state.write().await.servers.insert(id.clone(), server);
+        self.publish(CacheEvent::ServerChanged(id));
+    }
+
     /// Записать полный список участников сервера (ответ `GET /servers/{id}/members`).
     ///
     /// `Ready` присылает только тех, кто в сети, поэтому список участников

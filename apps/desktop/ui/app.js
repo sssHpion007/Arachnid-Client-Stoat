@@ -2025,6 +2025,13 @@ async function logout() {
   } catch {
     /* локально выходим в любом случае */
   }
+  // сессия завершена на сервере — запомненный токен больше не годится
+  try {
+    localStorage.removeItem("stoat.session.token");
+    localStorage.removeItem("stoat.session.id");
+  } catch {
+    /* хранилище недоступно */
+  }
   location.replace("login.html");
 }
 
