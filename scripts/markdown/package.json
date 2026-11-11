@@ -1,0 +1,21 @@
+{
+  "private": true,
+  "name": "arachnid-markdown",
+  "dependencies": {
+    "unified": "11.0.5",
+    "remark-parse": "11.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-math": "6.0.0",
+    "remark-breaks": "4.0.0",
+    "remark-rehype": "11.1.2",
+    "rehype-katex": "7.0.1",
+    "rehype-highlight": "7.0.2",
+    "lowlight": "3.3.0",
+    "katex": "0.16.22",
+    "linkify-it": "5.0.0",
+    "unist-util-visit": "5.0.0",
+    "emoji-regex": "10.6.0",
+    "vfile": "6.0.3",
+    "esbuild": "0.25.0"
+  }
+}

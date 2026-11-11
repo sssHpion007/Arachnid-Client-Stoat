@@ -200,6 +200,29 @@ pub struct WorkspaceView {
     pub cdn: Option<String>,
     /// Прокси January для сторонних картинок и видео во встраиваниях
     pub proxy: Option<String>,
+    /// Друзья, заявки и заблокированные (страница «Друзья»)
+    pub relationships: Vec<RelationView>,
+}
+
+/// Пользователь, с которым есть отношение: друг, заявка, блокировка.
+#[derive(Debug, Serialize)]
+pub struct RelationView {
+    /// Пользователь (с аватаром и присутствием)
+    pub user: UserView,
+    /// `Friend`, `Incoming`, `Outgoing`, `Blocked`, `BlockedOther`
+    pub relationship: &'static str,
+}
+
+/// Отношение так, как его пишет API; `None` — отношения нет.
+fn relationship_name(status: &v0::RelationshipStatus) -> Option<&'static str> {
+    match status {
+        v0::RelationshipStatus::Friend => Some("Friend"),
+        v0::RelationshipStatus::Incoming => Some("Incoming"),
+        v0::RelationshipStatus::Outgoing => Some("Outgoing"),
+        v0::RelationshipStatus::Blocked => Some("Blocked"),
+        v0::RelationshipStatus::BlockedOther => Some("BlockedOther"),
+        v0::RelationshipStatus::None | v0::RelationshipStatus::User => None,
+    }
 }
 
 /// Порядок, который пользователь задал в браузерной версии Stoat.
@@ -342,7 +365,20 @@ impl WorkspaceView {
             .map(|channel| channel.id.clone())
             .or_else(|| dms.first().map(|channel| channel.id.clone()));
 
+        let relationships = snapshot
+            .users
+            .iter()
+            .filter_map(|user| {
+                let relationship = relationship_name(&user.relationship)?;
+                Some(RelationView {
+                    user: UserView::build(user.clone(), cdn.as_deref()),
+                    relationship,
+                })
+            })
+            .collect();
+
         Self {
+            relationships,
             me: snapshot
                 .me
                 .map(|user| crate::profile::own_view(user, cdn.as_deref())),
@@ -383,6 +419,19 @@ pub struct ServerView {
     pub permissions: u64,
     /// Я владелец сервера
     pub owner: bool,
+    /// Роли от старшей к младшей: для упоминаний `<%id>` в тексте
+    pub roles: Vec<RoleTag>,
+}
+
+/// Роль в том виде, в котором её показывает упоминание (`RoleMention`).
+#[derive(Debug, Serialize)]
+pub struct RoleTag {
+    /// Id
+    pub id: String,
+    /// Название
+    pub name: String,
+    /// Цвет (CSS)
+    pub colour: Option<String>,
 }
 
 impl ServerView {
@@ -469,8 +518,23 @@ impl ServerView {
             mentions: 0,
             permissions: 0,
             owner: false,
+            roles: server_roles(server),
         }
     }
+}
+
+/// Роли сервера от старшей к младшей (меньший `rank` — старше).
+fn server_roles(server: &v0::Server) -> Vec<RoleTag> {
+    let mut roles: Vec<&v0::Role> = server.roles.values().collect();
+    roles.sort_by_key(|role| role.rank);
+    roles
+        .into_iter()
+        .map(|role| RoleTag {
+            id: role.id.clone(),
+            name: role.name.clone(),
+            colour: role.colour.clone(),
+        })
+        .collect()
 }
 
 /// Категория каналов.
@@ -504,6 +568,8 @@ pub struct ChannelView {
     pub voice: bool,
     /// Собеседник в личных сообщениях
     pub recipient: Option<String>,
+    /// Участники группы (для ЛС — оба собеседника)
+    pub recipients: Vec<String>,
     /// Присутствие собеседника в личных сообщениях
     pub presence: Option<String>,
     /// Есть ли непрочитанные сообщения
@@ -543,6 +609,7 @@ impl ChannelView {
                 last_message_id: last_message_id.clone(),
                 voice: voice.is_some(),
                 recipient: None,
+                recipients: Vec::new(),
                 presence: None,
                 unread: false,
                 mentions: 0,
@@ -574,6 +641,7 @@ impl ChannelView {
                     last_message_id: last_message_id.clone(),
                     voice: false,
                     recipient: others.first().cloned(),
+                    recipients: recipients.clone(),
                     presence: other.map(|user| presence_of(user).to_string()),
                     unread: false,
                     mentions: 0,
@@ -587,6 +655,7 @@ impl ChannelView {
                 description,
                 icon,
                 last_message_id,
+                recipients,
                 ..
             } => Self {
                 id: id.clone(),
@@ -597,6 +666,7 @@ impl ChannelView {
                 last_message_id: last_message_id.clone(),
                 voice: false,
                 recipient: None,
+                recipients: recipients.clone(),
                 presence: None,
                 unread: false,
                 mentions: 0,
@@ -612,6 +682,7 @@ impl ChannelView {
                 last_message_id: None,
                 voice: false,
                 recipient: None,
+                recipients: Vec::new(),
                 presence: None,
                 unread: false,
                 mentions: 0,
@@ -661,8 +732,6 @@ pub struct ChatMessage {
     pub system_event: Option<SystemEvent>,
     /// Файлы
     pub attachments: Vec<AttachmentView>,
-    /// Оформление текста по кускам
-    pub segments: Segments,
     /// Эмодзи сервера из текста: код `:id:` → адрес картинки
     pub emoji: HashMap<String, String>,
     /// Ник без серверного (для подсказки)
@@ -749,6 +818,29 @@ pub fn members_of(
             .cmp(&a.online)
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
+    list
+}
+
+/// Участники группы (`GroupMemberSidebar`): получатели канала по имени,
+/// без ролей и серверных ников.
+pub fn group_members_of(users: &[v0::User], cdn: Option<&str>) -> Vec<MemberView> {
+    let mut list: Vec<MemberView> = users
+        .iter()
+        .map(|user| MemberView {
+            id: user.id.clone(),
+            name: display_name(user),
+            username: format!("{}#{}", user.username, user.discriminator),
+            avatar: user.avatar.as_ref().and_then(|file| file_url(file, cdn)),
+            colour: None,
+            roles: Vec::new(),
+            online: user.online,
+            presence: presence_of(user).to_string(),
+            status: status_text(user),
+            hoist: None,
+        })
+        .collect();
+    // как в клиенте: `recipients.toSorted((a, b) => a.displayName.localeCompare(b.displayName))`
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     list
 }
 
@@ -1097,7 +1189,6 @@ impl ChatMessage {
             timestamp: ulid_time_ms(&message.id)
                 .map(iso_from_ms)
                 .unwrap_or_default(),
-            segments: segments(&content),
             id: message.id,
             channel: message.channel,
             author_id: message.author,
@@ -1321,283 +1412,6 @@ pub fn display_name(user: &v0::User) -> String {
         .clone()
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| user.username.clone())
-}
-
-/// Стилизация текста сообщения (жирный, курсив, код, ссылка).
-#[derive(Debug, Serialize, PartialEq)]
-pub struct Segment {
-    /// Вид: `text`, `bold`, `italic`, `strike`, `code`, `codeblock`, `spoiler`, `emoji`
-    pub kind: String,
-    /// Содержимое
-    pub text: String,
-    /// Адрес ссылки, если это ссылка
-    pub href: Option<String>,
-}
-
-/// Разметка сообщения по «узлам», чтобы интерфейс не собирал HTML.
-pub type Segments = Vec<Segment>;
-
-/// Разобрать текст сообщения на оформленные куски.
-///
-/// Поддерживается то, что реально встречается в Stoat: `**жирный**`,
-/// `*курсив*` и `_курсив_`, `~~зачёркнутый~~`, `` `код` ``, блоки кода
-/// ```…```, `||спойлер||` и ссылки `[текст](адрес)`.
-pub fn segments(text: &str) -> Segments {
-    let mut out = Vec::new();
-    let mut rest = text;
-
-    // блоки кода разбираем первыми: внутри них разметка не действует
-    loop {
-        match rest.find("```") {
-            Some(open) => {
-                push_inline(&mut out, &rest[..open]);
-                let after = &rest[open + 3..];
-                match after.find("```") {
-                    Some(close) => {
-                        // первая строка после ``` — язык подсветки, он не нужен
-                        let body = after[..close].trim_start_matches(|symbol: char| {
-                            symbol.is_ascii_alphanumeric() || symbol == '-' || symbol == '_'
-                        });
-                        out.push(Segment {
-                            kind: "codeblock".into(),
-                            text: body.trim_matches('\n').to_string(),
-                            href: None,
-                        });
-                        rest = &after[close + 3..];
-                    }
-                    None => {
-                        // незакрытый блок — показываем как обычный текст
-                        push_inline(&mut out, &rest[open..]);
-                        return out;
-                    }
-                }
-            }
-            None => {
-                push_inline(&mut out, rest);
-                return out;
-            }
-        }
-    }
-}
-
-/// Что искать в тексте.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Fmt {
-    Bold,
-    Italic,
-    Strike,
-    Spoiler,
-    Code,
-    Link,
-}
-
-impl Fmt {
-    fn kind(self) -> &'static str {
-        match self {
-            Fmt::Bold => "bold",
-            Fmt::Italic => "italic",
-            Fmt::Strike => "strike",
-            Fmt::Spoiler => "spoiler",
-            Fmt::Code => "code",
-            Fmt::Link => "link",
-        }
-    }
-
-    fn precedence(self) -> usize {
-        match self {
-            Fmt::Code => 0,
-            Fmt::Bold => 1,
-            Fmt::Strike => 2,
-            Fmt::Spoiler => 3,
-            // подчёркивание — самый слабый маркер: `__` должен победить `_`
-            Fmt::Italic => 4,
-            Fmt::Link => 5,
-        }
-    }
-}
-
-/// Разметка внутри строки.
-///
-/// Ищем ближайший маркер по всему тексту, а не по первому попавшемуся символу:
-/// раньше из-за этого терялся текст между `**…**` и `` `…` ``, а `_курсив_`
-/// вообще не распознавался.
-fn push_inline(out: &mut Segments, text: &str) {
-    let mut plain = String::new();
-    let mut rest = text;
-
-    while !rest.is_empty() {
-        let Some(hit) = next_marker(rest) else {
-            plain.push_str(rest);
-            break;
-        };
-
-        // экранирование: `\*` — это звёздочка, а не разметка
-        if hit.at > 0 && rest[..hit.at].ends_with('\\') {
-            plain.push_str(&rest[..hit.at - 1]);
-            plain.push_str(hit.marker);
-            rest = &rest[hit.at + hit.marker.len()..];
-            continue;
-        }
-
-        plain.push_str(&rest[..hit.at]);
-        let after = &rest[hit.at + hit.marker.len()..];
-
-        match hit.format {
-            Fmt::Link => {
-                // [текст](адрес)
-                let parsed = after.find("](").and_then(|close| {
-                    let href_start = close + 2;
-                    after[href_start..]
-                        .find(')')
-                        .map(|end| (close, href_start, href_start + end))
-                });
-                match parsed {
-                    Some((close, href_start, href_end)) => {
-                        let title = after[..close].to_string();
-                        let href = after[href_start..href_end].to_string();
-                        push_plain(out, &mut plain);
-                        out.push(Segment {
-                            kind: "link".into(),
-                            text: title,
-                            href: Some(href),
-                        });
-                        rest = &after[href_end + 1..];
-                    }
-                    // это не ссылка — оставляем скобку как текст
-                    None => {
-                        plain.push_str(hit.marker);
-                        rest = after;
-                    }
-                }
-            }
-            Fmt::Bold | Fmt::Italic => {
-                // у `__жирный__` и `_курсив_` закрывающий маркер — тот же
-                let closing = hit.marker;
-                match after.find(closing) {
-                    Some(end) if end > 0 => {
-                        push_plain(out, &mut plain);
-                        out.push(Segment {
-                            kind: hit.format.kind().into(),
-                            text: after[..end].to_string(),
-                            href: None,
-                        });
-                        rest = &after[end + closing.len()..];
-                    }
-                    // закрывающего маркера нет — символ остаётся текстом
-                    _ => {
-                        plain.push_str(hit.marker);
-                        rest = after;
-                    }
-                }
-            }
-            _ => match after.find(hit.marker) {
-                Some(end) if end > 0 => {
-                    push_plain(out, &mut plain);
-                    out.push(Segment {
-                        kind: hit.format.kind().into(),
-                        text: after[..end].to_string(),
-                        href: None,
-                    });
-                    rest = &after[end + hit.marker.len()..];
-                }
-                _ => {
-                    plain.push_str(hit.marker);
-                    rest = after;
-                }
-            },
-        }
-    }
-
-    push_plain(out, &mut plain);
-}
-
-/// Найденный маркер разметки.
-struct Marker {
-    at: usize,
-    marker: &'static str,
-    format: Fmt,
-}
-
-/// Ближайший маркер разметки.
-///
-/// Маркеры просматриваются все сразу: `__жирный__` должен опознаваться раньше,
-/// чем `_курсив_`, а внутри слова подчёркивание вообще не считается разметкой
-/// (иначе `snake_case` превращался бы в курсив).
-fn next_marker(text: &str) -> Option<Marker> {
-    const MARKERS: [(&str, Fmt); 8] = [
-        ("**", Fmt::Bold),
-        ("__", Fmt::Bold),
-        ("~~", Fmt::Strike),
-        ("||", Fmt::Spoiler),
-        ("`", Fmt::Code),
-        ("*", Fmt::Italic),
-        ("_", Fmt::Italic),
-        ("[", Fmt::Link),
-    ];
-
-    let mut best: Option<Marker> = None;
-    for (marker, format) in MARKERS {
-        let Some(at) = find_marker(text, marker, format) else {
-            continue;
-        };
-        let better = match &best {
-            None => true,
-            Some(current) => {
-                at < current.at
-                    || (at == current.at
-                        && (format.precedence(), std::cmp::Reverse(marker.len()))
-                            < (
-                                current.format.precedence(),
-                                std::cmp::Reverse(current.marker.len()),
-                            ))
-            }
-        };
-        if better {
-            best = Some(Marker { at, marker, format });
-        }
-    }
-    best
-}
-
-/// Позиция маркера, если он здесь действительно открывает разметку.
-fn find_marker(text: &str, marker: &str, format: Fmt) -> Option<usize> {
-    let mut from = 0;
-    loop {
-        let at = from + text[from..].find(marker)?;
-        from = at + marker.len();
-
-        let before = text[..at].chars().next_back();
-        let after = text[at + marker.len()..].chars().next();
-
-        let not_space_after = after.is_some_and(|symbol| !symbol.is_whitespace());
-        let ok = match format {
-            // `*жирный*` и `**жирный**` — после маркера не пробел
-            Fmt::Bold | Fmt::Italic => {
-                // `_` внутри слова — часть слова, а не курсив: `snake_case`
-                let boundary = marker != "_"
-                    || (before.is_none_or(|symbol| !symbol.is_alphanumeric())
-                        && after.is_some_and(|symbol| !symbol.is_whitespace()));
-                not_space_after && boundary
-            }
-            Fmt::Strike | Fmt::Spoiler => not_space_after,
-            // `[` открывает ссылку только если дальше есть `](`
-            Fmt::Link => text[at..].contains("]("),
-            Fmt::Code => true,
-        };
-        if ok {
-            return Some(at);
-        }
-    }
-}
-
-fn push_plain(out: &mut Segments, plain: &mut String) {
-    if !plain.is_empty() {
-        out.push(Segment {
-            kind: "text".into(),
-            text: std::mem::take(plain),
-            href: None,
-        });
-    }
 }
 
 /// Адрес файла на CDN Stoat: `<cdn>/<tag>/<id>`.
@@ -1890,108 +1704,6 @@ mod tests {
     }
 
     #[test]
-    fn markdown_becomes_segments() {
-        let parts = segments("привет **мир** и `код` со [ссылкой](https://stoat.chat)");
-        let kinds: Vec<&str> = parts.iter().map(|part| part.kind.as_str()).collect();
-        assert_eq!(kinds, vec!["text", "bold", "text", "code", "text", "link"]);
-
-        let bold = parts.iter().find(|part| part.kind == "bold").unwrap();
-        assert_eq!(bold.text, "мир");
-
-        let link = parts.iter().find(|part| part.kind == "link").unwrap();
-        assert_eq!(link.href.as_deref(), Some("https://stoat.chat"));
-        assert_eq!(link.text, "ссылкой");
-    }
-
-    #[test]
-    fn markdown_keeps_all_text() {
-        // раньше здесь терялось « между »
-        let text = "начало **жирный** между `код` и *курсив* конец";
-        let parts = segments(text);
-        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
-        assert!(
-            joined.contains("между"),
-            "текст между разметкой не должен теряться"
-        );
-        assert!(joined.contains("начало"));
-        assert!(joined.contains("конец"));
-        assert_eq!(parts.iter().filter(|part| part.kind == "bold").count(), 1);
-        assert_eq!(parts.iter().filter(|part| part.kind == "italic").count(), 1);
-    }
-
-    #[test]
-    fn multiple_bold_pairs_are_split() {
-        let parts = segments("**один** и **два**");
-        let bold: Vec<&str> = parts
-            .iter()
-            .filter(|part| part.kind == "bold")
-            .map(|part| part.text.as_str())
-            .collect();
-        assert_eq!(bold, vec!["один", "два"]);
-    }
-
-    #[test]
-    fn triple_bold_star_pairs_are_split() {
-        // самая частая жалоба: «***текст***» и «**a** и **b**»
-        let parts = segments("**жирный** обычный **ещё**");
-        let bold: Vec<&str> = parts
-            .iter()
-            .filter(|part| part.kind == "bold")
-            .map(|part| part.text.as_str())
-            .collect();
-        assert_eq!(bold, vec!["жирный", "ещё"]);
-        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
-        assert!(joined.contains("обычный"), "текст между парами потерялся");
-    }
-
-    #[test]
-    fn underscore_and_double_underscore_work() {
-        let parts = segments("_курсив_ и __жирный__");
-        assert_eq!(
-            parts
-                .iter()
-                .filter(|part| part.kind == "italic")
-                .map(|part| part.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["курсив"]
-        );
-        assert_eq!(
-            parts
-                .iter()
-                .filter(|part| part.kind == "bold")
-                .map(|part| part.text.as_str())
-                .collect::<Vec<_>>(),
-            vec!["жирный"]
-        );
-    }
-
-    #[test]
-    fn snake_case_is_not_italic() {
-        let parts = segments("файл my_long_name.rs и поле snake_case");
-        assert!(
-            parts.iter().all(|part| part.kind != "italic"),
-            "подчёркивания внутри слов не должны становиться курсивом: {parts:?}"
-        );
-        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
-        assert!(joined.contains("snake_case"));
-    }
-
-    #[test]
-    fn escaping_shows_marker_as_text() {
-        let parts = segments(r"это \*не курсив\* и так далее");
-        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
-        assert!(joined.contains('*'), "звёздочка должна остаться текстом");
-        assert!(parts.iter().all(|part| part.kind != "italic"));
-    }
-
-    #[test]
-    fn code_block_drops_language_hint() {
-        let parts = segments("```rust\nfn main() {}\n```");
-        assert_eq!(parts[0].kind, "codeblock");
-        assert_eq!(parts[0].text, "fn main() {}");
-    }
-
-    #[test]
     fn custom_emojis_are_found_by_id() {
         let cdn = Some("https://cdn.example/");
         let found = custom_emojis(
@@ -2019,30 +1731,6 @@ mod tests {
         let view = EmojiView::build(&emoji, Some("https://cdn.example/"));
         assert_eq!(view.url.as_deref(), Some("https://cdn.example/emojis/e1"));
         assert!(view.animated);
-    }
-
-    #[test]
-    fn unmatched_marker_stays_text() {
-        let parts = segments("2 * 2 = 4 и [скобка без ссылки");
-        let joined: String = parts.iter().map(|part| part.text.as_str()).collect();
-        assert!(joined.contains("2 * 2 = 4"));
-        assert!(joined.contains("[скобка без ссылки"));
-    }
-
-    #[test]
-    fn code_block_and_spoiler_are_separate() {
-        let parts = segments(
-            "```
-let a = 1;
-``` после ||тайна||",
-        );
-        assert_eq!(parts[0].kind, "codeblock");
-        assert_eq!(parts[0].text, "let a = 1;");
-        assert!(
-            parts
-                .iter()
-                .any(|part| part.kind == "spoiler" && part.text == "тайна")
-        );
     }
 
     #[test]

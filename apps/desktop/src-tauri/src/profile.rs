@@ -4,7 +4,6 @@
 //! профиль, как `UserCard` и `UserProfile` браузерного клиента), а также
 //! меню собственного аватара: присутствие и текст статуса (`UserMenu`).
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use revolt_models::v0;
@@ -12,7 +11,7 @@ use serde::Serialize;
 use serde_json::json;
 use tauri::State;
 
-use crate::views::{self, Segments, UserView};
+use crate::views::{self, UserView};
 use crate::{AppState, CmdResult, CommandError, http_client};
 
 /// Сколько символов допускает текст статуса (как в `CustomStatus.tsx`).
@@ -85,10 +84,6 @@ pub struct ProfileView {
     pub is_me: bool,
     /// «Обо мне»
     pub bio: Option<String>,
-    /// «Обо мне» с разметкой
-    pub bio_segments: Segments,
-    /// Свои эмодзи из «обо мне»: id → адрес
-    pub bio_emoji: HashMap<String, String>,
     /// Фон профиля
     pub background: Option<String>,
     /// Сведения об участнике, если профиль открыт на сервере
@@ -297,11 +292,6 @@ pub async fn user_profile(
         status: views::status_text(&user),
         relationship: variant_name(&user.relationship),
         created_at: views::ulid_time_ms(&user.id).map(views::iso_from_ms),
-        bio_segments: bio.as_deref().map(views::segments).unwrap_or_default(),
-        bio_emoji: bio
-            .as_deref()
-            .map(|text| views::custom_emojis(text, cdn))
-            .unwrap_or_default(),
         bio,
         background,
         bot: user.bot.is_some(),
@@ -409,6 +399,67 @@ pub async fn open_dm(user_id: String, state: State<'_, Arc<AppState>>) -> CmdRes
     let id = stoat_core::cache::channel_id(&channel).to_string();
     state.cache.insert_channel(channel).await;
     Ok(id)
+}
+
+/// Пользователь в упоминании `<@id>` (`UserMention`): имя с учётом ника
+/// на сервере, аватар и цвет старшей роли.
+#[derive(Debug, Serialize)]
+pub struct MentionView {
+    /// Id
+    pub id: String,
+    /// Ник на сервере, иначе отображаемое имя
+    pub name: String,
+    /// Аватар участника или профиля
+    pub avatar: Option<String>,
+    /// Цвет роли
+    pub colour: Option<String>,
+}
+
+/// Известные клиенту пользователи для упоминаний — только из кэша, без
+/// запросов в сеть: браузерный клиент тоже показывает «Unknown User» для
+/// тех, кого ещё не видел.
+#[tauri::command]
+pub async fn known_users(
+    ids: Vec<String>,
+    server_id: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Vec<MentionView>> {
+    let cdn = state.cdn_url.read().await.clone();
+    let cdn = cdn.as_deref();
+    let server = match &server_id {
+        Some(id) => state.cache.server(id).await,
+        None => None,
+    };
+    let mut out = Vec::new();
+    for id in ids.iter().take(100) {
+        let Some(user) = state.cache.user(id).await else {
+            continue;
+        };
+        let member = match &server {
+            Some(server) => state.cache.member(&server.id, id).await,
+            None => None,
+        };
+        let avatar = member
+            .as_ref()
+            .and_then(|member| member.avatar.as_ref())
+            .and_then(|file| views::file_url(file, cdn))
+            .or_else(|| {
+                user.avatar
+                    .as_ref()
+                    .and_then(|file| views::file_url(file, cdn))
+            });
+        let colour = match (&server, &member) {
+            (Some(server), Some(member)) => views::role_colour(&member.roles, &server.roles),
+            _ => None,
+        };
+        out.push(MentionView {
+            name: views::user_label_with(&user, member.as_ref()),
+            avatar,
+            colour,
+            id: user.id,
+        });
+    }
+    Ok(out)
 }
 
 /// Изменить отношение: `add` (запрос или принятие), `remove`, `block`, `unblock`.

@@ -17,6 +17,8 @@ const inputEl = el("input");
 
 /** Сколько сообщений просить за раз (как браузерный клиент). */
 const PAGE_SIZE = 50;
+const NEARBY_LIMIT = 50; // страница вокруг сообщения при переходе к нему
+const DISPLAY_LIMIT = 150; // столько сообщений держит лента при чтении истории
 /** Сообщения одного автора дальше 7 минут друг от друга не склеиваются. */
 const GROUP_WINDOW_MS = 7 * 60 * 1000;
 /** Ответов к одному сообщению — не больше пяти (ограничение API). */
@@ -38,6 +40,11 @@ const state = {
   showMembers: readSetting("members", true),
   collapsed: new Set(readSetting("collapsed", [])),
   typing: new Map(), // id канала → Map(id пользователя → таймер)
+  page: null, // раздел вместо канала: "home" | "friends" | "discover"
+  atEnd: true, // лента доходит до последнего сообщения (не «прыжок» в историю)
+  loadingNewer: false,
+  side: { state: "default" }, // правая панель: участники | поиск | закреплённые
+  sidebarShown: readSetting("sidebar", true), // список каналов (PRIMARY_SIDEBAR)
 };
 
 // ─────────────────────────── помощники ───────────────────────────
@@ -85,11 +92,16 @@ function svg(tag, attrs = {}) {
 }
 
 /**
- * Иконка по имени: Material Symbols (как <Symbol> в официальном клиенте)
- * или, с приставкой `md:`, Material Icons — ими там нарисованы меню.
+ * Иконка по имени: Material Symbols (как <Symbol> в официальном клиенте),
+ * с приставкой `md:` — Material Icons (ими там нарисованы меню и кнопки),
+ * с приставкой `bx:` — Boxicons.
  */
 function symbol(name, size = 20) {
-  const material = name.startsWith("md:") ? MD_ICONS[name.slice(3)] : null;
+  const material = name.startsWith("md:")
+    ? MD_ICONS[name.slice(3)]
+    : name.startsWith("bx:")
+      ? (window.STOAT_BRANDS || {})[name.slice(3)]
+      : null;
   const node = svg("svg", { viewBox: material ? "0 0 24 24" : "0 -960 960 960", class: "symbol", "aria-hidden": "true" });
   node.style.setProperty("--symbol-size", size + "px");
   for (const d of material || [ICONS[name] || ""]) node.append(svg("path", { d }));
@@ -272,10 +284,18 @@ function image(url, props = {}) {
  * Аватар (Avatar.tsx): круг 32×32 в SVG, при необходимости с «дыркой»
  * под статус и под счётчик — маски объявлены в app.html.
  */
-function avatar({ url, name, size = 32, presence = null, badge = null }) {
-  const node = svg("svg", { viewBox: "0 0 32 32", width: size, height: size, class: "avatar" });
+function avatar({ url, name, size = 32, presence = null, badge = null, shape = "circle" }) {
+  const node = svg("svg", { viewBox: "0 0 32 32", width: size, height: size, class: "avatar" + (shape === "circle" ? "" : " " + shape) });
   const mask =
-    presence && badge ? "mask-status-badge" : presence ? "mask-status" : badge ? "mask-badge" : "mask-avatar";
+    shape === "rounded-square"
+      ? "mask-rounded"
+      : presence && badge
+        ? "mask-status-badge"
+        : presence
+          ? "mask-status"
+          : badge
+            ? "mask-badge"
+            : "mask-avatar";
   const group = svg("g", { mask: `url(#${mask})` });
   group.append(svg("rect", { x: 0, y: 0, width: 32, height: 32, class: "avatar-fallback" }));
   const letters = svg("text", { x: 16, y: 16.5, "text-anchor": "middle", "dominant-baseline": "central" });
@@ -392,131 +412,11 @@ function customEmojiNode(id, url) {
 }
 
 // ─────────────────────────── текст сообщения ───────────────────────────
-
-const LINK_RE = /https?:\/\/[^\s<]+[^\s<.,:;"')\]!?]/g;
-const MENTION_RE = /<@([0-9A-Z]{26})>/g;
-const MESSAGE_LINK_RE =
-  /^https?:\/\/(?:stoat\.chat|app\.revolt\.chat|revolt\.chat|rvlt\.gg)\/(?:server\/([0-9A-Z]{26})\/)?channel\/([0-9A-Z]{26})\/([0-9A-Z]{26})/i;
-
-/** Ближайшее совпадение среди нескольких регулярных выражений. */
-function nearestMatch(text, patterns) {
-  let best = null;
-  for (const [kind, pattern] of patterns) {
-    pattern.lastIndex = 0;
-    const match = pattern.exec(text);
-    if (match && (!best || match.index < best.match.index)) best = { kind, match };
-  }
-  return best;
-}
-
-/** Текст с упоминаниями, ссылками и эмодзи. `emoji` — карта id → адрес. */
-function richText(text, emoji = {}) {
-  const frag = document.createDocumentFragment();
-  let rest = String(text || "");
-  const patterns = [
-    ["mention", MENTION_RE],
-    ["custom", CUSTOM_EMOJI_RE],
-    ["link", LINK_RE],
-    ["unicode", UNICODE_EMOJI_RE],
-  ];
-  while (rest) {
-    const hit = nearestMatch(rest, patterns);
-    if (!hit) {
-      frag.append(rest);
-      break;
-    }
-    const { kind, match } = hit;
-    if (match.index > 0) frag.append(rest.slice(0, match.index));
-    if (kind === "mention") frag.append(mentionNode(match[1]));
-    else if (kind === "custom") frag.append(customEmojiNode(match[1], emoji[match[1]] || customEmojiUrl(match[1])));
-    else if (kind === "link") frag.append(linkNode(match[0], match[0]));
-    else frag.append(unicodeEmojiNode(match[0]));
-    rest = rest.slice(match.index + match[0].length);
-  }
-  return frag;
-}
+// Разметка рисуется в markdown.js (тот же конвейер, что в браузерном клиенте).
 
 function customEmojiUrl(id) {
   const cdn = state.workspace && state.workspace.cdn;
   return cdn ? `${cdn.replace(/\/$/, "")}/emojis/${id}` : null;
-}
-
-function mentionNode(userId) {
-  const node = h("span", { class: "mention", text: "@" + userName(userId) });
-  node.onclick = (event) => openUserCard(event, userId);
-  return node;
-}
-
-function linkNode(href, label) {
-  const info = messageLinkInfo(href);
-  if (info) {
-    const known = findChannel(info.channel);
-    const button = h("button", { class: "message-link", type: "button", title: t("Jump to message") }, [
-      symbol("chevron_right", 16),
-      known ? known.channel.name : t("message"),
-    ]);
-    button.onclick = () => jumpToMessage(info);
-    return button;
-  }
-  return h("a", { href, target: "_blank", rel: "noreferrer", text: label });
-}
-
-function messageLinkInfo(href) {
-  const match = MESSAGE_LINK_RE.exec(href || "");
-  return match ? { server: match[1] || null, channel: match[2], message: match[3] } : null;
-}
-
-/** Оформленный текст по кускам от ядра (жирный, код, спойлер, ссылка). */
-function segmentsNode(message) {
-  const frag = document.createDocumentFragment();
-  const emoji = message.emoji || {};
-  const parts =
-    message.segments && message.segments.length ? message.segments : [{ kind: "text", text: message.content || "" }];
-  for (const part of parts) {
-    if (part.kind === "text") {
-      frag.append(richText(part.text, emoji));
-    } else if (part.kind === "link") {
-      frag.append(linkNode(part.href || part.text, part.text));
-    } else if (part.kind === "codeblock") {
-      frag.append(h("pre", { class: "md-codeblock", text: part.text }));
-    } else if (part.kind === "code") {
-      frag.append(h("code", { class: "md-code", text: part.text }));
-    } else {
-      const node = h("span", { class: "md-" + part.kind }, [richText(part.text, emoji)]);
-      if (part.kind === "spoiler") node.onclick = () => node.classList.add("shown");
-      frag.append(node);
-    }
-  }
-  return frag;
-}
-
-/** Только эмодзи (до десяти) — показываются крупно, как в оригинале. */
-function isJumbo(content) {
-  if (!content || content.length > 400) return false;
-  let count = 0;
-  const rest = content
-    .replace(CUSTOM_EMOJI_RE, () => {
-      count += 1;
-      return "";
-    })
-    .replace(UNICODE_EMOJI_RE, () => {
-      count += 1;
-      return "";
-    });
-  return count > 0 && count <= 10 && rest.trim() === "";
-}
-
-/** Короткий текст сообщения для ответа и уведомлений. */
-function plainPreview(message) {
-  const text = (message.content || "")
-    .replace(MENTION_RE, (_, id) => "@" + userName(id))
-    .replace(CUSTOM_EMOJI_RE, (_, id) => ":" + ((customEmojiIndex.get(id) || {}).name || "emoji") + ":")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (text) return text;
-  if (message.attachments && message.attachments.length) return t("Sent an attachment");
-  if (message.embeds && message.embeds.length) return t("Embed");
-  return "";
 }
 
 // ─────────────────────────── поиск по состоянию ───────────────────────────
@@ -567,7 +467,7 @@ function serverById(id) {
 /** Имя пользователя для упоминаний и подписей. */
 function userName(userId) {
   if (state.me && state.me.id === userId) return state.me.display_name || state.me.username;
-  const members = membersCache.get(state.serverId) || [];
+  const members = membersCache.get(memberKey()) || [];
   const member = members.find((item) => item.id === userId);
   if (member) return member.name;
   const author = state.messages.find((item) => item.author_id === userId);
@@ -645,7 +545,7 @@ function ackChannel(channelId, messageId) {
 /** Прочитать открытый канал, если пользователь действительно видит его конец. */
 function ackVisible() {
   const channel = currentChannel();
-  if (!channel || !document.hasFocus() || !state.stickToBottom) return;
+  if (!channel || !document.hasFocus() || !state.stickToBottom || !state.atEnd) return;
   // помечен непрочитанным вручную: ждём, пока пользователь сам вернётся к концу
   if (state.ackHeld === channel.id) return;
   const last = [...state.messages].reverse().find((item) => !item.pending);
@@ -689,7 +589,7 @@ function renderRail() {
   if (!ws) return;
 
   const home = railEntry({
-    selected: state.serverId === null,
+    selected: state.serverId === null && state.page !== "discover",
     title: t("Home"),
     content: symbol("home", 22),
     onclick: () => selectServer(null),
@@ -741,6 +641,18 @@ function renderRail() {
   add.button.classList.add("home");
   rail.append(add.entry);
 
+  // «Найти новые серверы» — только на официальном инстансе (isStoat)
+  const explore = railEntry({
+    selected: state.page === "discover",
+    title: t("Find new servers to join"),
+    content: symbol("md:filled:explore", 24),
+    onclick: () => openDiscover(),
+  });
+  explore.button.classList.add("home");
+  explore.entry.classList.add("hidden");
+  rail.append(explore.entry);
+  officialInstance().then((official) => explore.entry.classList.toggle("hidden", !official));
+
   // настройки — внизу рельса и всегда на виду (ServerList.tsx)
   const bottom = el("rail-bottom");
   if (bottom) {
@@ -759,7 +671,8 @@ function renderRail() {
 
 function menuButton({ icon, name, status, attention, onclick, oncontextmenu, onpointerenter, trailing }) {
   const text = h("span", { class: "menu-button-text" }, [
-    h("span", { class: "menu-button-name", text: name }),
+    // в именах каналов бывают эмодзи (TextWithEmoji)
+    h("span", { class: "menu-button-name" }, emojiText(name)),
     status ? h("span", { class: "menu-button-status", text: status }) : null,
   ]);
   const button = h(
@@ -787,7 +700,7 @@ function channelIcon(channel, size = 20) {
   if (channel.icon && channel.kind !== "dm" && channel.kind !== "group") {
     return image(channel.icon);
   }
-  const names = { text: "tag", voice: "volume_up", dm: "alternate_email", group: "group", notes: "note_stack" };
+  const names = { text: "grid_3x3", voice: "headset_mic", dm: "alternate_email", group: "group", notes: "note_stack" };
   return symbol(names[channel.kind] || "tag", size);
 }
 
@@ -804,40 +717,7 @@ function renderSidebar() {
   list.oncontextmenu = null;
 
   if (state.serverId === null) {
-    header.className = "sidebar-header";
-    header.append(h("span", { class: "sidebar-header-title", text: t("Conversations") }));
-
-    if (ws.notes) {
-      const notes = notesChannel();
-      list.append(
-        menuButton({
-          icon: symbol("note_stack", 22),
-          name: t("Saved Notes"),
-          attention: attentionOf(notes),
-          onclick: () => openChannel(notes),
-        }),
-      );
-    }
-
-    list.append(categoryLabel(t("Direct Messages"), null));
-    if (!ws.dms.length) list.append(h("div", { class: "sidebar-note", text: t("No conversations yet") }));
-    for (const dm of ws.dms) {
-      const icon =
-        dm.kind === "dm"
-          ? avatar({ url: dm.icon, name: dm.name, presence: dm.presence || "Offline" })
-          : avatar({ url: dm.icon, name: dm.name });
-      list.append(
-        menuButton({
-          icon,
-          name: dm.name,
-          status: dm.kind === "dm" ? dm.description : null,
-          attention: attentionOf(dm),
-          trailing: unreadMarker(dm),
-          onclick: () => openChannel(dm),
-          oncontextmenu: (event) => openChannelMenu(event, dm),
-        }),
-      );
-    }
+    renderHomeSidebar(header, list);
     return;
   }
 
@@ -873,6 +753,80 @@ function renderSidebar() {
         }),
       );
     }
+  }
+}
+
+/**
+ * «Беседы» (HomeSidebar.tsx): домашняя страница, друзья, заметки и личные
+ * сообщения с группами.
+ */
+function renderHomeSidebar(header, list) {
+  const ws = state.workspace;
+  header.className = "sidebar-header home";
+  header.append(h("span", { class: "sidebar-header-title", text: t("Conversations") }));
+
+  const pending = pendingRequests();
+  list.append(
+    menuButton({
+      icon: symbol("home", 22),
+      name: t("Home"),
+      attention: state.page === "home" ? "selected" : "",
+      onclick: () => openHomePage("home"),
+    }),
+    h("div", { class: "home-gap" }),
+    menuButton({
+      icon: symbol("group", 22),
+      name: t("Friends"),
+      attention: state.page === "friends" ? "selected" : "",
+      trailing: pending ? h("span", { class: "pending-badge", text: `${pending} requests` }) : null,
+      onclick: () => openHomePage("friends"),
+    }),
+    h("div", { class: "home-gap" }),
+  );
+  if (ws.notes) {
+    const notes = notesChannel();
+    list.append(
+      menuButton({
+        icon: symbol("note_stack", 22),
+        name: t("Saved Notes"),
+        attention: attentionOf(notes),
+        onclick: () => openChannel(notes),
+      }),
+    );
+  }
+
+  const add = h("a", { class: "category-action", role: "button", tabindex: "0" }, [symbol("add", 20)]);
+  add.onclick = () => createGroupModal();
+  attachTooltip(add, t("Create a new group"), "right");
+  list.append(h("div", { class: "home-category" }, [h("span", { text: "Direct Messages" }), add]));
+
+  for (const dm of ws.dms) {
+    const group = dm.kind === "group";
+    const count = (dm.recipients || []).length;
+    const icon = group
+      ? avatar({ url: dm.icon, name: dm.name, size: 32, shape: "rounded-square" })
+      : avatar({ url: dm.icon, name: dm.name, size: 32, presence: dm.presence || "Offline" });
+    // statusMessage(): у собеседника в сети — свой текст, иначе только «Фокус»
+    const online = dm.presence && dm.presence !== "Offline";
+    const status = group
+      ? `${count} ${count > 1 ? "Members" : "Member"}`
+      : online
+        ? dm.description || (dm.presence === "Focus" ? t("Focus") : null)
+        : null;
+    list.append(
+      menuButton({
+        icon,
+        name: dm.name,
+        status,
+        attention: attentionOf(dm),
+        trailing: unreadMarker(dm),
+        onclick: () => openChannel(dm),
+        oncontextmenu: (event) =>
+          dm.kind === "dm" && dm.recipient
+            ? openUserMenu(event, { id: dm.recipient, name: dm.name, relationship: relationshipOf(dm.recipient) }, null)
+            : openChannelMenu(event, dm),
+      }),
+    );
   }
 }
 
@@ -912,16 +866,11 @@ function renderServerHeader(header, server) {
 }
 
 /** Сведения о сервере (ServerInfo.tsx): описание и действия. */
-async function openServerInfo(server) {
+function openServerInfo(server) {
   closeMenus();
   const body = h("div", { class: "server-description" });
   if (server.description) {
-    try {
-      const rich = await call("rich_text", { text: server.description });
-      body.append(segmentsNode({ segments: rich.segments, content: server.description, emoji: rich.emoji }));
-    } catch {
-      body.append(richText(server.description));
-    }
+    body.append(renderMarkdown(server.description, { serverId: server.id }));
   } else {
     body.append(h("span", { class: "settings-hint", text: t("This server has no description.") }));
   }
@@ -971,8 +920,13 @@ function categoryLabel(title, key, open = true) {
 }
 
 function selectServer(serverId) {
-  state.serverId = serverId;
   closeMenus();
+  if (serverId === null) {
+    openHome();
+    return;
+  }
+  state.serverId = serverId;
+  leavePage();
   renderRail();
   renderSidebar();
   if (!state.workspace) return;
@@ -982,30 +936,160 @@ function selectServer(serverId) {
   else closeChannel();
 }
 
+/** Кнопка «Домой»: последнее место в «Беседах» (getLastHomePath). */
+function openHome() {
+  const last = readSetting("homePath", "home");
+  const found = state.workspace && last !== "home" && last !== "friends" ? findChannel(last) : null;
+  if (found && !found.server) openChannel(found.channel);
+  else openHomePage(last === "friends" ? "friends" : "home");
+}
+
+/** Уйти со страницы раздела к каналу. */
+function leavePage() {
+  if (!state.page) return;
+  state.page = null;
+  renderPage();
+}
+
 // ─────────────────────────── шапка канала ───────────────────────────
 
 function renderHeader() {
   const channel = currentChannel();
   const icon = el("chat-icon");
-  const membersButton = el("btn-members");
+  const title = el("chat-title");
+  const sub = el("chat-sub");
+  const actions = el("chat-actions");
   icon.textContent = "";
-  if (!channel) {
-    el("chat-title").textContent = "Arachnid Client";
-    el("chat-sub").textContent = "";
-    el("chat-divider").classList.add("hidden");
-    membersButton.classList.add("hidden");
+  title.textContent = "";
+  title.onclick = null;
+  title.classList.remove("clickable");
+  sub.textContent = "";
+  sub.onclick = null;
+  actions.textContent = "";
+  el("chat-divider").classList.add("hidden");
+  el("sidebar-chevron").replaceChildren(symbol(state.sidebarShown ? "bx:chevron-left" : "bx:chevron-right", 20));
+  // у «Обзора» своей шапки нет: встроенная страница занимает всё место
+  el("channel-header").classList.toggle("hidden", state.page === "discover");
+
+  // шапки разделов «Бесед» (Home.tsx, Friends.tsx, Discover.tsx)
+  if (state.page === "home") {
+    icon.append(symbol("md:filled:home", 24));
+    title.textContent = t("Home");
     return;
   }
-  icon.append(channelIcon(channel, 24));
-  el("chat-title").textContent = channel.name;
-  const description = channel.kind === "dm" ? channel.description : (channel.description || "").split("\n")[0];
-  el("chat-sub").textContent = description || "";
-  el("chat-sub").title = channel.description || "";
-  el("chat-divider").classList.toggle("hidden", !description);
+  if (state.page === "friends") {
+    icon.append(symbol("group", 24));
+    title.textContent = t("Friends");
+    return;
+  }
+  if (state.page === "discover") {
+    icon.append(symbol("md:filled:explore", 24));
+    title.textContent = t("Discover");
+    return;
+  }
+  if (!channel) {
+    title.textContent = "Arachnid Client";
+    return;
+  }
 
-  const isServer = state.serverId !== null;
-  membersButton.classList.toggle("hidden", !isServer);
-  membersButton.classList.toggle("active", state.showMembers);
+  // ChannelHeader.tsx: у текстовых каналов и групп — значок getChannelIcon
+  if (channel.kind === "dm") {
+    icon.append(symbol("alternate_email", 24));
+    title.textContent = channel.name;
+    title.append(h("span", { class: "header-presence presence-" + String(channel.presence || "Offline").toLowerCase() }));
+  } else if (channel.kind === "notes") {
+    icon.append(symbol("note_stack", 24));
+    title.textContent = t("Saved Notes");
+  } else {
+    icon.append(symbol(channel.kind === "voice" ? "headset_mic" : "grid_3x3", 24));
+    title.append(...emojiText(channel.name));
+    title.classList.add("clickable");
+    title.onclick = () => openChannelInfo(channel);
+    const description = (channel.description || "").split("\n")[0];
+    if (description) {
+      el("chat-divider").classList.remove("hidden");
+      sub.append(...emojiText(description));
+      sub.onclick = () => openChannelInfo(channel);
+      attachTooltip(sub, t("Click to show full description"), "bottom");
+    }
+  }
+
+  const button = (iconNode, tooltip, onclick, active = false) => {
+    const node = h("button", { class: "icon-button" + (active ? " active" : ""), type: "button" }, [iconNode]);
+    node.onclick = onclick;
+    attachTooltip(node, tooltip, "bottom");
+    actions.append(node);
+    return node;
+  };
+
+  const found = findChannel(channel.id);
+  const server = found && found.server;
+  if ((channel.kind === "group" || server) && canManageChannel(channel, server)) {
+    button(symbol("md:settings", 24), t("Channel Settings"), () => editChannelModal(channel));
+  }
+  if (channel.kind === "group") {
+    button(symbol("md:person_add", 24), t("Add friends to group"), () => addMembersToGroupModal(channel));
+  }
+  button(symbol("keep_header", 24), t("View pinned messages"), () =>
+    setSide(state.side.state === "pins" ? { state: "default" } : { state: "pins" }),
+  state.side.state === "pins");
+  if (hasMemberSidebar(channel)) {
+    button(symbol("md:group", 24), t("View members"), () => {
+      if (state.side.state === "default") toggleMembers();
+      else {
+        state.showMembers = true;
+        writeSetting("members", true);
+        setSide({ state: "default" });
+      }
+    }, state.side.state === "default" && state.showMembers);
+  }
+
+  // поиск: строка уходит в запрос при подтверждении (onChange), пустая — закрывает
+  const search = h("input", {
+    class: "header-search",
+    type: "search",
+    placeholder: t("Search messages..."),
+    autocomplete: "off",
+    spellcheck: "false",
+  });
+  search.value = state.side.state === "search" ? state.side.query : "";
+  search.addEventListener("change", () => {
+    const query = search.value.trim();
+    setSide(query ? { state: "search", query, sort: state.side.sort || "Latest" } : { state: "default" });
+  });
+  actions.append(search);
+}
+
+/** Есть ли у канала список участников (canIHasSidebar): не у ЛС и заметок. */
+function hasMemberSidebar(channel) {
+  return channel.kind !== "dm" && channel.kind !== "notes";
+}
+
+/** Право на «Настройки канала» (orPermission ManageChannel, ManagePermissions). */
+function canManageChannel(channel, server) {
+  if (hasBit(channel.permissions, PERM.MANAGE_CHANNEL) || hasBit(channel.permissions, PERM.MANAGE_PERMISSIONS)) return true;
+  return Boolean(server) && (serverAllows(server, PERM.MANAGE_CHANNEL) || serverAllows(server, PERM.MANAGE_PERMISSIONS));
+}
+
+/** Сведения о канале (ChannelInfo.tsx): «#имя» и полное описание. */
+function openChannelInfo(channel) {
+  openModal({
+    title: `#${channel.name}`,
+    body: h("div", { class: "channel-info" }, [renderMarkdown(channel.description || "", { serverId: state.serverId })]),
+    actions: [{ label: t("Close"), primary: true, onclick: closeModal }],
+  });
+}
+
+/** Свернуть или развернуть список каналов (LAYOUT_SECTIONS.PRIMARY_SIDEBAR). */
+function toggleSidebar() {
+  state.sidebarShown = !state.sidebarShown;
+  writeSetting("sidebar", state.sidebarShown);
+  applySidebar();
+  renderHeader();
+}
+
+function applySidebar() {
+  el("sidebar").classList.toggle("hidden", !state.sidebarShown || state.page === "discover");
 }
 
 /** Состояние соединения: точка в шапке канала и полоса рамки окна (Titlebar.tsx). */
@@ -1031,6 +1115,11 @@ async function reconnectGateway() {
 // ─────────────────────────── канал ───────────────────────────
 
 function closeChannel() {
+  // в «Беседах» без канала — домашняя страница (пока данных нет — пустая лента)
+  if (state.serverId === null && state.workspace) {
+    openHomePage("home");
+    return;
+  }
   rememberHistory();
   state.channelId = null;
   state.messages = [];
@@ -1065,7 +1154,7 @@ const historyCache = new Map(); // id канала → { messages, reachedStart 
 const historyInFlight = new Map(); // id канала → Promise<страница>
 
 function rememberHistory() {
-  if (!state.channelId) return;
+  if (!state.channelId || !state.atEnd) return;
   const all = state.messages.filter((item) => !item.pending);
   if (!all.length) return;
   const messages = all.slice(-HISTORY_KEEP);
@@ -1125,7 +1214,7 @@ function landingChannel(serverId) {
 
 async function openChannel(channel, { reload = false } = {}) {
   if (!channel) return;
-  if (!reload && state.channelId === channel.id && state.messages.length) return;
+  if (!reload && !state.page && state.channelId === channel.id && state.messages.length) return;
   const token = ++openToken;
   rememberHistory();
 
@@ -1135,7 +1224,11 @@ async function openChannel(channel, { reload = false } = {}) {
     writeSetting("last." + found.server.id, channel.id);
   } else if (found) {
     state.serverId = null;
+    // кнопка «Домой» вернёт в эту беседу (getLastHomePath)
+    writeSetting("homePath", channel.id);
   }
+  leavePage();
+  applySidebar();
 
   if (state.channelId !== channel.id) {
     // узлы прошлого канала не нужны: в кэше истории остаются только данные
@@ -1143,7 +1236,9 @@ async function openChannel(channel, { reload = false } = {}) {
     state.replies = [];
     state.editing = null;
     inputEl.value = drafts.get(channel.id) || "";
+    state.side = { state: "default" };
   }
+  state.atEnd = true;
   state.channelId = channel.id;
   state.ackHeld = null;
   state.lastRead = channel.unread ? channel.last_read || null : null;
@@ -1158,6 +1253,7 @@ async function openChannel(channel, { reload = false } = {}) {
   renderHeader();
   renderComposer();
   renderTyping();
+  renderSide();
 
   // история важнее всего: запрос уходит первым, участники и эмодзи — следом
   const latest = fetchLatest(channel.id);
@@ -1167,7 +1263,7 @@ async function openChannel(channel, { reload = false } = {}) {
   } else {
     showState(h("div", { class: "spinner" }));
   }
-  loadMembers(state.serverId);
+  loadMembers(memberKey());
   if (state.serverId !== null) loadServerEmoji(state.serverId);
 
   try {
@@ -1225,6 +1321,31 @@ async function loadOlder() {
   }
 }
 
+/** Подгрузить сообщения новее показанных (после перехода в историю). */
+async function loadNewer() {
+  if (state.atEnd || state.loadingNewer || !state.messages.length) return;
+  const newest = state.messages.filter((item) => !item.pending).at(-1);
+  if (!newest) return;
+  const channelId = state.channelId;
+  state.loadingNewer = true;
+  try {
+    const page = await call("channel_history", { channelId, after: newest.id, limit: PAGE_SIZE });
+    if (state.channelId !== channelId) return;
+    const newer = markMine(page.messages || []).filter((message) => !state.messages.some((item) => item.id === message.id));
+    if (!page.has_more) state.atEnd = true;
+    state.messages = state.messages.concat(newer);
+    if (state.messages.length > DISPLAY_LIMIT) {
+      state.messages = state.messages.slice(-DISPLAY_LIMIT);
+      state.reachedStart = false;
+    }
+    renderMessages({ keepTop: true });
+  } catch (error) {
+    console.warn("не удалось подгрузить новые сообщения:", error);
+  } finally {
+    state.loadingNewer = false;
+  }
+}
+
 /** Сообщение из закрытого канала: кэш истории остаётся актуальным. */
 function updateCachedHistory(message) {
   const cached = historyCache.get(message.channel);
@@ -1254,19 +1375,40 @@ async function jumpToMessage(info) {
     toast(t("The channel is unavailable — link copied"));
     return;
   }
-  if (state.channelId !== info.channel) await openChannel(found.channel);
-  for (let depth = 0; depth < 10; depth += 1) {
-    const node = messagesEl.querySelector(`.message[data-id="${info.message}"]`);
-    if (node) {
-      node.scrollIntoView({ block: "center", behavior: "smooth" });
-      node.classList.add("flash");
-      setTimeout(() => node.classList.remove("flash"), 1600);
+  if (state.channelId !== info.channel || state.page) await openChannel(found.channel);
+  if (highlightMessage(info.message)) return;
+
+  // сообщения нет в загруженном куске — страница вокруг него (nearby, как Messages.tsx)
+  const channelId = info.channel;
+  try {
+    const page = await call("channel_history", { channelId, nearby: info.message, limit: NEARBY_LIMIT });
+    if (state.channelId !== channelId) return;
+    const list = markMine(page.messages || []);
+    if (!list.some((item) => item.id === info.message)) {
+      toast(t("The message was not found in the history"), "error");
       return;
     }
-    if (state.reachedStart) break;
-    await loadOlder();
+    rememberHistory();
+    const latest = found.channel.last_message_id;
+    state.messages = list;
+    state.reachedStart = false;
+    state.atEnd = Boolean(latest && list.some((item) => item.id === latest));
+    state.stickToBottom = false;
+    renderMessages();
+    highlightMessage(info.message);
+  } catch (error) {
+    toast(describe(error), "error");
   }
-  toast(t("The message was not found in the history"), "error");
+}
+
+/** Прокрутить к сообщению и подсветить его; false — его нет в ленте. */
+function highlightMessage(messageId) {
+  const node = messagesEl.querySelector(`.message[data-id="${messageId}"]`);
+  if (!node) return false;
+  node.scrollIntoView({ block: "center", behavior: "smooth" });
+  node.classList.add("flash");
+  setTimeout(() => node.classList.remove("flash"), 1600);
+  return true;
 }
 
 // ─────────────────────────── лента ───────────────────────────
@@ -1284,8 +1426,10 @@ function keepBottom() {
  * Перерисовать ленту. Позиция сохраняется относительно низа, поэтому
  * подгрузка старых сообщений сверху не сдвигает то, что читает пользователь.
  */
-function renderMessages({ toBottom = false } = {}) {
+function renderMessages({ toBottom = false, keepTop = false } = {}) {
   const keep = distanceFromBottom();
+  // подгрузка новых снизу (и срез сверху) не должна сдвигать читаемое
+  const anchor = keepTop ? topVisibleMessage() : null;
   const frag = document.createDocumentFragment();
   const channel = currentChannel();
   const list = state.messages;
@@ -1338,8 +1482,86 @@ function renderMessages({ toBottom = false } = {}) {
   messagesEl.replaceChildren(frag);
   watchAutoplay(messagesEl);
   dropStaleTooltip();
-  if (toBottom || state.stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+  const anchorNode = anchor ? messagesEl.querySelector(`.message[data-id="${anchor.id}"]`) : null;
+  if (anchorNode) messagesEl.scrollTop = anchorNode.offsetTop - anchor.offset;
+  else if (toBottom || (state.stickToBottom && state.atEnd)) messagesEl.scrollTop = messagesEl.scrollHeight;
   else messagesEl.scrollTop = messagesEl.scrollHeight - messagesEl.clientHeight - keep;
+  renderBars();
+}
+
+/** Первое видимое сообщение и его отступ от верха ленты. */
+function topVisibleMessage() {
+  for (const node of messagesEl.querySelectorAll(".message[data-id]")) {
+    if (node.offsetTop + node.offsetHeight > messagesEl.scrollTop) {
+      return { id: node.dataset.id, offset: node.offsetTop - messagesEl.scrollTop };
+    }
+  }
+  return null;
+}
+
+// ─────────────────────────── плашки над лентой (bars/*.tsx) ───────────────────────────
+
+/** «Новые сообщения с …» сверху и «Просмотр старых сообщений» снизу. */
+function renderBars() {
+  const top = el("new-messages");
+  const bottom = el("jump-bottom");
+  top.replaceChildren();
+  bottom.replaceChildren();
+  if (state.page || !state.channelId) return;
+
+  if (state.lastRead) {
+    const since = ulidDate(state.lastRead);
+    const close = h("span", { class: "floating-close" }, [symbol("md:filled:close", 16)]);
+    close.onclick = (event) => {
+      event.stopPropagation();
+      state.lastRead = null;
+      renderMessages();
+    };
+    const bar = h("div", { class: "floating-indicator top", role: "button" }, [
+      h("span", { class: "floating-grow", text: t("New messages since {0}", [since ? I18N.relative(since) : ""]) }),
+      h("span", { text: t("Jump to the beginning") }),
+      close,
+    ]);
+    const target = state.lastRead;
+    bar.onclick = () => jumpToMessage({ channel: state.channelId, message: target });
+    top.append(bar);
+  }
+
+  if (!state.atEnd) {
+    const bar = h("div", { class: "floating-indicator bottom", role: "button" }, [
+      h("span", { class: "floating-grow", text: t("Viewing older messages") }),
+      h("span", { text: t("Jump to present") }),
+      symbol("md:filled:arrow_forward", 16),
+    ]);
+    bar.onclick = () => jumpToPresent();
+    bottom.append(bar);
+  }
+}
+
+/** Время из ULID (первые 10 символов — миллисекунды в Crockford base32). */
+function ulidDate(id) {
+  const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  let time = 0;
+  for (const char of String(id).slice(0, 10).toUpperCase()) {
+    const value = alphabet.indexOf(char);
+    if (value < 0) return null;
+    time = time * 32 + value;
+  }
+  return new Date(time);
+}
+
+/** Вернуться к последним сообщениям после «прыжка» в историю. */
+function jumpToPresent() {
+  const channel = currentChannel();
+  if (!channel) return Promise.resolve();
+  if (state.atEnd) {
+    messagesEl.scrollTo({ top: messagesEl.scrollHeight, behavior: "smooth" });
+    return Promise.resolve();
+  }
+  // кусок истории вокруг старого сообщения в кэш канала не попадает
+  state.messages = [];
+  state.atEnd = true;
+  return openChannel(channel, { reload: true });
 }
 
 function conversationStart(channel) {
@@ -1367,6 +1589,8 @@ let messageEpoch = 0; // растёт, когда меняется общее д
 
 function invalidateMessageNodes() {
   messageEpoch += 1;
+  // ники и цвета в упоминаниях тоже могли измениться
+  forgetMentionUsers();
 }
 
 function cachedMessageNode(message, tail) {
@@ -1418,7 +1642,7 @@ function messageNode(message, tail, { preview = false } = {}) {
 
   // ответы рисуются над сообщением
   if (!message.system) {
-    for (const replyId of message.replies || []) node.append(replyLine(replyId));
+    for (const replyId of message.replies || []) node.append(replyLine(replyId, message));
   }
 
   // компактный режим (Container.tsx): без аватаров, «время ник» слева от текста
@@ -1473,9 +1697,11 @@ function messageNode(message, tail, { preview = false } = {}) {
   } else if (event && event.kind !== "text") {
     content.append(h("div", { class: "message-text system-text" }, systemEventText(event, { server: inServer, channelId: message.channel })));
   } else {
-    const text = h("div", { class: "message-text" + (isJumbo(message.content) ? " jumbo" : "") });
-    text.append(segmentsNode(message));
-    if (text.textContent || text.childElementCount) content.append(text);
+    // одна GIF-ссылка без текста — показывается только сама картинка (isOnlyGIF)
+    if (message.content && !isOnlyGif(message)) {
+      const serverId = (findChannel(message.channel) || {}).server?.id || null;
+      content.append(h("div", { class: "message-text" }, [renderMarkdown(message.content, { serverId })]));
+    }
     if (tail && message.edited && !compact) content.append(h("span", { class: "edited", text: t("(edited)") }));
   }
 
@@ -1500,6 +1726,15 @@ function messageNode(message, tail, { preview = false } = {}) {
     openMessageMenu(event, message, { link: anchor ? anchor.href : null, anchor: node });
   });
   return node;
+}
+
+/** Адрес в тексте (RE_URL из Message.tsx). */
+const RE_URL = /[(http(s)?)://(www.)?a-zA-Z0-9@:%._+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_+.~#?&//=]*)/;
+
+/** Сообщение — одна ссылка на GIF: текст не показывается, только встраивание. */
+function isOnlyGif(message) {
+  const embeds = message.embeds || [];
+  return embeds.length === 1 && Boolean(embeds[0].gif) && !(message.content || "").replace(RE_URL, "");
 }
 
 /** Значок системного сообщения (SystemMessageIcon.tsx); `danger` — красный. */
@@ -1592,13 +1827,14 @@ function systemEventText(event, { plain = false, server = false, channelId = nul
       .trim();
   }
 
-  const mention = (person) => {
-    const node = h("span", { class: "mention", text: person.name || t("Unknown User") });
-    if (person.id) node.onclick = (clickEvent) => openUserCard(clickEvent, person.id);
-    return node;
-  };
+  // участники — плашками упоминаний (UserMention), сообщение — ссылкой (RenderAnchor)
+  const serverId = (channelId && findChannel(channelId)?.server?.id) || null;
+  const mention = (person) =>
+    person.id
+      ? markdownUserMention(person.id, serverId)
+      : h("span", { class: "md-mention invalid", text: person.name || t("Unknown User") });
   const target = event.message_id && channelId
-    ? linkNode(channelLink({ id: channelId }) + "/" + event.message_id, t("message"))
+    ? markdownAnchor(channelLink({ id: channelId }) + "/" + event.message_id, serverId)
     : mention(second);
   return I18N.rich(msgid, values, {
     0: mention(first),
@@ -1606,22 +1842,58 @@ function systemEventText(event, { plain = false, server = false, channelId = nul
   });
 }
 
-function replyLine(replyId) {
-  const target = state.messages.find((item) => item.id === replyId);
-  const node = h("div", { class: "reply-line" });
-  if (target) {
-    const name = h("span", { class: "username", text: target.author });
-    paintName(name, target.colour);
-    node.append(
-      avatar({ url: target.avatar, name: target.author, size: 14 }),
-      name,
-      h("span", { class: "reply-text", text: plainPreview(target) }),
-    );
-    node.onclick = () => jumpToMessage({ channel: state.channelId, message: replyId });
-  } else {
-    node.append(h("span", { class: "reply-text missing", text: t("Message not loaded") }));
-    node.onclick = () => jumpToMessage({ channel: state.channelId, message: replyId });
+/** Отношение с пользователем: `Friend`, `Blocked`, … или null. */
+function relationshipOf(userId) {
+  const list = (state.workspace && state.workspace.relationships) || [];
+  const entry = list.find((item) => item.user.id === userId);
+  return entry ? entry.relationship : null;
+}
+
+/** Ответ над сообщением (MessageReply.tsx). */
+function replyLine(replyId, message) {
+  const target = state.messages.find((item) => item.id === replyId) || null;
+  const mention = Boolean(target && (message.mentions || []).includes(target.author_id));
+  const node = messageReply(target, { mention });
+  node.onclick = () => jumpToMessage({ channel: state.channelId, message: replyId });
+  return node;
+}
+
+/**
+ * Строка «на что ответ»: аватар, ник (с «@», если автор упомянут) и
+ * начало текста упрощённой разметкой. `noDecorations` — без уголка слева
+ * (превью над полем ввода).
+ */
+function messageReply(target, { mention = false, noDecorations = false } = {}) {
+  const node = h("div", { class: "reply-line" + (noDecorations ? " plain" : "") });
+  if (target && relationshipOf(target.author_id) === "Blocked") {
+    node.append(t("Blocked User"));
+    return node;
   }
+  if (!target) {
+    node.append(t("Message not loaded, click to jump"));
+    return node;
+  }
+  const name = h("span", { class: "username", text: (mention ? "@" : "") + target.author });
+  paintName(name, target.colour);
+  const user = h("span", { class: "reply-user" }, [avatar({ url: target.avatar, name: target.author, size: 14 }), name]);
+  user.onclick = (event) => openUserCard(event, target.author_id);
+  user.oncontextmenu = (event) => openUserMenu(event, { id: target.author_id, name: target.author });
+
+  const link = h("span", { class: "reply-link" });
+  const files = target.attachments || [];
+  if (files.length) {
+    link.append(
+      h("em", { class: "reply-attachments" }, [
+        symbol("bx:solid-file", 16),
+        files.length > 1 ? t("Sent multiple attachments") : t("Sent an attachment"),
+      ]),
+    );
+  }
+  if (target.content) {
+    const serverId = (findChannel(target.channel) || {}).server?.id || null;
+    link.append(h("span", { class: "reply-content" }, [replyMarkdown(target.content, serverId)]));
+  }
+  node.append(user, link);
   return node;
 }
 
@@ -1813,7 +2085,7 @@ function embedNode(embed) {
         : h("span", { class: "embed-title", text: embed.title }),
     );
   }
-  if (embed.description) box.append(h("div", { class: "embed-text" }, [richText(embed.description)]));
+  if (embed.description) box.append(h("div", { class: "embed-text" }, [renderMarkdown(embed.description, { serverId: state.serverId })]));
   if (embed.image) {
     const src = embedMediaUrl(embed.image, false);
     const img = image(src, { class: "embed-media", loading: "lazy" });
@@ -2266,14 +2538,9 @@ function renderReplies() {
   const box = el("replies");
   box.textContent = "";
   for (const reply of state.replies) {
-    const name = h("span", { class: "username", text: reply.message.author });
     const preview = h("div", { class: "reply-preview" }, [
       h("span", { class: "reply-preview-to", text: t("Replying to") }),
-      h("span", { class: "reply-preview-message" }, [
-        avatar({ url: reply.message.avatar, name: reply.message.author, size: 16 }),
-        name,
-        h("span", { class: "reply-text", text: plainPreview(reply.message) }),
-      ]),
+      messageReply(reply.message, { noDecorations: true }),
     ]);
     if (!reply.message.mine) {
       preview.append(
@@ -2329,6 +2596,8 @@ async function submit() {
   state.replies = [];
   renderReplies();
   toggleEmojiPicker(false);
+  // отправка из куска истории возвращает к последним сообщениям (onMessageSend)
+  if (!state.atEnd) await jumpToPresent();
 
   // сообщение сразу появляется в ленте и подтверждается ответом сервера
   const pending = {
@@ -2340,7 +2609,6 @@ async function submit() {
     author: myName(),
     avatar: state.me ? state.me.avatar : null,
     content,
-    segments: [],
     emoji: {},
     timestamp: new Date().toISOString(),
     replies: replies.map((reply) => reply.id),
@@ -2438,32 +2706,41 @@ function renderTyping() {
 
 // ─────────────────────────── участники ───────────────────────────
 
-const membersCache = new Map(); // id сервера → участники
+const membersCache = new Map(); // id сервера или группы → участники
 
-/** Сколько серверов держат список участников в памяти интерфейса. */
+/** Сколько списков участников держится в памяти интерфейса. */
 const MEMBERS_KEEP = 6;
 
-async function loadMembers(serverId) {
+/** Чьи участники сейчас нужны: открытого сервера или открытой группы. */
+function memberKey() {
+  if (state.serverId !== null) return state.serverId;
+  const channel = currentChannel();
+  return channel && channel.kind === "group" ? channel.id : null;
+}
+
+async function loadMembers(key) {
   renderMembers();
-  if (serverId === null) return;
-  // присутствие участников приходит только по подписке; ядро само решает, пора ли её продлить
-  call("subscribe_server", { serverId }).catch((error) => console.warn("подписка на сервер:", error));
-  if (membersCache.has(serverId)) {
-    // свежий сервер — в конец очереди на выгрузку
-    const list = membersCache.get(serverId);
-    membersCache.delete(serverId);
-    membersCache.set(serverId, list);
+  if (key === null) return;
+  const isServer = Boolean(serverById(key));
+  // присутствие участников сервера приходит только по подписке; ядро само решает, пора ли её продлить
+  if (isServer) call("subscribe_server", { serverId: key }).catch((error) => console.warn("подписка на сервер:", error));
+  if (membersCache.has(key)) {
+    // свежий список — в конец очереди на выгрузку
+    const list = membersCache.get(key);
+    membersCache.delete(key);
+    membersCache.set(key, list);
     return;
   }
-  membersCache.set(serverId, null);
+  membersCache.set(key, null);
   while (membersCache.size > MEMBERS_KEEP) membersCache.delete(membersCache.keys().next().value);
   try {
-    membersCache.set(serverId, (await call("server_members", { serverId })) || []);
+    const list = isServer ? await call("server_members", { serverId: key }) : await call("group_members", { channelId: key });
+    membersCache.set(key, list || []);
   } catch (error) {
-    membersCache.set(serverId, []);
+    membersCache.set(key, []);
     console.warn("не удалось получить участников:", error);
   }
-  if (state.serverId === serverId) {
+  if (memberKey() === key) {
     renderMembers();
     renderTyping();
   }
@@ -2482,7 +2759,8 @@ let memberFrame = 0;
 
 function renderMembers() {
   const panel = el("members");
-  const visible = state.serverId !== null && state.showMembers && currentChannel();
+  const channel = currentChannel();
+  const visible = Boolean(channel && !state.page && state.side.state === "default" && state.showMembers && hasMemberSidebar(channel));
   panel.classList.toggle("hidden", !visible);
   if (!visible) {
     memberView = null;
@@ -2491,10 +2769,15 @@ function renderMembers() {
     return;
   }
 
-  const members = membersCache.get(state.serverId);
+  const key = memberKey();
+  const members = membersCache.get(key);
   if (!members) {
     memberView = null;
     panel.replaceChildren(h("div", { class: "member-title", text: t("Loading members…") }));
+    return;
+  }
+  if (channel.kind === "group") {
+    renderGroupMembers(panel, channel, members);
     return;
   }
 
@@ -2529,16 +2812,30 @@ function renderMembers() {
     }
   }
 
-  const sameServer = memberView && memberView.serverId === state.serverId;
-  const scroll = sameServer ? panel.scrollTop : 0;
-  const list = h("div", { class: "member-list", style: { height: `${top}px` } });
-  panel.replaceChildren(
-    h("div", { class: "member-title" }, [h("span", { class: "connection-dot" }), t("{0} online", [onlineCount])]),
-    list,
-  );
+  showMemberWindow(panel, key, items, top, [h("span", { class: "connection-dot" }), t("{0} online", [onlineCount])]);
+}
+
+/** Участники группы (GroupMemberSidebar): «N members» и все получатели по имени. */
+function renderGroupMembers(panel, channel, members) {
+  const items = [];
+  let top = 0;
+  for (const member of members) {
+    items.push({ kind: "member", member, top, height: MEMBER_ROW_HEIGHT });
+    top += MEMBER_ROW_HEIGHT;
+  }
+  const count = (channel.recipients || []).length || members.length;
+  showMemberWindow(panel, channel.id, items, top, [t("{0} members", [count])]);
+}
+
+/** Заголовок и окно строк; прокрутка сохраняется, пока список тот же. */
+function showMemberWindow(panel, key, items, height, title) {
+  const same = memberView && memberView.key === key;
+  const scroll = same ? panel.scrollTop : 0;
+  const list = h("div", { class: "member-list", style: { height: `${height}px` } });
+  panel.replaceChildren(h("div", { class: "member-title" }, title), list);
   panel.scrollTop = scroll;
-  if (!sameServer) memberRowCache.clear();
-  memberView = { serverId: state.serverId, list, items };
+  if (!same) memberRowCache.clear();
+  memberView = { key, list, items };
   paintMemberWindow();
 }
 
@@ -2622,6 +2919,74 @@ function toggleMembers() {
   writeSetting("members", state.showMembers);
   renderHeader();
   renderMembers();
+}
+
+// ─────────────────────────── поиск и закреплённые (TextSearchSidebar.tsx) ───────────────────────────
+
+/** Состояние правой панели: `default` (участники), `search` или `pins`. */
+function setSide(side) {
+  state.side = side;
+  renderHeader();
+  renderMembers();
+  renderSide();
+}
+
+let sideToken = 0;
+
+function renderSide() {
+  const panel = el("side-panel");
+  const side = state.side;
+  const channel = currentChannel();
+  const shown = Boolean(channel && !state.page && side.state !== "default");
+  panel.classList.toggle("hidden", !shown);
+  if (!shown) {
+    sideToken += 1;
+    panel.replaceChildren();
+    return;
+  }
+
+  const token = ++sideToken;
+  const results = h("div", { class: "side-results" }, [h("div", { class: "spinner" })]);
+  const parts = [h("div", { class: "side-title", text: side.state === "search" ? t("Search Results") : t("Pinned Messages") })];
+  if (side.state === "search") {
+    // порядок выдачи: «По релевантности», «Сначала новые», «Сначала старые»
+    const sort = side.sort || "Latest";
+    const group = h("div", { class: "button-group" });
+    for (const [value, label] of [
+      ["Relevance", t("Relevance")],
+      ["Latest", t("Latest")],
+      ["Oldest", t("Oldest")],
+    ]) {
+      const button = h("button", { class: "group-button" + (sort === value ? " active" : ""), type: "button", text: label });
+      button.onclick = () => setSide({ ...side, sort: value });
+      group.append(button);
+    }
+    parts.push(group);
+  }
+  panel.replaceChildren(...parts, results);
+
+  const request =
+    side.state === "search"
+      ? { channelId: channel.id, query: side.query, sort: side.sort || "Latest" }
+      : { channelId: channel.id, pinned: true };
+  call("search_messages", request)
+    .then((found) => {
+      if (token !== sideToken) return;
+      results.replaceChildren(
+        ...markMine(found.messages || []).map((message) => {
+          const link = h("a", { class: "side-result", href: "#" }, [messageNode(message, false, { preview: true })]);
+          link.onclick = (event) => {
+            event.preventDefault();
+            jumpToMessage({ channel: message.channel, message: message.id });
+          };
+          return link;
+        }),
+      );
+    })
+    .catch((error) => {
+      if (token !== sideToken) return;
+      results.replaceChildren(h("div", { class: "side-error", text: describe(error) }));
+    });
 }
 
 // ─────────────────────────── эмодзи серверов и панель ───────────────────────────
@@ -3476,7 +3841,7 @@ function developerItems(kind, id, copyLabel) {
 function channelLink(channel) {
   const found = findChannel(channel.id);
   const server = found && found.server && found.server.id;
-  return server ? `https://stoat.chat/server/${server}/channel/${channel.id}` : `https://stoat.chat/channel/${channel.id}`;
+  return server ? `${markdownOrigin}/server/${server}/channel/${channel.id}` : `${markdownOrigin}/channel/${channel.id}`;
 }
 
 /** Права на сервере канала (у личных каналов — пусто). */
@@ -3583,7 +3948,13 @@ async function refreshWorkspace({ reloadChannel = false } = {}) {
     loadEmojiIndex();
 
     const keep = state.channelId ? findChannel(state.channelId) : null;
-    if (keep) {
+    if (state.page) {
+      // открыт раздел «Бесед»: друзья и кнопки страницы зависят от данных
+      renderRail();
+      renderSidebar();
+      renderHeader();
+      if (state.page !== "discover") renderPage();
+    } else if (keep) {
       state.serverId = keep.server ? keep.server.id : null;
       renderRail();
       renderSidebar();
@@ -3594,7 +3965,8 @@ async function refreshWorkspace({ reloadChannel = false } = {}) {
       state.serverId = found.server ? found.server.id : null;
       await openChannel(found.channel);
     } else {
-      selectServer(ws.servers.length ? ws.servers[0].id : null);
+      // некуда вернуться — домашняя страница, как маршрут /app по умолчанию
+      openHome();
     }
   })();
   try {
@@ -3625,6 +3997,12 @@ function onMessage(message) {
   }
   if (replaceMessage(message)) {
     renderMessages();
+    return;
+  }
+  if (!state.atEnd) {
+    // лента показывает кусок истории: новое догрузится по пути вниз
+    setTyping(message.channel, message.author_id, false);
+    noteIncoming(message);
     return;
   }
   const near = distanceFromBottom() < 120;
@@ -3745,6 +4123,24 @@ function onGateway(payload) {
       break;
     case "UserUpdate":
       applyPresence(event);
+      // ник или аватар в упоминаниях
+      if (event.data && (event.data.username || event.data.display_name || event.data.avatar)) invalidateMessageNodes();
+      break;
+    case "UserRelationship":
+      // заявки в друзья и блокировки: «Друзья», бейдж и меню пользователя
+      scheduleWorkspaceRefresh();
+      break;
+    case "ChannelGroupJoin":
+    case "ChannelGroupLeave":
+    case "ServerRoleUpdate":
+    case "ServerRoleDelete":
+      // число участников группы, роли в упоминаниях
+      if (event.type.startsWith("ServerRole")) invalidateMessageNodes();
+      else {
+        membersCache.delete(event.id);
+        if (memberKey() === event.id) loadMembers(event.id);
+      }
+      scheduleWorkspaceRefresh();
       break;
     case "EmojiCreate":
     case "EmojiDelete":
@@ -3764,9 +4160,10 @@ function onGateway(payload) {
     case "ServerMemberUpdate": {
       // ник или роли поменялись: список участников соберётся заново
       const serverId = event.id && event.id.server;
+      forgetMentionUsers();
       if (serverId && membersCache.has(serverId)) {
         membersCache.delete(serverId);
-        if (state.serverId === serverId) loadMembers(serverId);
+        if (memberKey() === serverId) loadMembers(serverId);
       }
       break;
     }
@@ -3796,7 +4193,7 @@ function applyPresence(event) {
     const member = (members || []).find((item) => item.id === event.id);
     if (member) {
       patch(member);
-      if (serverId === state.serverId) scheduleRender(renderMembers);
+      if (serverId === memberKey()) scheduleRender(renderMembers);
     }
   }
   const ws = state.workspace;
@@ -3808,6 +4205,15 @@ function applyPresence(event) {
     dm.description = view.status;
     if (state.serverId === null) scheduleRender(renderSidebar);
     if (dm.unread) scheduleRender(renderRail);
+  }
+  // друзья: список «В сети» на странице «Друзья»
+  for (const entry of ws ? ws.relationships || [] : []) {
+    if (entry.user.id !== event.id) continue;
+    const view = { online: entry.user.presence !== "Offline", presence: entry.user.presence, status: entry.user.status };
+    patch(view);
+    entry.user.presence = view.presence;
+    entry.user.status = view.status;
+    if (state.page === "friends") scheduleRender(renderPage);
   }
   if (state.me && state.me.id === event.id) {
     // себе показываем выбранное присутствие (и «невидимку»), а не то, что видят другие
@@ -3839,7 +4245,9 @@ function scheduleRender(render) {
 function bindUi() {
   setIcon(el("btn-emoji"), "mood", 24);
   setIcon(el("btn-send"), "send", 24);
-  setIcon(el("btn-members"), "group", 24);
+  el("btn-sidebar").onclick = toggleSidebar;
+  attachTooltip(el("btn-sidebar"), t("Toggle main sidebar"), "bottom");
+  applySidebar();
 
   messagesEl.addEventListener("scroll", () => {
     const wasAtEnd = state.stickToBottom;
@@ -3847,7 +4255,8 @@ function bindUi() {
     // ушли от конца ленты — при возвращении канал прочитается
     if (wasAtEnd && !state.stickToBottom) state.ackHeld = null;
     if (messagesEl.scrollTop < 400) loadOlder();
-    if (state.stickToBottom) {
+    if (!state.atEnd && distanceFromBottom() < 400) loadNewer();
+    if (state.stickToBottom && state.atEnd) {
       ackVisible();
       // вернулись вниз после долгого чтения истории — старое снимаем со страницы
       if (trimLive()) renderMessages({ toBottom: true });
@@ -3866,7 +4275,6 @@ function bindUi() {
     event.stopPropagation();
     toggleEmojiPicker();
   };
-  el("btn-members").onclick = toggleMembers;
   el("emoji-search").addEventListener("input", (event) => {
     emojiFilter = event.target.value;
     renderEmojiPicker();
@@ -3890,6 +4298,8 @@ function bindUi() {
     else if (menusOpen()) closeMenus();
     else if (!el("emoji-picker").classList.contains("hidden")) toggleEmojiPicker(false);
     else if (settingsOpen()) closeSettings();
+    // KeybindAction.CLOSE_SIDEBAR: поиск и закреплённые закрываются по Escape
+    else if (state.side.state !== "default") setSide({ state: "default" });
   });
   window.addEventListener("resize", closeMenus);
   window.addEventListener("focus", () => {
@@ -3950,6 +4360,11 @@ async function boot() {
       }
     });
   }
+
+  // свои ссылки (каналы, приглашения) распознаются по адресу веб-клиента инстанса
+  instanceInfo()
+    .then((info) => setMarkdownOrigin(webOrigin(info)))
+    .catch(() => {});
 
   await reconnectGateway();
 

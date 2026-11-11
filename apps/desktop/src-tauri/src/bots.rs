@@ -65,8 +65,6 @@ pub struct PublicBotView {
     pub avatar: Option<String>,
     /// Описание из профиля
     pub description: String,
-    /// Описание с разметкой
-    pub description_segments: views::Segments,
     /// Когда зарегистрирован (ISO-8601, из ULID)
     pub created_at: Option<String>,
 }
@@ -219,7 +217,6 @@ pub async fn public_bot(
     let description = bot.description.trim().to_string();
     Ok(PublicBotView {
         created_at: views::ulid_time_ms(&bot.id).map(views::iso_from_ms),
-        description_segments: views::segments(&description),
         description,
         avatar,
         username: bot.username,

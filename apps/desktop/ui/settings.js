@@ -1432,47 +1432,13 @@ async function renderFeedbackPage(column, alive) {
                 closeSettings();
                 selectServer(LOUNGE_ID);
               } else {
-                await joinLoungeModal();
+                await openInviteModal(LOUNGE_INVITE);
               }
             },
           })
         : null,
     ]),
   );
-}
-
-/** Приглашение в Stoat Lounge (в оригинале — окно приглашения). */
-async function joinLoungeModal() {
-  const info = await call("preview_invite", { code: LOUNGE_INVITE });
-  const title = info.server_name || "Stoat Lounge";
-  openModal({
-    title: t("Invite"),
-    body: h("div", { class: "invite-preview" }, [
-      avatar({ url: info.icon, name: title, size: 48 }),
-      h("span", { class: "settings-row-text" }, [
-        h("span", { class: "settings-row-title", text: title }),
-        info.member_count ? h("span", { class: "settings-hint", text: t("{0} members", [I18N.number(info.member_count)]) }) : null,
-      ]),
-    ]),
-    actions: [
-      { label: t("Cancel"), onclick: closeModal },
-      {
-        label: t("Join"),
-        primary: true,
-        onclick: async () => {
-          try {
-            const target = await call("join_invite", { code: LOUNGE_INVITE });
-            closeModal();
-            closeSettings();
-            await refreshWorkspace();
-            if (serverById(target)) selectServer(target);
-          } catch (error) {
-            toast(describe(error), "error");
-          }
-        },
-      },
-    ],
-  });
 }
 
 // ─────────────────────────── сервер: обзор ───────────────────────────
@@ -2056,69 +2022,4 @@ function deleteChannelModal(channel) {
       scheduleWorkspaceRefresh();
     },
   });
-}
-
-/** «Добавить сервер»: создать свой или вступить по приглашению. */
-function addServerModal() {
-  const name = textInput({ placeholder: t("Server Name"), maxlength: 32 });
-  const code = textInput({ placeholder: t("Invite code or link") });
-  const preview = h("div", { class: "invite-preview hidden" });
-
-  let previewTimer = null;
-  code.addEventListener("input", () => {
-    clearTimeout(previewTimer);
-    preview.classList.add("hidden");
-    if (!code.value.trim()) return;
-    previewTimer = setTimeout(async () => {
-      try {
-        const info = await call("preview_invite", { code: code.value });
-        preview.replaceChildren(
-          avatar({ url: info.icon, name: info.server_name || info.channel_name || "?", size: 48 }),
-          h("span", { class: "settings-row-text" }, [
-            h("span", { class: "settings-row-title", text: info.server_name || info.channel_name || t("Invite") }),
-            h("span", {
-              class: "settings-hint",
-              text: [info.member_count ? t("{0} members", [I18N.number(info.member_count)]) : null, info.user_name ? t("Inviter") + ": " + info.user_name : null]
-                .filter(Boolean)
-                .join(" · "),
-            }),
-          ]),
-        );
-        preview.classList.remove("hidden");
-      } catch {
-        /* код ещё недописан или неверен — подсказку просто не показываем */
-      }
-    }, 400);
-  });
-
-  const go = async (serverOrChannel) => {
-    closeModal();
-    await refreshWorkspace();
-    if (serverById(serverOrChannel)) selectServer(serverOrChannel);
-    else {
-      const found = findChannel(serverOrChannel);
-      if (found) openChannel(found.channel);
-    }
-  };
-
-  openModal({
-    title: t("Create or join a server"),
-    body: h("div", { class: "form-stack" }, [
-      section(t("Join a server"), [
-        code,
-        preview,
-        h("div", { class: "settings-actions" }, [
-          actionButton(t("Join"), async () => go(await call("join_invite", { code: code.value })), { icon: "group_add" }),
-        ]),
-      ]),
-      section(t("Create server"), [
-        name,
-        h("div", { class: "settings-actions" }, [
-          actionButton(t("Create"), async () => go(await call("create_server", { name: name.value })), { kind: "tonal", icon: "add" }),
-        ]),
-      ]),
-    ]),
-    actions: [{ label: t("Close"), onclick: closeModal }],
-  });
-  code.focus();
 }

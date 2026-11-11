@@ -38,13 +38,14 @@ const STATUS_LIMIT = 128;
 
 let modalClosed = null;
 
-/** Модальное окно в стиле оригинала: заголовок, содержимое, кнопки. */
+/** Модальное окно в стиле оригинала: заголовок, содержимое, кнопки (возвращает окно). */
 function openModal({ title, body, actions = [], wide = false, onClose = null }) {
   closeModal();
   const backdrop = el("modal");
   const box = h("div", { class: "modal" + (wide ? " wide" : ""), role: "dialog", "aria-modal": "true" });
   box.addEventListener("click", (event) => event.stopPropagation());
-  if (title) box.append(h("h2", { class: "modal-title", text: title }));
+  // заголовок — строка или узел (аватар с именем в окне приглашения)
+  if (title) box.append(h("h2", { class: "modal-title" }, [title]));
   box.append(h("div", { class: "modal-body" }, [body]));
   if (actions.length) {
     box.append(
@@ -235,18 +236,6 @@ function closeUserCard() {
   cardToken++;
 }
 
-/** Встать рядом с элементом, не вылезая за край окна. */
-function placeFloating(node, anchor) {
-  const rect = anchor.getBoundingClientRect();
-  const box = node.getBoundingClientRect();
-  let x = rect.right + 8;
-  if (x + box.width > window.innerWidth - 8) x = rect.left - box.width - 8;
-  if (x < 8) x = Math.max(8, Math.min(rect.left, window.innerWidth - box.width - 8));
-  const y = Math.max(8, Math.min(rect.top, window.innerHeight - box.height - 8));
-  node.style.left = x + "px";
-  node.style.top = y + "px";
-}
-
 /** Карточка по клику на имя или аватар (UserCard.tsx). */
 async function openUserCard(event, userId, serverId = state.serverId) {
   event.preventDefault();
@@ -262,7 +251,8 @@ async function openUserCard(event, userId, serverId = state.serverId) {
   card.dataset.user = userId;
   card.replaceChildren(h("div", { class: "profile-loading", text: t("Loading profile…") }));
   card.classList.remove("hidden");
-  placeFloating(card, anchor);
+  // общий помощник из app.js: справа от имени, у края окна — слева
+  placeFloating(card, anchor.getBoundingClientRect(), "right-start", 8);
 
   let profile;
   try {
@@ -289,7 +279,8 @@ async function openUserCard(event, userId, serverId = state.serverId) {
     bioCard(profile, { onclick: open, clamp: true }),
   ].filter(Boolean);
   card.replaceChildren(h("div", { class: "profile-grid" }, cards));
-  placeFloating(card, anchor);
+  // общий помощник из app.js: справа от имени, у края окна — слева
+  placeFloating(card, anchor.getBoundingClientRect(), "right-start", 8);
 }
 
 // ─────────────────────────── полный профиль ───────────────────────────
@@ -574,7 +565,8 @@ function ownerCard(profile) {
 function bioCard(profile, { onclick = null, clamp = false }) {
   if (!profile.bio) return null;
   const text = h("div", { class: "profile-bio" + (clamp ? " clamp" : "") });
-  text.append(segmentsNode({ segments: profile.bio_segments, content: profile.bio, emoji: profile.bio_emoji }));
+  // роли в упоминаниях — того сервера, что открыт сейчас (useSmartParams)
+  text.append(renderMarkdown(profile.bio, { serverId: state.serverId }));
   const card = profileCard(t("Bio"), [text], "w2" + (onclick ? " clickable" : ""));
   if (onclick) {
     card.onclick = (event) => {

@@ -11,6 +11,7 @@
     <script src="vendor/material-color.js"></script>
     <script src="theme.js"></script>
     <script src="i18n.js"></script>
+    <link rel="stylesheet" href="vendor/katex/katex.min.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
@@ -31,6 +32,11 @@
               x="0" y="0" width="32" height="32">
           <circle cx="16" cy="16" r="16" fill="#fff" />
           <circle cx="27" cy="5" r="7" fill="#000" />
+        </mask>
+        <!-- скруглённый квадрат (shape="rounded-square", радиус md = 12px на 32px) -->
+        <mask id="mask-rounded" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+              x="0" y="0" width="32" height="32">
+          <rect x="0" y="0" width="32" height="32" rx="12" fill="#fff" />
         </mask>
         <mask id="mask-status-badge" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
               x="0" y="0" width="32" height="32">
@@ -58,20 +64,31 @@
         <div class="content">
           <!-- шапка канала -->
           <header class="channel-header" id="channel-header">
-            <span class="channel-header-icon" id="chat-icon"></span>
+            <!-- шеврон сворачивает список каналов (HeaderIcon в CommonHeader.tsx) -->
+            <button class="header-icon" id="btn-sidebar" type="button">
+              <span class="header-chevron" id="sidebar-chevron"></span>
+              <span class="channel-header-icon" id="chat-icon"></span>
+            </button>
             <span class="channel-header-title" id="chat-title">Arachnid Client</span>
             <span class="channel-header-divider hidden" id="chat-divider"></span>
-            <span class="channel-header-description" id="chat-sub"></span>
+            <a class="channel-header-description" id="chat-sub"></a>
             <span class="spacer"></span>
             <span class="connection" id="conn" title="Соединение со Stoat" data-i18n-title="Stoat connection">
               <span class="connection-dot"></span><span id="conn-text" data-i18n="not connected">не подключено</span>
             </span>
-            <button class="icon-button hidden" id="btn-members" type="button" title="Участники" data-i18n-title="Members"></button>
+            <span class="channel-header-actions" id="chat-actions"></span>
           </header>
 
           <div class="channel-body">
+            <!-- разделы «Бесед»: домашняя страница, друзья, обзор -->
+            <div class="page hidden" id="page"></div>
+
             <main class="main" id="main">
+              <!-- «Новые сообщения с …» (NewMessages.tsx) -->
+              <div class="floating-top" id="new-messages"></div>
               <div class="messages" id="messages"></div>
+              <!-- «Просмотр старых сообщений» (JumpToBottom.tsx) -->
+              <div class="floating-bottom" id="jump-bottom"></div>
 
               <div class="composition" id="composition">
                 <div class="typing hidden" id="typing"></div>
@@ -105,6 +122,9 @@
 
             <!-- участники -->
             <aside class="member-sidebar hidden" id="members"></aside>
+
+            <!-- результаты поиска и закреплённые (TextSearchSidebar.tsx) -->
+            <aside class="side-panel hidden" id="side-panel"></aside>
           </div>
         </div>
       </div>
@@ -136,6 +156,9 @@
     <script src="settings.js" defer></script>
     <script src="settings-profile.js" defer></script>
     <script src="settings-client.js" defer></script>
+    <script src="vendor/markdown.js" defer></script>
+    <script src="markdown.js" defer></script>
+    <script src="home.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>

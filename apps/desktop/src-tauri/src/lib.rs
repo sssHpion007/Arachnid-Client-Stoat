@@ -832,23 +832,6 @@ async fn download_data_url(
     Ok(format!("data:{content_type};base64,{encoded}"))
 }
 
-/// Оформленный текст вне сообщений (описание сервера): куски разметки и
-/// адреса своих эмодзи — тем же разбором, что и сообщения.
-#[derive(Debug, Serialize)]
-struct RichTextView {
-    segments: views::Segments,
-    emoji: std::collections::HashMap<String, String>,
-}
-
-#[tauri::command]
-async fn rich_text(text: String, state: State<'_, Arc<AppState>>) -> CmdResult<RichTextView> {
-    let cdn = state.cdn_url.read().await.clone();
-    Ok(RichTextView {
-        segments: views::segments(&text),
-        emoji: views::custom_emojis(&text, cdn.as_deref()),
-    })
-}
-
 /// Что ядро держит в памяти: кэш состояния и кэш файлов.
 #[derive(Debug, Serialize)]
 struct DiagnosticsView {
@@ -972,6 +955,36 @@ async fn server_members(
 
     let cdn = state.cdn_url.read().await.clone();
     Ok(views::members_of(&server, &members, &users, cdn.as_deref()))
+}
+
+/// Участники группы: получатели из кэша (`Ready` присылает их всех).
+#[tauri::command]
+async fn group_members(
+    channel_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<Vec<views::MemberView>> {
+    let recipients = match state.cache.channel(&channel_id).await {
+        Some(revolt_models::v0::Channel::Group { recipients, .. }) => recipients,
+        _ => return Ok(Vec::new()),
+    };
+    let mut users = Vec::with_capacity(recipients.len());
+    for id in &recipients {
+        if let Some(user) = state.cache.user(id).await {
+            users.push(user);
+            continue;
+        }
+        // вошедший после `Ready` ещё не известен — как `client.users.fetch`
+        let http = http_client(&state).await?;
+        match http.fetch_user(id).await {
+            Ok(user) => {
+                state.cache.insert_user(user.clone()).await;
+                users.push(user);
+            }
+            Err(error) => tracing::warn!(%error, user = %id, "участник группы не получен"),
+        }
+    }
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(views::group_members_of(&users, cdn.as_deref()))
 }
 
 /// Подписаться на присутствие участников открытого сервера.
@@ -1128,25 +1141,50 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
 const DEFAULT_PAGE: u32 = 50;
 
 /// История канала: сообщения с авторами и файлами, готовые к показу.
+///
+/// `before` — страница старше этого сообщения, `nearby` — окно вокруг
+/// сообщения (переход по ссылке, результату поиска или к первому
+/// непрочитанному, как `fetch({ nearby })` в браузерном клиенте).
 #[tauri::command]
 async fn channel_history(
     channel_id: String,
     before: Option<String>,
+    after: Option<String>,
+    nearby: Option<String>,
     limit: Option<u32>,
     state: State<'_, Arc<AppState>>,
 ) -> CmdResult<HistoryView> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-
+    let http = http_client(&state).await?;
     let response = http
-        .fetch_messages(&channel_id, before.as_deref(), None, limit)
+        .fetch_messages(
+            &channel_id,
+            stoat_core::http::MessageQuery {
+                before: before.as_deref(),
+                after: after.as_deref(),
+                nearby: nearby.as_deref(),
+                limit,
+                // страница «новее чем» должна начинаться сразу за курсором
+                sort: after.as_ref().map(|_| "Oldest"),
+            },
+        )
         .await?;
+    let mut view = history_view(&state, &channel_id, response, true).await;
+    // полная страница — значит, дальше могут быть ещё сообщения
+    view.has_more = view.messages.len() >= limit.unwrap_or(DEFAULT_PAGE) as usize;
+    Ok(view)
+}
 
+/// Ответ API со списком сообщений → сообщения, готовые к показу.
+///
+/// Общая часть истории канала и поиска: авторы и участники из ответа
+/// попадают в кэш. История (`chronological`) идёт по возрастанию времени,
+/// результаты поиска остаются в порядке, который выбрал сервер.
+pub(crate) async fn history_view(
+    state: &AppState,
+    channel_id: &str,
+    response: revolt_models::v0::BulkMessageResponse,
+    chronological: bool,
+) -> HistoryView {
     let (mut messages, users, members) = match response {
         revolt_models::v0::BulkMessageResponse::JustMessages(messages) => {
             (messages, Vec::new(), Vec::new())
@@ -1175,8 +1213,10 @@ async fn channel_history(
             .await;
     }
 
-    // сервер отдаёт новые сверху — интерфейсу удобнее по возрастанию времени
-    messages.reverse();
+    // id — ULID, их порядок совпадает с порядком времени
+    if chronological {
+        messages.sort_by(|a, b| Ord::cmp(&a.id, &b.id));
+    }
 
     let cdn = state.cdn_url.read().await.clone();
     let mut authors: std::collections::HashMap<String, UserView> = std::collections::HashMap::new();
@@ -1206,10 +1246,8 @@ async fn channel_history(
         }
     }
 
-    // полная страница — значит, выше могут быть ещё сообщения
-    let has_more = messages.len() >= limit.unwrap_or(DEFAULT_PAGE) as usize;
-    let info = server_info(&state.cache, &channel_id).await;
-    Ok(HistoryView {
+    let info = server_info(&state.cache, channel_id).await;
+    HistoryView {
         messages: messages
             .into_iter()
             .map(|message| {
@@ -1223,8 +1261,8 @@ async fn channel_history(
                 )
             })
             .collect(),
-        has_more,
-    })
+        has_more: false,
+    }
 }
 
 /// Изменить текст своего сообщения.
@@ -1470,10 +1508,10 @@ pub fn run() {
             fetch_emoji,
             emoji_index,
             download_file,
-            rich_text,
             diagnostics,
             server_emojis,
             server_members,
+            group_members,
             subscribe_server,
             profile::user_profile,
             profile::user_mutual,
@@ -1481,6 +1519,7 @@ pub fn run() {
             profile::set_status_text,
             profile::open_dm,
             profile::set_relationship,
+            profile::known_users,
             profile::send_friend_request,
             settings::account_info,
             settings::account_email,
@@ -1539,6 +1578,9 @@ pub fn run() {
             messages::pin_message,
             messages::mark_unread,
             messages::report_content,
+            messages::search_messages,
+            messages::add_group_members,
+            messages::create_group,
             cache_snapshot,
             data_dir,
             desktop::desktop_config,

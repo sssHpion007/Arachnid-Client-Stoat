@@ -1,13 +1,16 @@
 //! Действия над сообщением из контекстного меню (`MessageContextMenu.tsx`):
 //! реакции, закрепление, «Пометить как непрочитанное» и жалоба
-//! (`ReportContent.tsx`). Сетевая часть — в `stoat_core::http`.
+//! (`ReportContent.tsx`), поиск и закреплённые сообщения канала
+//! (`TextSearchSidebar.tsx`), новая группа (`CreateGroup.tsx`).
+//! Сетевая часть — в `stoat_core::http`.
 
 use std::sync::Arc;
 
 use serde_json::json;
 use tauri::State;
 
-use crate::{AppState, CmdResult, CommandError, http_client};
+use crate::views::HistoryView;
+use crate::{AppState, CmdResult, CommandError, history_view, http_client};
 
 /// Поставить реакцию: юникод-эмодзи или id своего эмодзи.
 #[tauri::command]
@@ -79,6 +82,86 @@ pub async fn mark_unread(
     let http = http_client(&state).await?;
     http.ack_message(&channel_id, &message_id).await?;
     state.cache.mark_unread(&channel_id, &message_id).await;
+    Ok(())
+}
+
+/// Тело поиска (`DataMessageSearch`): строка или закреплённые сообщения.
+///
+/// Строка поиска у сервера — от 1 до 64 символов; закреплённые всегда
+/// идут от новых к старым, как в браузерном клиенте.
+fn search_body(
+    query: Option<&str>,
+    pinned: bool,
+    sort: &str,
+) -> Result<serde_json::Value, CommandError> {
+    let sort = match sort {
+        "Relevance" | "Latest" | "Oldest" => sort,
+        _ => return Err(CommandError::new("invalid", "неизвестный порядок поиска")),
+    };
+    if pinned {
+        return Ok(json!({ "pinned": true, "sort": "Latest", "limit": 100 }));
+    }
+    let query = query.map(str::trim).unwrap_or_default();
+    if query.is_empty() || query.chars().count() > 64 {
+        return Err(CommandError::new(
+            "invalid",
+            "строка поиска — от 1 до 64 символов",
+        ));
+    }
+    Ok(json!({ "query": query, "sort": sort, "limit": 100 }))
+}
+
+/// Найти сообщения в канале или показать закреплённые.
+#[tauri::command]
+pub async fn search_messages(
+    channel_id: String,
+    query: Option<String>,
+    pinned: Option<bool>,
+    sort: Option<String>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<HistoryView> {
+    let body = search_body(
+        query.as_deref(),
+        pinned.unwrap_or(false),
+        sort.as_deref().unwrap_or("Latest"),
+    )?;
+    let http = http_client(&state).await?;
+    let response = http.search_messages(&channel_id, &body).await?;
+    Ok(history_view(&state, &channel_id, response, false).await)
+}
+
+/// Создать группу с выбранными друзьями; возвращает id нового канала.
+#[tauri::command]
+pub async fn create_group(
+    name: String,
+    users: Vec<String>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CommandError::new("invalid", "укажите название группы"));
+    }
+    let http = http_client(&state).await?;
+    let channel = http.create_group(name, &users).await?;
+    let id = match &channel {
+        revolt_models::v0::Channel::Group { id, .. } => id.clone(),
+        _ => return Err(CommandError::new("internal", "сервер вернул не группу")),
+    };
+    state.cache.insert_channel(channel).await;
+    Ok(id)
+}
+
+/// Добавить друзей в группу (AddMembersToGroup.tsx): по одному, как в оригинале.
+#[tauri::command]
+pub async fn add_group_members(
+    group_id: String,
+    users: Vec<String>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<()> {
+    let http = http_client(&state).await?;
+    for user in &users {
+        http.add_group_member(&group_id, user).await?;
+    }
     Ok(())
 }
 
@@ -176,5 +259,20 @@ mod tests {
 
         let user = report_body("User", "u1", "Impersonation", "", Some("m1")).unwrap();
         assert_eq!(user["message_id"], "m1");
+    }
+
+    #[test]
+    fn search_body_follows_api_limits() {
+        assert_eq!(
+            search_body(Some(" привет "), false, "Relevance").unwrap(),
+            json!({"query": "привет", "sort": "Relevance", "limit": 100})
+        );
+        assert_eq!(
+            search_body(None, true, "Oldest").unwrap(),
+            json!({"pinned": true, "sort": "Latest", "limit": 100})
+        );
+        assert!(search_body(Some("   "), false, "Latest").is_err());
+        assert!(search_body(Some(&"а".repeat(65)), false, "Latest").is_err());
+        assert!(search_body(Some("текст"), false, "Random").is_err());
     }
 }

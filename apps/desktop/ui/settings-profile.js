@@ -662,7 +662,7 @@ async function addBotModal(botId) {
   const created = invite.created_at ? new Date(invite.created_at) : null;
   const description = invite.description
     ? h("div", { class: "bot-description" }, [
-        segmentsNode({ segments: invite.description_segments, content: invite.description, emoji: {} }),
+        renderMarkdown(invite.description),
         h("span", { class: "bot-description-by", text: t("Description provided by {0}", [invite.username]) }),
       ])
     : null;
