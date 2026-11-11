@@ -14,6 +14,9 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod bots;
+mod desktop;
+mod markdown;
 mod media;
 mod permissions;
 mod profile;
@@ -89,6 +92,8 @@ pub struct InstanceInfo {
     pub version: Option<String>,
     /// Включён ли голос
     pub voice: bool,
+    /// Разрешено ли видео в звонках (камера и демонстрация экрана)
+    pub video: bool,
     /// Адрес файлового сервиса (Autumn)
     pub autumn_url: Option<String>,
     /// Условия, конфиденциальность и правила инстанса
@@ -272,6 +277,7 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
         ws_url: instance.ws_url.to_string(),
         version: root.stoat.clone(),
         voice: root.voice_enabled(),
+        video: root.video_enabled(),
         autumn_url: root.autumn_url().map(str::to_string),
         legal: root.legal_links(),
     }
@@ -1373,8 +1379,19 @@ pub fn run() {
     migrate_legacy_identifier(&context.config().identifier);
 
     tauri::Builder::default()
+        // первым: второй экземпляр должен выйти до того, как что-то создаст
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            desktop::show_main_window(app);
+        }))
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .arg(desktop::HIDDEN_ARG)
+                .build(),
+        )
+        .on_window_event(desktop::on_window_event)
         .manage(Arc::new(media::MediaProxy::new()))
         // файлы для webview: картинки, видео и аудио с CDN (см. media.rs)
         .register_asynchronous_uri_scheme_protocol(media::SCHEME, |ctx, request, responder| {
@@ -1394,6 +1411,18 @@ pub fn run() {
 
             if let Err(error) = ensure_layout(&data_dir) {
                 tracing::warn!(%error, "не удалось подготовить каталоги данных");
+            }
+
+            // окно создаётся здесь, а не по tauri.conf.json: рамка,
+            // аппаратное ускорение и запуск в трее берутся из настроек «ПК»
+            let desktop = Arc::new(desktop::Desktop::new(data_dir.clone()));
+            app.manage(desktop.clone());
+            desktop::create_main_window(app.handle(), &desktop)?;
+            if let Err(error) = desktop::create_tray(app.handle()) {
+                tracing::warn!(%error, "значок в трее не создан");
+            }
+            if desktop.config().discord_rpc {
+                desktop::start_discord(&desktop);
             }
 
             let state = Arc::new(AppState::new(data_dir));
@@ -1477,6 +1506,23 @@ pub fn run() {
             ack_channel,
             cache_snapshot,
             data_dir,
+            desktop::desktop_config,
+            desktop::set_desktop_config,
+            desktop::set_tray_labels,
+            desktop::restart_app,
+            desktop::notify,
+            settings::changelog,
+            settings::edit_server_identity,
+            bots::owned_bots,
+            bots::bot_info,
+            bots::create_bot,
+            bots::edit_bot,
+            bots::delete_bot,
+            bots::public_bot,
+            bots::invite_bot,
+            bots::bot_discover_status,
+            bots::request_bot_discover,
+            bots::cancel_bot_discover,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

@@ -9,6 +9,8 @@
   "app": {
     "windows": [
       {
+        "label": "main",
+        "create": false,
         "title": "Arachnid Client",
         "width": 1280,
         "height": 820,

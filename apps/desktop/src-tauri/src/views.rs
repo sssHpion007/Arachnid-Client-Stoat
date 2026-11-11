@@ -629,6 +629,9 @@ pub struct ChatMessage {
     pub edited: bool,
     /// Системное сообщение (вход, выход, закрепление)
     pub system: bool,
+    /// Что произошло в системном сообщении: текст по нему собирает
+    /// интерфейс на выбранном языке (`content` — запасной русский)
+    pub system_event: Option<SystemEvent>,
     /// Файлы
     pub attachments: Vec<AttachmentView>,
     /// Оформление текста по кускам
@@ -751,6 +754,51 @@ fn from_gif_provider(url: Option<&str>) -> bool {
             })
         })
     })
+}
+
+/// Системное сообщение для интерфейса: вид события и имена участников.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct SystemEvent {
+    /// Вид события из API: `user_joined`, `message_pinned`, …
+    pub kind: &'static str,
+    /// С кем произошло (имя для показа)
+    pub user: Option<String>,
+    /// Кто сделал (имя для показа)
+    pub by: Option<String>,
+    /// Новое название канала или текст сообщения `text`
+    pub text: Option<String>,
+}
+
+/// Разобрать системное сообщение на вид события и имена.
+pub fn system_event(event: &v0::SystemMessage, who: impl Fn(&str) -> String) -> SystemEvent {
+    use v0::SystemMessage::*;
+    let make =
+        |kind, user: Option<&String>, by: Option<&String>, text: Option<&String>| SystemEvent {
+            kind,
+            user: user.map(|id| who(id)),
+            by: by.map(|id| who(id)),
+            text: text.cloned(),
+        };
+    match event {
+        Text { content } => make("text", None, None, Some(content)),
+        UserAdded { id, by } => make("user_added", Some(id), Some(by), None),
+        UserRemove { id, by } => make("user_remove", Some(id), Some(by), None),
+        UserJoined { id } => make("user_joined", Some(id), None, None),
+        UserLeft { id } => make("user_left", Some(id), None, None),
+        UserKicked { id } => make("user_kicked", Some(id), None, None),
+        UserBanned { id } => make("user_banned", Some(id), None, None),
+        ChannelRenamed { name, by } => make("channel_renamed", None, Some(by), Some(name)),
+        ChannelDescriptionChanged { by } => {
+            make("channel_description_changed", None, Some(by), None)
+        }
+        ChannelIconChanged { by } => make("channel_icon_changed", None, Some(by), None),
+        ChannelOwnershipChanged { from, to } => {
+            make("channel_ownership_changed", Some(to), Some(from), None)
+        }
+        MessagePinned { by, .. } => make("message_pinned", None, Some(by), None),
+        MessageUnpinned { by, .. } => make("message_unpinned", None, Some(by), None),
+        CallStarted { by, .. } => make("call_started", None, Some(by), None),
+    }
 }
 
 /// Текст системного сообщения, как в браузерном клиенте.
@@ -930,14 +978,19 @@ impl ChatMessage {
             .collect();
 
         // у системного сообщения нет текста: его собирает клиент
+        let who = |id: &str| {
+            member_nickname
+                .get(id)
+                .cloned()
+                .or_else(|| authors.get(id).map(UserView::label))
+                .unwrap_or_else(|| "Пользователь".into())
+        };
+        let system_event = message
+            .system
+            .as_ref()
+            .map(|event| system_event(event, who));
         let content = match &message.system {
-            Some(event) => system_text(event, |id| {
-                member_nickname
-                    .get(id)
-                    .cloned()
-                    .or_else(|| authors.get(id).map(UserView::label))
-                    .unwrap_or_else(|| "Пользователь".into())
-            }),
+            Some(event) => system_text(event, who),
             None => message.content.unwrap_or_default(),
         };
         let emoji = custom_emojis(&content, cdn);
@@ -956,6 +1009,7 @@ impl ChatMessage {
             content,
             edited: message.edited.is_some(),
             system,
+            system_event,
             attachments,
             colour,
             embeds,
@@ -2071,6 +2125,10 @@ let a = 1;
         );
         assert!(view.system);
         assert_eq!(view.content, "Новичок присоединяется");
+        let event = view.system_event.unwrap();
+        assert_eq!(event.kind, "user_joined");
+        assert_eq!(event.user.as_deref(), Some("Новичок"));
+        assert_eq!(event.by, None);
     }
 
     #[test]

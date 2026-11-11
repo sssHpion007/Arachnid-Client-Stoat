@@ -212,6 +212,7 @@ pub async fn rename_session(
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn edit_profile(
+    user_id: Option<String>,
     display_name: Option<String>,
     pronouns: Option<String>,
     bio: Option<String>,
@@ -222,8 +223,131 @@ pub async fn edit_profile(
 ) -> CmdResult<UserView> {
     let body = profile_patch(display_name, pronouns, bio, avatar, background, remove)?;
     let http = http_client(&state).await?;
-    let user = http.edit_self(&body).await?;
-    Ok(store_me(&state, user).await)
+    let me = state.cache.me_id().await;
+    match user_id.filter(|id| Some(id) != me.as_ref()) {
+        // профиль своего бота (`UserProfileEditor` на странице бота)
+        Some(bot_id) => {
+            let user = http.edit_user(&bot_id, &body).await?;
+            state.cache.insert_user(user.clone()).await;
+            let cdn = state.cdn_url.read().await.clone();
+            Ok(UserView::build(user, cdn.as_deref()))
+        }
+        None => {
+            let user = http.edit_self(&body).await?;
+            Ok(store_me(&state, user).await)
+        }
+    }
+}
+
+/// Профиль на сервере (`ServerIdentity.tsx`): ник, аватар и местоимения.
+///
+/// Пустая строка очищает поле; `avatar` — id файла из [`upload_file`],
+/// `remove_avatar` — вернуть обычный аватар.
+#[tauri::command]
+pub async fn edit_server_identity(
+    server_id: String,
+    nickname: Option<String>,
+    pronouns: Option<String>,
+    avatar: Option<String>,
+    remove_avatar: Option<bool>,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<()> {
+    let body = identity_patch(nickname, pronouns, avatar, remove_avatar.unwrap_or(false));
+    let me = state
+        .cache
+        .me_id()
+        .await
+        .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите"))?;
+    let http = http_client(&state).await?;
+    let member = http.edit_member(&server_id, &me, &body).await?;
+    state
+        .cache
+        .insert_members(&server_id, vec![member], Vec::new())
+        .await;
+    Ok(())
+}
+
+/// Тело `PATCH /servers/{id}/members/{user}` для своего профиля на сервере.
+fn identity_patch(
+    nickname: Option<String>,
+    pronouns: Option<String>,
+    avatar: Option<String>,
+    remove_avatar: bool,
+) -> Value {
+    let mut body = Map::new();
+    let mut remove = Vec::new();
+    for (value, key, field) in [
+        (nickname, "nickname", "Nickname"),
+        (pronouns, "pronouns", "Pronouns"),
+    ] {
+        match value {
+            Some(value) if value.trim().is_empty() => remove.push(field),
+            Some(value) => {
+                body.insert(key.to_string(), Value::String(value.trim().to_string()));
+            }
+            None => {}
+        }
+    }
+    match avatar {
+        Some(avatar) => {
+            body.insert("avatar".to_string(), Value::String(avatar));
+        }
+        None if remove_avatar => remove.push("Avatar"),
+        None => {}
+    }
+    if !remove.is_empty() {
+        body.insert("remove".to_string(), json!(remove));
+    }
+    Value::Object(body)
+}
+
+/// Последний список изменений Stoat (`Changelog.tsx`).
+#[derive(Debug, Serialize)]
+pub struct ChangelogView {
+    /// Id записи
+    pub id: String,
+    /// Заголовок
+    pub title: String,
+    /// Когда опубликован (ISO-8601)
+    pub published_at: String,
+    /// Текст в виде дерева узлов
+    pub content: Vec<crate::markdown::MdNode>,
+}
+
+/// Ответ `changelog.stoat.chat` (поля, которые проверяет браузерный клиент).
+#[derive(Debug, serde::Deserialize)]
+struct ChangelogResponse {
+    id: String,
+    title: String,
+    markdown_content: String,
+    published_at: String,
+}
+
+/// Адрес последнего списка изменений.
+const CHANGELOG_URL: &str = "https://changelog.stoat.chat/v1/changelogs/latest";
+
+/// «Узнай, что нового»: последний список изменений.
+#[tauri::command]
+pub async fn changelog(
+    proxy: State<'_, Arc<crate::media::MediaProxy>>,
+) -> CmdResult<ChangelogView> {
+    let failed = |error: reqwest::Error| CommandError::new("network", error.to_string());
+    let response = proxy
+        .client()
+        .get(CHANGELOG_URL)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(failed)?
+        .error_for_status()
+        .map_err(failed)?;
+    let data: ChangelogResponse = response.json().await.map_err(failed)?;
+    Ok(ChangelogView {
+        content: crate::markdown::tree(&data.markdown_content),
+        id: data.id,
+        title: data.title,
+        published_at: data.published_at,
+    })
 }
 
 /// Тело `PATCH /users/@me` из полей формы профиля.
@@ -331,6 +455,19 @@ mod tests {
         assert!(!is_official(
             &"https://chat.example.org/api".parse().unwrap()
         ));
+    }
+
+    #[test]
+    fn identity_patch_clears_and_sets() {
+        let body = identity_patch(Some(" ".into()), Some("она/её".into()), None, true);
+        assert_eq!(body["pronouns"], "она/её");
+        assert!(body.get("nickname").is_none());
+        assert_eq!(body["remove"], json!(["Nickname", "Avatar"]));
+
+        let body = identity_patch(Some("Ник".into()), None, Some("f1".into()), true);
+        assert_eq!(body["nickname"], "Ник");
+        assert_eq!(body["avatar"], "f1");
+        assert!(body.get("remove").is_none());
     }
 
     #[test]

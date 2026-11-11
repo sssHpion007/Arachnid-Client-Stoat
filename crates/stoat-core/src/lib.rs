@@ -182,6 +182,24 @@ impl ApiRoot {
             .unwrap_or(false)
     }
 
+    /// Разрешено ли видео (камера и демонстрация экрана) в звонках.
+    ///
+    /// Лимиты обычного пользователя — `features.limits.default`, у старых
+    /// инстансов есть только лимиты новичка (`new_user`), как в
+    /// `Instance.limits` браузерного клиента.
+    pub fn video_enabled(&self) -> bool {
+        let limits = self.features.get("limits");
+        ["default", "new_user"]
+            .iter()
+            .find_map(|kind| {
+                limits
+                    .and_then(|limits| limits.get(kind))
+                    .and_then(|limits| limits.get("video"))
+                    .and_then(|video| video.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
     /// URL файлового сервиса Autumn, если инстанс его объявил.
     pub fn autumn_url(&self) -> Option<&str> {
         self.features
@@ -228,6 +246,24 @@ pub struct LegalLinks {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn video_limit_from_features() {
+        let root: ApiRoot = serde_json::from_value(serde_json::json!({
+            "features": { "limits": { "new_user": { "video": false }, "default": { "video": true } } }
+        }))
+        .unwrap();
+        assert!(root.video_enabled());
+
+        let old: ApiRoot = serde_json::from_value(serde_json::json!({
+            "features": { "limits": { "new_user": { "video": true } } }
+        }))
+        .unwrap();
+        assert!(old.video_enabled());
+
+        let none: ApiRoot = serde_json::from_value(serde_json::json!({ "features": {} })).unwrap();
+        assert!(!none.video_enabled());
+    }
 
     #[test]
     fn legal_links_from_features() {
