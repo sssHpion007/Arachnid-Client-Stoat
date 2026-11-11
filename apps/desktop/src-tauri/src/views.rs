@@ -94,10 +94,7 @@ fn ordered_roles<'a>(
     roles: &[String],
     server_roles: &'a HashMap<String, v0::Role>,
 ) -> Vec<&'a v0::Role> {
-    let mut list: Vec<&v0::Role> = roles
-        .iter()
-        .filter_map(|id| server_roles.get(id))
-        .collect();
+    let mut list: Vec<&v0::Role> = roles.iter().filter_map(|id| server_roles.get(id)).collect();
     list.sort_by_key(|role| role.rank);
     list
 }
@@ -149,12 +146,15 @@ pub struct MemberView {
 }
 
 impl UserView {
-    /// Имя для показа: отображаемое, иначе `ник#0001`.
+    /// Имя для показа: отображаемое, иначе имя пользователя.
+    ///
+    /// Дискриминатор (`#0001`) в браузерном клиенте виден только в профиле,
+    /// рядом с именем в чате его нет.
     pub fn label(&self) -> String {
         self.display_name
             .clone()
             .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| format!("{}#{}", self.username, self.discriminator))
+            .unwrap_or_else(|| self.username.clone())
     }
 
     /// Представление с адресом аватара.
@@ -247,18 +247,21 @@ impl WorkspaceView {
     /// Собрать дерево с учётом пользовательского порядка.
     pub fn build_ordered(snapshot: Snapshot, cdn: Option<String>, ordering: &Ordering) -> Self {
         let channels: Vec<&v0::Channel> = snapshot.channels.iter().collect();
+        let me_id = snapshot.me.as_ref().map(|user| user.id.as_str());
 
         let mut servers: Vec<ServerView> = snapshot
             .servers
             .iter()
             .map(|server| {
-                ServerView::build(
-                    server,
-                    &channels,
-                    snapshot.members.get(&server.id),
-                    ordering,
-                    cdn.as_deref(),
-                )
+                let members = snapshot.members.get(&server.id);
+                let mut view =
+                    ServerView::build(server, &channels, members, ordering, cdn.as_deref());
+                let mine = me_id.and_then(|id| {
+                    members.and_then(|list| list.iter().find(|member| member.id.user == id))
+                });
+                view.owner = me_id == Some(server.owner.as_str());
+                view.permissions = crate::permissions::server(server, me_id, mine);
+                view
             })
             .collect();
         // порядок как в браузере: сначала серверы из настроек, затем новые
@@ -319,7 +322,7 @@ impl WorkspaceView {
         Self {
             me: snapshot
                 .me
-                .map(|user| UserView::build(user, cdn.as_deref())),
+                .map(|user| crate::profile::own_view(user, cdn.as_deref())),
             servers,
             dms,
             notes,
@@ -346,6 +349,10 @@ pub struct ServerView {
     pub unread: bool,
     /// Сколько непрочитанных упоминаний во всех каналах
     pub mentions: usize,
+    /// Мои права на сервере (биты API): какие пункты меню и настроек показывать
+    pub permissions: u64,
+    /// Я владелец сервера
+    pub owner: bool,
 }
 
 impl ServerView {
@@ -429,6 +436,8 @@ impl ServerView {
             categories,
             unread: false,
             mentions: 0,
+            permissions: 0,
+            owner: false,
         }
     }
 }
@@ -650,14 +659,11 @@ pub fn members_of(
                 .or_else(|| user.avatar.as_ref().and_then(|file| file_url(file, cdn)));
             // как в клиенте: сначала старшие роли
             let roles = ordered_roles(&member.roles, &server.roles);
-            let hoist = roles
-                .iter()
-                .find(|role| role.hoist)
-                .map(|role| HoistView {
-                    id: role.id.clone(),
-                    name: role.name.clone(),
-                    rank: role.rank,
-                });
+            let hoist = roles.iter().find(|role| role.hoist).map(|role| HoistView {
+                id: role.id.clone(),
+                name: role.name.clone(),
+                rank: role.rank,
+            });
             Some(MemberView {
                 id: member.id.user.clone(),
                 name: user_label_with(user, Some(member)),
@@ -1067,7 +1073,7 @@ pub fn display_name(user: &v0::User) -> String {
     user.display_name
         .clone()
         .filter(|name| !name.trim().is_empty())
-        .unwrap_or_else(|| format!("{}#{}", user.username, user.discriminator))
+        .unwrap_or_else(|| user.username.clone())
 }
 
 /// Стилизация текста сообщения (жирный, курсив, код, ссылка).
@@ -1812,7 +1818,8 @@ let a = 1;
                 .unwrap();
         assert_eq!(
             recipient_name(&["u2".to_string()], &users, None),
-            "friend#0002"
+            "friend",
+            "дискриминатор в имени не показывается"
         );
         assert_eq!(
             recipient_name(&["нет".to_string()], &users, None),

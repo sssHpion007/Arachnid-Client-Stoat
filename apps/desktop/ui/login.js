@@ -117,8 +117,51 @@
         // сессия уже есть — сразу в клиент
         try {
           const session = await invoke("session_state");
-          if (session && session.logged_in) await openClient();
+          if (session && session.logged_in) return openClient();
         } catch { /* первый запуск */ }
+
+        // запомненная сессия: входим без формы (кроме «Сменить аккаунт»)
+        const saved = readSession();
+        if (saved && !new URLSearchParams(location.search).has("switch")) {
+          setMsg("Восстанавливаю сессию…");
+          btnPassword.disabled = true;
+          try {
+            await invoke("login_with_token", { token: saved.token, sessionId: saved.id || null });
+            setMsg("Вход выполнен. Открываю клиент…", "ok");
+            setTimeout(openClient, 300);
+          } catch (error) {
+            const kind = errorKind(error).toLowerCase();
+            // сессию завершили — забываем её; сеть или сервер — просто показываем
+            if (kind === "unauthorized" || kind === "invalidsession") forgetSession();
+            setMsg("Не удалось восстановить сессию: " + describe(error), "warn");
+          } finally {
+            btnPassword.disabled = false;
+          }
+        }
+      }
+
+      function readSession() {
+        try {
+          const token = localStorage.getItem("stoat.session.token");
+          return token ? { token, id: localStorage.getItem("stoat.session.id") } : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function rememberSession(token, id) {
+        try {
+          localStorage.setItem("stoat.session.token", token);
+          if (id) localStorage.setItem("stoat.session.id", id);
+          else localStorage.removeItem("stoat.session.id");
+        } catch { /* хранилище недоступно */ }
+      }
+
+      function forgetSession() {
+        try {
+          localStorage.removeItem("stoat.session.token");
+          localStorage.removeItem("stoat.session.id");
+        } catch { /* хранилище недоступно */ }
       }
 
       function showMfa(step) {
@@ -142,9 +185,8 @@
 
       function onSuccess(result) {
         setMsg("Вход выполнен. Открываю клиент…", "ok");
-        if (result && result.token && remember.checked) {
-          try { localStorage.setItem("stoat.session.token", result.token); } catch { /* хранилище недоступно */ }
-        }
+        if (result && result.token && remember.checked) rememberSession(result.token, result.session_id);
+        else forgetSession();
         // Окно переключает сам Rust сразу после ответа; это лишь запасной путь.
         setTimeout(openClient, 600);
       }
@@ -211,9 +253,10 @@
         const button = document.getElementById("submit-token");
         busy(button, true, "Проверяю…");
         try {
-          const user = await invoke("login_with_token", { token });
+          const user = await invoke("login_with_token", { token, sessionId: null });
           setMsg("Вошли как " + user.username + "#" + user.discriminator, "ok");
-          try { localStorage.setItem("stoat.session.token", token); } catch { /* хранилище недоступно */ }
+          if (remember.checked) rememberSession(token, null);
+          else forgetSession();
           setTimeout(openClient, 600);
         } catch (error) {
           console.error("вход по токену не удался:", error);

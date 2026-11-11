@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/stoat-core", "crates/stoat-plugin-api", "apps/desktop/src-tauri"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-or-later"
@@ -18,7 +18,7 @@ thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net"] }
 tokio-tungstenite = { version = "0.30.0", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3.34"
-reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider", "stream"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "multipart", "rustls-no-provider", "stream"] }
 url = "2.5.8"
 tracing = "0.1.44"
 iso8601-timestamp = { version = "0.2.17", features = ["serde"] }

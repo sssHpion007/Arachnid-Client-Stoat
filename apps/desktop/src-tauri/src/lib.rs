@@ -14,6 +14,10 @@ use stoat_core::http::{HttpClient, Token};
 use stoat_core::{ApiRoot, Instance, ReadyField};
 use tauri::{Manager, State};
 
+mod permissions;
+mod profile;
+mod server_admin;
+mod settings;
 mod views;
 use tokio::sync::{Mutex, RwLock};
 use views::{ChatMessage, HistoryView, UserView, WorkspaceView};
@@ -36,6 +40,12 @@ pub struct AppState {
     pub media: RwLock<MediaCache>,
     /// Эмодзи серверов: id сервера → список (меняется редко)
     pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
+    /// Серверы, полный список участников которых уже получен в этом подключении
+    pub members_synced: RwLock<std::collections::HashSet<String>>,
+    /// Подписки на присутствие участников: id сервера → когда отправлена
+    pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
+    /// Id текущей сессии, если известен (после входа или из запомненного)
+    pub session_id: RwLock<Option<String>>,
 }
 
 /// Кэш скачанных картинок.
@@ -83,6 +93,9 @@ impl AppState {
             cdn_url: RwLock::new(None),
             media: RwLock::new(MediaCache::default()),
             emojis: RwLock::new(std::collections::HashMap::new()),
+            members_synced: RwLock::new(std::collections::HashSet::new()),
+            subscriptions: Mutex::new(std::collections::HashMap::new()),
+            session_id: RwLock::new(None),
         }
     }
 }
@@ -142,6 +155,17 @@ impl From<stoat_core::Error> for CommandError {
 }
 
 type CmdResult<T> = Result<T, CommandError>;
+
+/// REST-клиент текущей сессии или ошибка «сначала войдите».
+async fn http_client(state: &AppState) -> CmdResult<HttpClient> {
+    state
+        .http
+        .read()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))
+}
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
@@ -274,14 +298,16 @@ fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
     }
 }
 
-/// Сохранить токен и выполнить вход.
+/// Войти по токену сессии.
 ///
-/// Токен не пишется в конфиг: только в память процесса и, если доступно,
-/// в системное хранилище секретов (через плагин store на стороне UI).
+/// Так же восстанавливается запомненная сессия при запуске: форма входа
+/// хранит токен и id сессии, если стоит «Запомнить сессию». Id нужен, чтобы
+/// в настройках отметить текущую сессию среди всех.
 #[tauri::command]
 async fn login_with_token(
     app: tauri::AppHandle,
     token: String,
+    session_id: Option<String>,
     state: State<'_, Arc<AppState>>,
 ) -> CmdResult<UserView> {
     let instance = state.instance.read().await.clone();
@@ -293,8 +319,10 @@ async fn login_with_token(
     state.cache.set_me(me.clone()).await;
 
     *state.http.write().await = Some(client);
+    *state.session_id.write().await = session_id;
     show_client(&app);
-    Ok(UserView::from(me))
+    let cdn = state.cdn_url.read().await.clone();
+    Ok(profile::own_view(me, cdn.as_deref()))
 }
 
 /// Результат шага входа, который видит форма.
@@ -305,8 +333,10 @@ pub enum LoginStep {
     Success {
         /// Профиль пользователя
         user: UserView,
-        /// Токен сессии, чтобы UI мог сохранить его в системное хранилище
+        /// Токен сессии, чтобы форма могла запомнить вход
         token: String,
+        /// Id сессии (отмечается как текущая в настройках)
+        session_id: String,
     },
     /// Нужен второй фактор
     Mfa {
@@ -424,12 +454,15 @@ async fn finish_login(
             let me = client.fetch_self().await?;
             state.cache.set_me(me.clone()).await;
             *state.http.write().await = Some(client);
+            *state.session_id.write().await = Some(session.id.clone());
 
             show_client(&app);
 
+            let cdn = state.cdn_url.read().await.clone();
             Ok(LoginStep::Success {
-                user: UserView::from(me),
+                user: profile::own_view(me, cdn.as_deref()),
                 token: session.token,
+                session_id: session.id,
             })
         }
         ResponseLogin::MFA {
@@ -456,6 +489,10 @@ async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
         let _ = client.logout().await; // ошибку не показываем: локально вышли в любом случае
     }
     state.cache.clear().await;
+    *state.session_id.write().await = None;
+    state.members_synced.write().await.clear();
+    state.subscriptions.lock().await.clear();
+    state.emojis.write().await.clear();
     Ok(())
 }
 
@@ -512,6 +549,9 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
         while let Some(event) = events.recv().await {
             if let GatewayEvent::Ready(ready) = &event {
                 cache.apply_ready((**ready).clone()).await;
+                // после переподключения списки участников и подписки собираются заново
+                app_state.members_synced.write().await.clear();
+                app_state.subscriptions.lock().await.clear();
             } else {
                 cache.apply(event.clone()).await;
             }
@@ -656,7 +696,10 @@ async fn send_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+        authors.insert(
+            message.author.clone(),
+            UserView::build(user, cdn.as_deref()),
+        );
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -839,10 +882,19 @@ async fn user_avatar(
         .and_then(|file| views::file_url(file, cdn.as_deref())))
 }
 
+/// Сервер «большой», если участников больше этого числа: тогда, как и
+/// браузерный клиент (`largeServer.ts`), не скачиваем тех, кто не в сети.
+const LARGE_SERVER: usize = 1000;
+
+/// Через сколько повторять подписку на присутствие (сервер держит её 15 минут).
+const SUBSCRIPTION_REFRESH: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 /// Участники сервера для правой панели.
 ///
-/// Данные берутся из кэша (шлюз присылает участников при подключении),
-/// участника без имени пропускаем — рисовать «неизвестного» незачем.
+/// `Ready` присылает только тех, кто в сети, поэтому при первом открытии
+/// сервера в этом подключении весь список запрашивается отдельно
+/// (`GET /servers/{id}/members`), как `server.syncMembers()` в браузере.
+/// Участника без имени пропускаем — рисовать «неизвестного» незачем.
 #[tauri::command]
 async fn server_members(
     server_id: String,
@@ -851,6 +903,22 @@ async fn server_members(
     let Some(server) = state.cache.server(&server_id).await else {
         return Ok(Vec::new());
     };
+
+    if !state.members_synced.read().await.contains(&server_id) {
+        let http = http_client(&state).await?;
+        let exclude_offline = server.approximate_member_count > LARGE_SERVER;
+        // ошибка сети не страшна: покажем тех, кто уже известен из `Ready`
+        match http.fetch_members(&server_id, exclude_offline).await {
+            Ok(all) => {
+                state
+                    .cache
+                    .insert_members(&server_id, all.members, all.users)
+                    .await;
+                state.members_synced.write().await.insert(server_id.clone());
+            }
+            Err(error) => tracing::warn!(%error, server = %server_id, "участники не получены"),
+        }
+    }
 
     let members = state.cache.members(&server_id).await;
     let mut users = std::collections::HashMap::new();
@@ -862,6 +930,31 @@ async fn server_members(
 
     let cdn = state.cdn_url.read().await.clone();
     Ok(views::members_of(&server, &members, &users, cdn.as_deref()))
+}
+
+/// Подписаться на присутствие участников открытого сервера.
+///
+/// Без подписки шлюз не присылает `UserUpdate` о тех, с кем нет общих
+/// личных переписок, и точки статуса в списке участников «замерзают».
+/// Подписка живёт 15 минут, поэтому повторяется не чаще раза в 10 минут.
+#[tauri::command]
+async fn subscribe_server(server_id: String, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
+    {
+        let mut subscriptions = state.subscriptions.lock().await;
+        let fresh = subscriptions
+            .get(&server_id)
+            .is_some_and(|at| at.elapsed() < SUBSCRIPTION_REFRESH);
+        if fresh {
+            return Ok(());
+        }
+        subscriptions.insert(server_id.clone(), std::time::Instant::now());
+    }
+    if let Some(handle) = state.gateway.lock().await.as_ref() {
+        handle
+            .send(gateway::ClientEvent::Subscribe { server_id })
+            .await?;
+    }
+    Ok(())
 }
 
 /// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
@@ -995,7 +1088,10 @@ async fn channel_history(
         if !authors.contains_key(&message.author)
             && let Some(user) = state.cache.user(&message.author).await
         {
-            authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+            authors.insert(
+                message.author.clone(),
+                UserView::build(user, cdn.as_deref()),
+            );
         }
     }
 
@@ -1046,7 +1142,10 @@ async fn edit_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+        authors.insert(
+            message.author.clone(),
+            UserView::build(user, cdn.as_deref()),
+        );
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -1226,6 +1325,47 @@ pub fn run() {
             fetch_emoji,
             server_emojis,
             server_members,
+            subscribe_server,
+            profile::user_profile,
+            profile::user_mutual,
+            profile::set_presence,
+            profile::set_status_text,
+            profile::open_dm,
+            profile::set_relationship,
+            profile::send_friend_request,
+            settings::account_info,
+            settings::change_username,
+            settings::change_password,
+            settings::change_email,
+            settings::sessions,
+            settings::revoke_session,
+            settings::revoke_other_sessions,
+            settings::edit_profile,
+            settings::upload_file,
+            server_admin::server_settings,
+            server_admin::edit_server,
+            server_admin::leave_server,
+            server_admin::create_role,
+            server_admin::edit_role,
+            server_admin::delete_role,
+            server_admin::set_permissions,
+            server_admin::server_member_list,
+            server_admin::edit_member,
+            server_admin::kick_member,
+            server_admin::ban_member,
+            server_admin::server_bans,
+            server_admin::unban_member,
+            server_admin::server_invites,
+            server_admin::create_invite,
+            server_admin::delete_invite,
+            server_admin::preview_invite,
+            server_admin::join_invite,
+            server_admin::create_server,
+            server_admin::create_channel,
+            server_admin::edit_channel,
+            server_admin::delete_channel,
+            server_admin::create_emoji,
+            server_admin::delete_emoji,
             user_avatar,
             message_link,
             channel_history,
@@ -1283,8 +1423,14 @@ mod tests {
         let data = revolt_send("привет", Vec::new());
         assert_eq!(data.content.as_deref(), Some("привет"));
         assert!(data.attachments.is_none());
-        assert!(data.replies.is_none(), "пустой список ответов не отправляется");
-        assert!(data.nonce.is_none(), "вместо nonce — заголовок Idempotency-Key");
+        assert!(
+            data.replies.is_none(),
+            "пустой список ответов не отправляется"
+        );
+        assert!(
+            data.nonce.is_none(),
+            "вместо nonce — заголовок Idempotency-Key"
+        );
     }
 
     #[test]

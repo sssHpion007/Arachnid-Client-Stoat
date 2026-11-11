@@ -17,6 +17,10 @@ use url::Url;
 use crate::error::{Error, Result};
 use crate::ratelimit::RateLimiter;
 
+mod endpoints;
+
+pub use endpoints::{AccountInfo, MutualResponse, SessionInfo, UploadTag};
+
 const HEADER_SESSION: &str = "x-session-token";
 const HEADER_BOT: &str = "x-bot-token";
 // `HeaderName::from_static` принимает только имена в нижнем регистре и паникует
@@ -109,8 +113,24 @@ impl HttpClient {
         &self.limiter
     }
 
+    /// Полный адрес метода API.
+    ///
+    /// `Url::join("/путь")` заменил бы путь базового адреса целиком, и для
+    /// своего сервера вида `https://host/api` запросы уходили бы мимо `/api`.
+    /// Поэтому путь метода дописывается к пути базового адреса.
     fn endpoint(&self, path: &str) -> Result<Url> {
-        Ok(self.base.join(path)?)
+        let (path, query) = path
+            .split_once('?')
+            .map_or((path, None), |(p, q)| (p, Some(q)));
+        let mut url = self.base.clone();
+        let joined = format!(
+            "{}/{}",
+            url.path().trim_end_matches('/'),
+            path.trim_start_matches('/')
+        );
+        url.set_path(&joined);
+        url.set_query(query);
+        Ok(url)
     }
 
     /// `GET /` — конфигурация инстанса.
@@ -396,7 +416,7 @@ impl HttpClient {
     where
         B: serde::Serialize + ?Sized,
     {
-        let bucket = bucket.unwrap_or_else(|| Self::bucket_for(&url));
+        let bucket = bucket.unwrap_or_else(|| self.bucket_of(&url));
         self.limiter.acquire(&bucket).await;
 
         let headers = request_headers(
@@ -427,6 +447,15 @@ impl HttpClient {
         }
 
         Ok(response)
+    }
+
+    /// Бакет по адресу запроса без пути базового адреса (`/api` у своих серверов).
+    fn bucket_of(&self, url: &Url) -> String {
+        let prefix = self.base.path().trim_end_matches('/');
+        let path = url.path().strip_prefix(prefix).unwrap_or(url.path());
+        let mut relative = url.clone();
+        relative.set_path(path);
+        Self::bucket_for(&relative)
     }
 
     /// Имя бакета по заголовку ответа, иначе — по шаблону пути.
@@ -620,7 +649,12 @@ mod tests {
     #[test]
     fn header_names_are_lowercase() {
         // `HeaderName::from_static` паникует на заглавных буквах
-        for name in [HEADER_SESSION, HEADER_BOT, HEADER_USER_AGENT, HEADER_IDEMPOTENCY] {
+        for name in [
+            HEADER_SESSION,
+            HEADER_BOT,
+            HEADER_USER_AGENT,
+            HEADER_IDEMPOTENCY,
+        ] {
             assert_eq!(name, name.to_ascii_lowercase(), "{name}");
         }
     }
