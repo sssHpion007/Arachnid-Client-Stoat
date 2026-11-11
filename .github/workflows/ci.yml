@@ -22,14 +22,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: fmt
-        run: cargo fmt --all -- --check
+        run: .github/scripts/annotate.sh cargo fmt --all -- --check
 
       # ядро не тянет GTK/WebKit, поэтому проверяется без системных пакетов
       - name: clippy
-        run: cargo clippy -p stoat-core -p stoat-plugin-api --all-targets -- -D warnings
+        run: .github/scripts/annotate.sh cargo clippy -p stoat-core -p stoat-plugin-api --all-targets -- -D warnings
 
       - name: test
-        run: cargo test -p stoat-core -p stoat-plugin-api
+        run: .github/scripts/annotate.sh cargo test -p stoat-core -p stoat-plugin-api
 
   desktop:
     name: приложение (типы и тесты)
@@ -53,7 +53,7 @@ jobs:
 
       # ловит ошибки в командах и представлениях ещё до сборки установщика
       - name: clippy приложения
-        run: cargo clippy -p arachnid-client --all-targets -- -D warnings
+        run: .github/scripts/annotate.sh cargo clippy -p arachnid-client --all-targets -- -D warnings
 
       - name: тесты приложения
-        run: cargo test -p arachnid-client
+        run: .github/scripts/annotate.sh cargo test -p arachnid-client

@@ -94,10 +94,7 @@ fn ordered_roles<'a>(
     roles: &[String],
     server_roles: &'a HashMap<String, v0::Role>,
 ) -> Vec<&'a v0::Role> {
-    let mut list: Vec<&v0::Role> = roles
-        .iter()
-        .filter_map(|id| server_roles.get(id))
-        .collect();
+    let mut list: Vec<&v0::Role> = roles.iter().filter_map(|id| server_roles.get(id)).collect();
     list.sort_by_key(|role| role.rank);
     list
 }
@@ -650,14 +647,11 @@ pub fn members_of(
                 .or_else(|| user.avatar.as_ref().and_then(|file| file_url(file, cdn)));
             // как в клиенте: сначала старшие роли
             let roles = ordered_roles(&member.roles, &server.roles);
-            let hoist = roles
-                .iter()
-                .find(|role| role.hoist)
-                .map(|role| HoistView {
-                    id: role.id.clone(),
-                    name: role.name.clone(),
-                    rank: role.rank,
-                });
+            let hoist = roles.iter().find(|role| role.hoist).map(|role| HoistView {
+                id: role.id.clone(),
+                name: role.name.clone(),
+                rank: role.rank,
+            });
             Some(MemberView {
                 id: member.id.user.clone(),
                 name: user_label_with(user, Some(member)),

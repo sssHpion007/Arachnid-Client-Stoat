@@ -620,7 +620,12 @@ mod tests {
     #[test]
     fn header_names_are_lowercase() {
         // `HeaderName::from_static` паникует на заглавных буквах
-        for name in [HEADER_SESSION, HEADER_BOT, HEADER_USER_AGENT, HEADER_IDEMPOTENCY] {
+        for name in [
+            HEADER_SESSION,
+            HEADER_BOT,
+            HEADER_USER_AGENT,
+            HEADER_IDEMPOTENCY,
+        ] {
             assert_eq!(name, name.to_ascii_lowercase(), "{name}");
         }
     }

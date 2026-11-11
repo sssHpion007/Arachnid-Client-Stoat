@@ -656,7 +656,10 @@ async fn send_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+        authors.insert(
+            message.author.clone(),
+            UserView::build(user, cdn.as_deref()),
+        );
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -995,7 +998,10 @@ async fn channel_history(
         if !authors.contains_key(&message.author)
             && let Some(user) = state.cache.user(&message.author).await
         {
-            authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+            authors.insert(
+                message.author.clone(),
+                UserView::build(user, cdn.as_deref()),
+            );
         }
     }
 
@@ -1046,7 +1052,10 @@ async fn edit_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
+        authors.insert(
+            message.author.clone(),
+            UserView::build(user, cdn.as_deref()),
+        );
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -1283,8 +1292,14 @@ mod tests {
         let data = revolt_send("привет", Vec::new());
         assert_eq!(data.content.as_deref(), Some("привет"));
         assert!(data.attachments.is_none());
-        assert!(data.replies.is_none(), "пустой список ответов не отправляется");
-        assert!(data.nonce.is_none(), "вместо nonce — заголовок Idempotency-Key");
+        assert!(
+            data.replies.is_none(),
+            "пустой список ответов не отправляется"
+        );
+        assert!(
+            data.nonce.is_none(),
+            "вместо nonce — заголовок Idempotency-Key"
+        );
     }
 
     #[test]

@@ -642,11 +642,7 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
                     }
                 }
                 // присутствие приходит в `data.online`, старые серверы — рядом с `data`
-                if let Some(online) = data
-                    .get("online")
-                    .and_then(|v| v.as_bool())
-                    .or(online)
-                {
+                if let Some(online) = data.get("online").and_then(|v| v.as_bool()).or(online) {
                     user.online = online;
                 }
                 if let Some(display_name) = data.get("display_name").and_then(|v| v.as_str()) {
