@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 Persoun huet reagéiert",
 "12 hours": "12 Stonnen",
 "24 hours": "24 Stonnen",
 "<0/> has been added by <1/>": "<0/> gouf vum <1/> bäigesat",
@@ -113,5 +114,8 @@
 "[Today at] LT": "[Haut um] LT",
 "[Yesterday at] LT": "[Gëschter ëm] LT",
 "{0} and {1} are typing…": "{0} an {1} schreiwen…",
-"{0} is typing…": "{0} schreift…"
+"{0} is typing…": "{0} schreift…",
+"{unknown} reacted": "{unknown} huet reagéiert",
+"{usernames} and {unknown} others reacted": "{usernames} an {unknown} aner hu reagéiert",
+"{usernames} reacted": "{usernames} hu reagéiert"
 }

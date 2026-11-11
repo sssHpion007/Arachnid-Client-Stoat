@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 person reagerede",
 "<0/> has been added by <1/>": "<0/> blev tilføjet af <1/>",
 "<0/> has been banned from the server": "<0/> blev udelukket fra serveren",
 "<0/> has been kicked from the server": "<0/> blev smidt ud af serveren",
@@ -31,6 +32,7 @@
 "Confirm": "Bekræft",
 "Confirm action": "Bekræft handling",
 "Connect": "Forbind",
+"Content breaks one or more laws": "Indholdet bryder en eller flere love",
 "Continue": "Fortsæt",
 "Conversations": "Samtaler",
 "Copy ID": "Kopiér ID",
@@ -85,6 +87,7 @@
 "Manage Server": "Administrer server",
 "Manage Webhooks": "Administrer webhooks",
 "Mark as read": "Markér som læst",
+"Mark as unread": "Markér som ulæst",
 "Masquerade": "Maskerade",
 "Members": "Medlemmer",
 "Mention": "Nævn",
@@ -119,6 +122,8 @@
 "Remove friend": "Fjern ven",
 "Reply": "Svar",
 "Replying to": "Svarer på",
+"Report": "Rapportér",
+"Report message": "Rapportér besked",
 "Reset": "Nulstil",
 "Reset Token": "Nulstil token",
 "Role Name": "Rollenavn",
@@ -162,5 +167,8 @@
 "[Today at] LT": "[I dag kl.] LT",
 "[Yesterday at] LT": "[I går kl.] LT",
 "{0} and {1} are typing…": "{0} og {1} skriver…",
-"{0} is typing…": "{0} skriver…"
+"{0} is typing…": "{0} skriver…",
+"{unknown} reacted": "{unknown} reagerede",
+"{usernames} and {unknown} others reacted": "{usernames} og {unknown} andre reagerede",
+"{usernames} reacted": "{usernames} reagerede"
 }

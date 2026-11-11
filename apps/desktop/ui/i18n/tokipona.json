@@ -115,5 +115,8 @@
 "[Today at] LT": "[suno ni la tenpo] LT",
 "[Yesterday at] LT": "[suno weka la tenpo] LT",
 "{0} and {1} are typing…": "{0} en {1} li sitelen…",
-"{0} is typing…": "{0} li sitelen…"
+"{0} is typing…": "{0} li sitelen…",
+"{unknown} reacted": "{unknown} li pana e sitelen",
+"{usernames} and {unknown} others reacted": "{username} en {unknown} li pana e sitelen",
+"{usernames} reacted": "{usernames} li pana e sitelen"
 }

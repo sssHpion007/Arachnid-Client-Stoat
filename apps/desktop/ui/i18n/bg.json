@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 човек реагира",
 "<0/> has been added by <1/>": "<0/> бе добавен от <1/>",
 "<0/> has been banned from the server": "<0/> бе баннат от сървъра",
 "<0/> has been kicked from the server": "<0/> бе отстранен от сървъра",
@@ -37,6 +38,7 @@
 "Confirm": "Потвърди",
 "Confirm action": "Потвърждаване на действие",
 "Connect": "Свържете се",
+"Content breaks one or more laws": "Съдържанието не спазва едно или повече правила",
 "Continue": "Продължаване",
 "Conversations": "Разговори",
 "Copy ID": "Копиране на идентификатор",
@@ -93,6 +95,7 @@
 "Manage Server": "Управление на сървъра",
 "Manage Webhooks": "Управлявайте Webhooks",
 "Mark as read": "Маркиране като прочетено",
+"Mark as unread": "Маркирай като непрочетено",
 "Masquerade": "Маскарад",
 "Members": "Потребители",
 "Mention": "Спомени",
@@ -128,6 +131,7 @@
 "Remove friend": "Премахване на приятел",
 "Reply": "Отговор",
 "Replying to": "Отговаряйки на",
+"Report": "Докладване",
 "Reset": "Нулиране",
 "Role Name": "Име на роля",
 "Roles": "Роли",
@@ -170,5 +174,8 @@
 "[Today at] LT": "[Днес в] местно време",
 "[Yesterday at] LT": "[Вчера в] местно време",
 "{0} and {1} are typing…": "{0} и {1} пишат…",
-"{0} is typing…": "{0} пише…"
+"{0} is typing…": "{0} пише…",
+"{unknown} reacted": "{unknown} е реагирал",
+"{usernames} and {unknown} others reacted": "{usernames} и {unknown} други са реагирали",
+"{usernames} reacted": "{usernames} са реагирали"
 }

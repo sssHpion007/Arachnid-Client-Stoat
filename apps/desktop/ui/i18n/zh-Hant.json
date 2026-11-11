@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 人做出反應",
 "12 hours": "12 小時",
 "24 hours": "24 小時",
 "<0/> has been removed by <1/>": "<0/> 已被 <1/> 移除",
@@ -18,6 +19,8 @@
 "Admin Panel": "管理面板",
 "Advanced": "進階",
 "Appearance": "外觀",
+"Are you sure you want to pin this message?": "你確定要釘選這則訊息嗎？",
+"Are you sure you want to unpin this message?": "你確定要取消釘選這則訊息嗎？",
 "Assign Roles": "分配身份組",
 "Authenticator App": "二步驟驗證程式",
 "Avatar": "頭像",
@@ -46,6 +49,7 @@
 "Confirm": "確定",
 "Confirm action": "確定操作",
 "Connect": "連接",
+"Content breaks one or more laws": "內容違反一條或多條規定",
 "Continue": "繼續",
 "Conversations": "對話",
 "Copy ID": "複製 ID",
@@ -102,6 +106,7 @@
 "Manage Server": "管理伺服器",
 "Manage Webhooks": "管理 Webhook",
 "Mark as read": "標記為已讀",
+"Mark as unread": "標記為未讀",
 "Masquerade": "偽裝身份",
 "Members": "成員",
 "Mention": "提及",
@@ -138,6 +143,8 @@
 "Remove friend": "刪除好友",
 "Reply": "回覆",
 "Replying to": "回覆",
+"Report": "檢舉",
+"Report message": "檢舉訊息",
 "Reset": "重置",
 "Role Name": "身份組名稱",
 "Roles": "身份組",
@@ -181,5 +188,6 @@
 "[Today at] LT": "[今天] LT",
 "[Yesterday at] LT": "[昨天] LT",
 "{0} and {1} are typing…": "{0} 和 {1} 正在輸入…",
-"{0} is typing…": "{0} 正在輸入…"
+"{0} is typing…": "{0} 正在輸入…",
+"{usernames} and {unknown} others reacted": "{usernames} 和其他 {unknown} 人做出了反應"
 }

@@ -742,8 +742,7 @@ a {
   margin-top: var(--message-group-spacing);
 }
 
-.message:hover,
-.message.toolbar-open {
+.message:hover {
   background: var(--md-sys-color-surface-container);
 }
 
@@ -1198,23 +1197,153 @@ span.emoji {
   overflow: hidden;
 }
 
-.message:hover .message-toolbar,
-.message.toolbar-open .message-toolbar {
+.message:hover .message-toolbar {
   display: flex;
 }
 
-.message-toolbar button {
+/* кнопка панели: 20 px значок и отступ gap-sm, без подписи */
+.message-toolbar .tool {
+  position: relative;
   display: grid;
   place-items: center;
-  padding: 4px;
+  padding: var(--gap-sm);
+  fill: var(--md-sys-color-on-secondary-container);
+  cursor: pointer;
 }
 
-.message-toolbar button:hover {
-  background: var(--state-hover);
+.message-toolbar .tool:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, transparent);
 }
 
-.message-toolbar .danger {
-  color: var(--md-sys-color-error);
+.message-toolbar .tool:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 12%, transparent);
+}
+
+/* реакции (Reactions.tsx) */
+.reactions {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-sm);
+  margin-top: var(--gap-sm);
+}
+
+.reaction {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--gap-md);
+  padding: var(--gap-md);
+  overflow: hidden;
+  border-radius: var(--border-radius-md);
+  color: var(--md-sys-color-on-surface);
+  background: var(--md-sys-color-surface-container-low);
+  font-weight: 600;
+  font-feature-settings: "tnum" 1;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition: 0.1s all;
+}
+
+.reaction:hover {
+  background-image: linear-gradient(var(--state-hover), var(--state-hover));
+}
+
+.reaction.active {
+  color: var(--md-sys-color-on-secondary-container);
+  background-color: var(--md-sys-color-secondary-container);
+}
+
+.reaction img,
+.reaction .emoji {
+  width: 1.2em;
+  height: 1.2em;
+  object-fit: contain;
+}
+
+.reaction.add {
+  height: 33px;
+  aspect-ratio: 1 / 1;
+  justify-content: center;
+  padding: var(--gap-sm);
+  opacity: 0;
+  background-color: var(--md-sys-color-surface-bright);
+  fill: var(--md-sys-color-on-surface);
+}
+
+.reactions:hover .reaction.add,
+.reaction.add:focus-visible {
+  opacity: 1;
+}
+
+.reaction-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--md-sys-color-outline-variant);
+}
+
+/* подсказка реакции: крупный эмодзи и кто отреагировал (две строки) */
+.reaction-tooltip {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+}
+
+.reaction-tooltip-emoji .emoji {
+  width: 3em;
+  height: 3em;
+  font-size: 1em;
+  object-fit: contain;
+}
+
+.reaction-people {
+  display: -webkit-box;
+  max-width: 200px;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  white-space: pre-wrap;
+  font-size: var(--message-size);
+  font-weight: 400;
+  line-height: 1.25;
+}
+
+/* окна действий с сообщением (PinMessage, DeleteMessage, ReportContent) */
+.modal.dialog .modal-actions .button {
+  min-width: 0;
+}
+
+.dialog-text {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.dialog-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-preview {
+  display: flex;
+  flex-direction: column;
+  padding-block: var(--gap-md);
+  pointer-events: none;
+  user-select: none;
+}
+
+.message-preview .message.head {
+  margin-top: 0;
+}
+
+.report-preview {
+  max-width: 100%;
+  max-height: 80vh;
+  overflow-y: hidden;
 }
 
 /* правка на месте (EditMessage.tsx) */
@@ -1495,6 +1624,99 @@ span.emoji {
   height: 1px;
   margin: var(--gap-md) 0;
   background: var(--md-sys-color-outline-variant);
+}
+
+/*
+ * Контекстное меню (ContextMenu.tsx): поверх всего, в том числе окон и
+ * просмотра картинок; пункты — значок 16 px, текст body medium, каждое
+ * слово с заглавной, отступы gap-md × gap-lg; «опасные» — цветом ошибки.
+ */
+.context-menu {
+  z-index: 70;
+  max-width: 360px;
+  border-radius: var(--border-radius-xs);
+  overflow: hidden;
+  fill: var(--md-sys-color-on-surface);
+}
+
+.context-menu .menu-divider {
+  margin: var(--gap-sm) 0;
+}
+
+.context-menu .menu-item {
+  min-height: 0;
+  gap: var(--gap-md);
+  padding: var(--gap-md) var(--gap-lg);
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  letter-spacing: 0.015625rem;
+}
+
+.context-menu .menu-item:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+}
+
+.context-menu .menu-item .symbol {
+  color: inherit;
+}
+
+/* каждое слово с заглавной — textTransform: capitalize в оригинале */
+.context-menu .menu-item-label {
+  flex-grow: 1;
+  margin-top: 1px;
+  text-transform: capitalize;
+}
+
+.context-menu .menu-item.selected:not([role="menuitemradio"]) {
+  color: inherit;
+  background: var(--state-hover);
+}
+
+.context-menu .menu-item.danger.selected {
+  color: var(--md-sys-color-error);
+}
+
+.context-menu .menu-item .emoji {
+  width: 1.4em;
+  height: 1.4em;
+  object-fit: contain;
+}
+
+/* вложенное меню (ContextMenuSubMenu): выезжает слева направо */
+.context-menu.submenu {
+  position: fixed;
+  z-index: 71;
+  overflow: visible;
+  animation: submenu-in 0.2s cubic-bezier(0.87, 0, 0.13, 1);
+}
+
+.submenu-bridge {
+  position: absolute;
+  width: 5px;
+}
+
+@keyframes submenu-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+/* подсказка (Tooltip.tsx): чёрная, label small */
+.tooltip {
+  position: fixed;
+  z-index: 80;
+  max-width: 320px;
+  padding: var(--gap-md);
+  border-radius: var(--border-radius-md);
+  color: white;
+  background: black;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 0.875rem;
+  letter-spacing: 0.03125rem;
+  pointer-events: none;
 }
 
 .account-menu {
@@ -1941,6 +2163,14 @@ span.emoji {
 }
 
 /* ─────────────────────────── панель эмодзи ─────────────────────────── */
+
+/* панель для реакции: плавает над кнопкой или сообщением */
+.emoji-picker.floating {
+  position: fixed;
+  right: auto;
+  bottom: auto;
+  z-index: 65;
+}
 
 .emoji-picker {
   position: absolute;
