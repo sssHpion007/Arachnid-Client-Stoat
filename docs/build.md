@@ -7,16 +7,8 @@
 - **Linux**: `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libssl-dev`
 - **macOS**: Xcode Command Line Tools
 
-## Ядро (без GUI)
-
-Работает везде, собирается и тестируется без графических библиотек:
-
-```bash
-cargo test -p stoat-core
-cargo run -p stoat-core --example probe           # связь с инстансом
-cargo run -p stoat-core --example gateway_probe   # gateway
-STOAT_TOKEN=... cargo run -p stoat-core --example gateway_probe
-```
+Node.js не нужен: интерфейс (for-web) загружается с сервера инстанса и в
+сборку не входит.
 
 ## Клиент (Tauri)
 
@@ -37,11 +29,18 @@ cargo tauri build
 Результат: `target/release/bundle/` — `.msi` и `.exe` (NSIS) на Windows,
 `.deb`/`.AppImage` на Linux, `.app`/`.dmg` на macOS.
 
-Для проверки интерфейса без установщика:
+Проверить с локальным for-web (его `mise dev` поднимает сервер на
+`http://localhost:5173`): положите рядом с бинарником `config.toml` с
+`app_url = "http://localhost:5173"` и запустите клиент.
+
+## Библиотека протокола (без GUI)
+
+`crates/stoat-core` собирается и тестируется без графических библиотек:
 
 ```bash
-cd apps/desktop/src-tauri
-cargo tauri dev
+cargo test -p stoat-core
+cargo run -p stoat-core --example probe           # связь с инстансом
+cargo run -p stoat-core --example gateway_probe   # gateway
 ```
 
 ## Автоматическая сборка

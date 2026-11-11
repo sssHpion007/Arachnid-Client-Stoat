@@ -460,7 +460,9 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
-            if desktop.remember_window(&webview) {
+            let maximised_changed = desktop.remember_window(&webview);
+            // строка заголовка for-web показывает «Развернуть» или «Восстановить»
+            if maximised_changed {
                 push_config(&webview, &desktop.config());
             }
         }
