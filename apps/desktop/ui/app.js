@@ -8,6 +8,7 @@ const listen = bridge && bridge.event && bridge.event.listen;
 const convertFileSrc = bridge && bridge.core && bridge.core.convertFileSrc;
 
 const ICONS = window.STOAT_ICONS || {};
+const MD_ICONS = window.STOAT_MD_ICONS || {};
 const SVG_NS = "http://www.w3.org/2000/svg";
 const el = (id) => document.getElementById(id);
 
@@ -30,6 +31,7 @@ const state = {
   reachedStart: false,
   loadingOlder: false,
   lastRead: null, // до какого сообщения канал был прочитан при открытии
+  ackHeld: null, // канал, помеченный непрочитанным: не читать его автоматически
   replies: [], // [{ message, mention }]
   editing: null, // id сообщения, которое правится на месте
   stickToBottom: true,
@@ -82,11 +84,15 @@ function svg(tag, attrs = {}) {
   return node;
 }
 
-/** Иконка Material Symbols по имени (как <Symbol> в официальном клиенте). */
+/**
+ * Иконка по имени: Material Symbols (как <Symbol> в официальном клиенте)
+ * или, с приставкой `md:`, Material Icons — ими там нарисованы меню.
+ */
 function symbol(name, size = 20) {
-  const node = svg("svg", { viewBox: "0 -960 960 960", class: "symbol", "aria-hidden": "true" });
+  const material = name.startsWith("md:") ? MD_ICONS[name.slice(3)] : null;
+  const node = svg("svg", { viewBox: material ? "0 0 24 24" : "0 -960 960 960", class: "symbol", "aria-hidden": "true" });
   node.style.setProperty("--symbol-size", size + "px");
-  node.append(svg("path", { d: ICONS[name] || "" }));
+  for (const d of material || [ICONS[name] || ""]) node.append(svg("path", { d }));
   return node;
 }
 
@@ -122,6 +128,10 @@ const KNOWN_ERRORS = {
   Unauthorized: /* i18n */ "the session has expired — log in again",
   unauthorized: /* i18n */ "log in to your account first",
   InvalidSession: /* i18n */ "the session has expired — log in again",
+  AlreadyPinned: /* i18n */ "This message is already pinned.",
+  CannotReportYourself: /* i18n */ "You cannot report yourself.",
+  NoEffect: /* i18n */ "That action had no effect.",
+  NoReasonProvided: /* i18n */ "Select a reason, and for «Other» describe the problem",
 };
 
 function describe(error) {
@@ -539,6 +549,8 @@ function notesChannel() {
     icon: null,
     unread: false,
     mentions: 0,
+    // в «Заметках» можно всё (GrantAllSafe)
+    permissions: 2 ** 52 - 1,
   };
 }
 
@@ -587,6 +599,24 @@ function recountServer(server) {
 
 const ackTimers = new Map();
 
+/**
+ * Отметки, которые этот клиент сам отправил на сервер. Сервер присылает их
+ * обратно (`ChannelAck`) с задержкой, когда отметка здесь уже ушла дальше;
+ * свою отметку назад не двигаем — назад её двигает только другой клиент.
+ */
+const ownAcks = {
+  sent: new Map(), // "канал:сообщение" → когда отправлено
+  note(channelId, messageId) {
+    const now = Date.now();
+    for (const [key, at] of this.sent) if (now - at > 60_000) this.sent.delete(key);
+    this.sent.set(channelId + ":" + messageId, now);
+  },
+  /** Своя отметка: забыть её и сказать, что событие можно пропустить. */
+  take(channelId, messageId) {
+    return this.sent.delete(channelId + ":" + messageId);
+  },
+};
+
 /** Отметить канал прочитанным до сообщения (с небольшой задержкой: API ограничивает частоту). */
 function ackChannel(channelId, messageId) {
   if (!channelId || !messageId || messageId.startsWith("pending:")) return;
@@ -604,6 +634,7 @@ function ackChannel(channelId, messageId) {
     channelId,
     setTimeout(() => {
       ackTimers.delete(channelId);
+      ownAcks.note(channelId, messageId);
       call("ack_channel", { channelId, messageId }).catch((error) =>
         console.warn("не удалось отметить канал прочитанным:", error),
       );
@@ -615,6 +646,8 @@ function ackChannel(channelId, messageId) {
 function ackVisible() {
   const channel = currentChannel();
   if (!channel || !document.hasFocus() || !state.stickToBottom) return;
+  // помечен непрочитанным вручную: ждём, пока пользователь сам вернётся к концу
+  if (state.ackHeld === channel.id) return;
   const last = [...state.messages].reverse().find((item) => !item.pending);
   if (channel.unread && last) ackChannel(channel.id, last.id);
 }
@@ -1112,6 +1145,7 @@ async function openChannel(channel, { reload = false } = {}) {
     inputEl.value = drafts.get(channel.id) || "";
   }
   state.channelId = channel.id;
+  state.ackHeld = null;
   state.lastRead = channel.unread ? channel.last_read || null : null;
   const cached = historyCache.get(channel.id);
   state.messages = cached ? cached.messages.slice() : [];
@@ -1303,6 +1337,7 @@ function renderMessages({ toBottom = false } = {}) {
 
   messagesEl.replaceChildren(frag);
   watchAutoplay(messagesEl);
+  dropStaleTooltip();
   if (toBottom || state.stickToBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
   else messagesEl.scrollTop = messagesEl.scrollHeight - messagesEl.clientHeight - keep;
 }
@@ -1367,7 +1402,11 @@ function watchAutoplay(root) {
   for (const video of root.querySelectorAll("video[data-autoplay]")) autoplayObserver.observe(video);
 }
 
-function messageNode(message, tail) {
+/**
+ * Узел сообщения. `preview` — показ внутри окна (удаление, жалоба): без
+ * панели действий и контекстного меню, как `isLink="hide"` в оригинале.
+ */
+function messageNode(message, tail, { preview = false } = {}) {
   const date = parseTime(message.timestamp);
   const mentioned = Boolean(state.me && (message.mentions || []).includes(state.me.id));
   const classes = ["message", tail ? "tail" : "head"];
@@ -1440,18 +1479,25 @@ function messageNode(message, tail) {
     if (tail && message.edited && !compact) content.append(h("span", { class: "edited", text: t("(edited)") }));
   }
 
-  if (message.attachments && message.attachments.length) content.append(attachmentsNode(message.attachments));
+  const live = !preview && !message.pending;
+  if (message.attachments && message.attachments.length) {
+    content.append(attachmentsNode(message.attachments, live ? message : null));
+  }
   if (message.embeds && message.embeds.length) {
     content.append(h("div", { class: "embeds" }, message.embeds.map(embedNode)));
   }
+  const reactions = reactionsNode(message, live);
+  if (reactions) content.append(reactions);
   if (message.failed) content.append(failedHint(message));
 
   node.append(h("div", { class: "message-row" }, [info, content]));
-  if (!message.pending && !message.system) node.append(messageToolbar(message, node));
+  if (!live) return node;
+  node.append(messageToolbar(message, node));
 
   node.addEventListener("contextmenu", (event) => {
-    if (event.target.closest("a")) return;
-    openMessageMenu(event, message);
+    // ссылка под курсором добавляет в меню «Скопировать ссылку» (anchors.tsx)
+    const anchor = event.target.closest("a[href]");
+    openMessageMenu(event, message, { link: anchor ? anchor.href : null, anchor: node });
   });
   return node;
 }
@@ -1655,7 +1701,21 @@ async function downloadFile(url, filename) {
   }
 }
 
-function attachmentsNode(files) {
+/** Меню по правому щелчку на файле или встраивании (`file` в MessageContextMenu). */
+function fileMenu(node, file, message = null) {
+  node.addEventListener("contextmenu", (event) => {
+    const anchor = message ? node.closest(".message") : null;
+    openContextMenu(event, messageMenuItems({ message, file, anchor }));
+  });
+}
+
+/** Файл вложения для меню: адрес превью, оригинал и имя (класс File в stoat.js). */
+function attachmentFile(file) {
+  return { url: file.url, original: file.original || file.url, name: file.name };
+}
+
+/** Вложения; `message` — сообщение в ленте (для меню), у образца в окне его нет. */
+function attachmentsNode(files, message = null) {
   const box = h("div", { class: "attachments" });
   for (const file of files) {
     if (file.kind === "image" && file.url) {
@@ -1675,15 +1735,19 @@ function attachmentsNode(files) {
           width: file.width,
           height: file.height,
           download: file.original || file.url,
+          file: attachmentFile(file),
         });
+      if (message) fileMenu(img, attachmentFile(file), message);
       box.append(spoilerWrap(sizedContent(file.width, file.height, img), file));
     } else if (file.kind === "video" && file.url) {
       const video = h("video", { class: "attachment-media", controls: true, playsinline: true, preload: "metadata" });
       video.src = mediaSrc(file.original || file.url);
+      if (message) fileMenu(video, attachmentFile(file), message);
       box.append(spoilerWrap(sizedContent(file.width, file.height, video), file));
     } else if (file.kind === "audio" && file.url) {
       const audio = h("audio", { controls: true, preload: "metadata" });
       audio.src = mediaSrc(file.original || file.url);
+      if (message) fileMenu(audio, attachmentFile(file), message);
       box.append(h("div", { class: "attachment-card" }, [fileInfo(file), audio]));
     } else {
       box.append(h("div", { class: "attachment-card shrink" }, [fileInfo(file)]));
@@ -1704,6 +1768,7 @@ function embedImage(embed, link) {
   const img = image(src, { class: "attachment-media", loading: "lazy" });
   img.onclick = () =>
     openImageViewer({ src, width: embed.width, height: embed.height, link: link || embed.url || embed.image });
+  fileMenu(img, { url: embed.image });
   return sizedContent(embed.width, embed.height, img);
 }
 
@@ -1722,6 +1787,7 @@ function embedVideo(embed) {
     video.preload = "metadata";
   }
   video.src = mediaSrc(src);
+  fileMenu(video, { url: embed.video });
   return sizedContent(embed.width, embed.height, video);
 }
 
@@ -1753,6 +1819,7 @@ function embedNode(embed) {
     const img = image(src, { class: "embed-media", loading: "lazy" });
     if (embed.width && embed.height) img.style.aspectRatio = `${embed.width} / ${embed.height}`;
     img.onclick = () => openImageViewer({ src, width: embed.width, height: embed.height, link: embed.url });
+    fileMenu(img, { url: embed.image });
     box.append(img);
   }
   return box;
@@ -1778,7 +1845,17 @@ function closeImageViewer() {
  * меняет масштаб, перетаскивание двигает картинку; щелчок мимо и Esc
  * закрывают окно.
  */
-function openImageViewer({ src, name = null, size = 0, width = null, height = null, gif = false, download = null, link = null }) {
+function openImageViewer({
+  src,
+  name = null,
+  size = 0,
+  width = null,
+  height = null,
+  gif = false,
+  download = null,
+  link = null,
+  file = null,
+}) {
   closeImageViewer();
   closeMenus();
 
@@ -1792,6 +1869,8 @@ function openImageViewer({ src, name = null, size = 0, width = null, height = nu
   }
   media.src = mediaSrc(src);
   if (width && height) media.style.aspectRatio = `${width} / ${height}`;
+  // у файла вложения — то же меню, что в ленте, но без пунктов сообщения
+  if (file) fileMenu(media, file);
 
   let scale = 1;
   let x = 0;
@@ -1899,23 +1978,130 @@ function openImageViewer({ src, name = null, size = 0, width = null, height = nu
 }
 
 /** Панель действий при наведении (MessageToolbar.tsx). */
+/**
+ * Панель действий при наведении (MessageToolbar.tsx): ответить,
+ * отреагировать, редактировать, удалить (Shift — без вопроса) и «Ещё».
+ */
 function messageToolbar(message, node) {
   const bar = h("div", { class: "message-toolbar" });
-  const tool = (icon, title, action, danger) =>
-    h("button", { type: "button", title, class: danger ? "danger" : null, onclick: action }, [symbol(icon, 20)]);
+  const can = (bit) => canInChannel(message.channel, bit);
+  const tool = (icon, label, action) => {
+    const button = h("button", { type: "button", class: "tool", "aria-label": label }, [symbol(icon, 20)]);
+    button.onclick = (event) => {
+      event.stopPropagation();
+      action(event, button);
+    };
+    return button;
+  };
 
-  bar.append(tool("reply", t("Reply"), () => addReply(message)));
-  if (message.mine) {
-    bar.append(tool("edit", t("Edit message"), () => startEdit(message)));
-    bar.append(tool("delete", t("Delete (Shift — without asking)"), (event) => removeMessage(message, event.shiftKey), true));
+  if (can(MESSAGE_PERM.SendMessage)) bar.append(tool("md:reply", t("Reply"), () => addReply(message)));
+  if (can(MESSAGE_PERM.React)) {
+    bar.append(tool("md:emoji_emotions", t("React"), (event, button) => openReactionPicker(event, message, button)));
   }
-  bar.append(
-    tool("more_vert", t("More"), (event) => {
-      node.classList.add("toolbar-open");
-      openMessageMenu(event, message, () => node.classList.remove("toolbar-open"));
-    }),
-  );
+  if (message.mine) bar.append(tool("md:edit", t("Edit message"), () => startEdit(message)));
+  if (message.mine || can(MESSAGE_PERM.ManageMessages)) {
+    bar.append(tool("md:delete", t("Delete message"), (event) => removeMessage(message, event.shiftKey)));
+  }
+  bar.append(tool("md:more_vert", t("More"), (event) => openMessageMenu(event, message, { anchor: node })));
   return bar;
+}
+
+// ─────────────────────────── реакции (Reactions.tsx) ───────────────────────────
+
+const ULID_RE = /^[0-9A-Z]{26}$/;
+
+/** Эмодзи реакции: свой (id) — картинкой с CDN, юникод — из набора. */
+function reactionEmoji(emoji, message) {
+  if (ULID_RE.test(emoji)) return customEmojiNode(emoji, (message.emoji || {})[emoji] || customEmojiUrl(emoji));
+  return unicodeEmojiNode(emoji);
+}
+
+/**
+ * Реакции под сообщением: сначала обязательные (`interactions.reactions`,
+ * их ставит бот), через черту — остальные, в конце «+» (виден при
+ * наведении на список). Нажатие на реакцию ставит или снимает свою.
+ * `live` — сообщение в ленте, а не образец в окне.
+ */
+function reactionsNode(message, live) {
+  const users = new Map((message.reactions || []).map((reaction) => [reaction.emoji, reaction.users]));
+  const required = [...new Set((message.interactions && message.interactions.reactions) || [])];
+  const optional = [...users.keys()].filter((emoji) => !required.includes(emoji));
+  if (!required.length && !optional.length) return null;
+
+  const me = state.me ? state.me.id : null;
+  const chip = (emoji) => {
+    const who = users.get(emoji) || [];
+    const active = Boolean(me && who.includes(me));
+    const button = h("button", { type: "button", class: "reaction" + (active ? " active" : "") }, [
+      reactionEmoji(emoji, message),
+      h("span", { class: "reaction-count", text: String(who.length) }),
+    ]);
+    attachTooltip(button, () =>
+      h("div", { class: "reaction-tooltip" }, [
+        h("span", { class: "reaction-tooltip-emoji" }, [reactionEmoji(emoji, message)]),
+        h("span", { class: "reaction-people", text: reactionPeople(who) }),
+      ]),
+    );
+    button.setAttribute("aria-label", reactionPeople(who));
+    if (live) button.onclick = () => toggleReaction(message, emoji, active);
+    return button;
+  };
+
+  const list = h("div", { class: "reactions" });
+  for (const emoji of required) list.append(chip(emoji));
+  if (required.length && optional.length) list.append(h("div", { class: "reaction-divider" }));
+  for (const emoji of optional) list.append(chip(emoji));
+  if (live) {
+    const add = h("button", { type: "button", class: "reaction add", "aria-label": t("React") }, [symbol("md:add", 24)]);
+    add.onclick = (event) => openReactionPicker(event, message, add);
+    list.append(add);
+  }
+  return list;
+}
+
+/**
+ * Кто отреагировал — так же, как в оригинале: два имени и «ещё N»
+ * (N считается от трёх, а не от двух — как в for-web).
+ */
+function reactionPeople(ids) {
+  const usernames = ids
+    .slice(0, 2)
+    .map((id) => userName(id))
+    .join(", ");
+  const unknown = Math.max(0, ids.length - 3);
+  if (unknown) {
+    if (usernames) return t("{usernames} and {unknown} others reacted", { usernames, unknown });
+    if (unknown === 1) return t("1 person reacted");
+    return t("{unknown} reacted", { unknown });
+  }
+  return t("{usernames} reacted", { usernames });
+}
+
+async function toggleReaction(message, emoji, active) {
+  try {
+    if (active) await call("unreact_message", { channelId: message.channel, messageId: message.id, emoji, removeAll: false });
+    else await call("react_message", { channelId: message.channel, messageId: message.id, emoji });
+  } catch (error) {
+    toast(describe(error), "error");
+  }
+}
+
+/**
+ * Панель эмодзи для реакции: над кнопкой, с которой её открыли, или над
+ * сообщением (из меню). Выбранный эмодзи сразу ставится реакцией, панель
+ * остаётся открытой — как в оригинале.
+ */
+function openReactionPicker(event, message, anchor) {
+  event.stopPropagation();
+  const target =
+    anchor && anchor.isConnected ? anchor : messagesEl.querySelector(`.message[data-id="${CSS.escape(message.id)}"]`);
+  toggleEmojiPicker(undefined, {
+    anchor: target,
+    onPick: (emoji) =>
+      call("react_message", { channelId: message.channel, messageId: message.id, emoji }).catch((error) =>
+        toast(describe(error), "error"),
+      ),
+  });
 }
 
 function failedHint(message) {
@@ -2016,7 +2202,16 @@ async function removeMessage(message, skipConfirm) {
     }
     return;
   }
-  confirmModal({ title: t("Delete message"), text: t("Are you sure you want to delete this?"), confirm: t("Delete"), run });
+  // DeleteMessage.tsx: вопрос и само сообщение, как оно выглядит в ленте
+  dialogModal({
+    title: t("Delete message"),
+    body: h("div", { class: "dialog-stack" }, [
+      h("p", { class: "dialog-text", text: t("Are you sure you want to delete this?") }),
+      messagePreview(message),
+    ]),
+    confirm: t("Delete"),
+    run,
+  });
 }
 
 function replaceMessage(message) {
@@ -2055,7 +2250,7 @@ function focusInput() {
 }
 
 function addReply(message) {
-  if (message.pending || message.system) return;
+  if (message.pending) return;
   if (state.replies.some((reply) => reply.message.id === message.id)) return;
   if (state.replies.length >= MAX_REPLIES) {
     toast(t("You can reply to at most five messages at once"));
@@ -2625,7 +2820,11 @@ function emojiVisual(item, lazy = false) {
 function emojiButton(item) {
   const title = item.kind === "server" ? ":" + item.emoji.name + ":" : item.emoji.text;
   const button = h("button", { type: "button", class: "emoji-item", title }, [emojiVisual(item, true)]);
-  button.onclick = () => insertText(item.kind === "server" ? `:${item.emoji.name}:` : item.emoji.text);
+  button.onclick = () => {
+    // для реакции нужен id своего эмодзи или сам символ, для текста — `:имя:`
+    if (emojiTarget && emojiTarget.onPick) emojiTarget.onPick(item.kind === "server" ? item.emoji.id : item.emoji.text);
+    else insertText(item.kind === "server" ? `:${item.emoji.name}:` : item.emoji.text);
+  };
   button.onmouseenter = () => renderEmojiPreview(item);
   return button;
 }
@@ -2656,17 +2855,39 @@ function insertText(token) {
   inputEl.focus();
 }
 
-function toggleEmojiPicker(force) {
+/** Для чего открыта панель эмодзи: `null` — поле ввода, иначе { anchor, onPick }. */
+let emojiTarget = null;
+
+/**
+ * Открыть или закрыть панель эмодзи. Без `target` — для поля ввода (над
+ * ним), с `target` — плавающей над `target.anchor` (top-end, отступ 5),
+ * и выбор уходит в `target.onPick`. Повторное открытие с того же места
+ * закрывает панель.
+ */
+function toggleEmojiPicker(force, target = null) {
   const picker = el("emoji-picker");
-  const open = force ?? picker.classList.contains("hidden");
+  const hidden = picker.classList.contains("hidden");
+  const same = !hidden && (emojiTarget ? emojiTarget.anchor : null) === (target ? target.anchor : null);
+  const open = force ?? (hidden || !same);
   picker.classList.toggle("hidden", !open);
-  el("btn-emoji").classList.toggle("active", open);
+  el("btn-emoji").classList.toggle("active", open && !target);
   if (!open) {
     // закрытая панель не держит тысячи кнопок и картинок
     if (emojiObserver) emojiObserver.disconnect();
     el("emoji-list").textContent = "";
     el("emoji-servers").textContent = "";
+    emojiTarget = null;
+    dockEmojiPicker(picker);
     return;
+  }
+  emojiTarget = target;
+  if (target && target.anchor) {
+    // плавающая панель живёт в body, чтобы её не обрезала лента
+    picker.classList.add("floating");
+    document.body.append(picker);
+    placeFloating(picker, target.anchor.getBoundingClientRect(), "top-end");
+  } else {
+    dockEmojiPicker(picker);
   }
   el("emoji-search").value = "";
   emojiFilter = "";
@@ -2679,13 +2900,25 @@ function toggleEmojiPicker(force) {
   });
 }
 
+/** Вернуть панель на место над полем ввода. */
+function dockEmojiPicker(picker) {
+  picker.classList.remove("floating");
+  picker.style.left = "";
+  picker.style.top = "";
+  const home = el("composition");
+  if (picker.parentElement !== home) home.append(picker);
+}
+
 // ─────────────────────────── меню ───────────────────────────
 
 let menuClosed = null;
+let closeSubmenu = null;
 
 function closeMenus() {
   el("ctx-menu").classList.add("hidden");
   el("account-menu").classList.add("hidden");
+  if (closeSubmenu) closeSubmenu();
+  hideTooltip();
   closeUserCard();
   if (menuClosed) {
     menuClosed();
@@ -2697,88 +2930,476 @@ function menusOpen() {
   return ["ctx-menu", "account-menu", "user-card"].some((id) => !el(id).classList.contains("hidden"));
 }
 
-/** Контекстное меню у курсора, не вылезая за край окна. */
-function openContextMenu(event, items, onClose) {
+/**
+ * Поставить плавающий элемент у прямоугольника `rect`, как floating-ui в
+ * оригинале: `placement` — сторона и выравнивание («top», «top-end»,
+ * «right-start»), `gap` — отступ (offset), у края окна сторона меняется на
+ * противоположную (flip), а вдоль стороны элемент сдвигается в окно (shift).
+ */
+function placeFloating(node, rect, placement, gap = 5) {
+  node.style.left = "0px";
+  node.style.top = "0px";
+  const box = node.getBoundingClientRect();
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  let [side, align] = placement.split("-");
+  const flip = { top: "bottom", bottom: "top", left: "right", right: "left" };
+  const fits = (where) =>
+    where === "top"
+      ? rect.top - gap - box.height >= 0
+      : where === "bottom"
+        ? rect.bottom + gap + box.height <= height
+        : where === "left"
+          ? rect.left - gap - box.width >= 0
+          : rect.right + gap + box.width <= width;
+  if (!fits(side) && fits(flip[side])) side = flip[side];
+
+  let x;
+  let y;
+  if (side === "top" || side === "bottom") {
+    y = side === "top" ? rect.top - gap - box.height : rect.bottom + gap;
+    x = align === "start" ? rect.left : align === "end" ? rect.right - box.width : rect.left + (rect.width - box.width) / 2;
+    x = Math.min(Math.max(0, x), Math.max(0, width - box.width));
+  } else {
+    x = side === "left" ? rect.left - gap - box.width : rect.right + gap;
+    y = align === "start" ? rect.top : align === "end" ? rect.bottom - box.height : rect.top + (rect.height - box.height) / 2;
+    y = Math.min(Math.max(0, y), Math.max(0, height - box.height));
+  }
+  node.style.left = Math.round(x) + "px";
+  node.style.top = Math.round(y) + "px";
+  return side;
+}
+
+/** Точка курсора как прямоугольник нулевого размера (виртуальный якорь меню). */
+function pointRect(x, y) {
+  return { left: x, right: x, top: y, bottom: y, width: 0, height: 0 };
+}
+
+// ─────────────────────────── подсказки (Tooltip.tsx) ───────────────────────────
+
+let tooltip = null; // { node, anchor }
+
+/** Подсказка над элементом при наведении; `content` — текст, узел или функция. */
+function attachTooltip(anchor, content, placement = "top") {
+  anchor.addEventListener("pointerenter", (event) => {
+    if (event.pointerType !== "touch") showTooltip(anchor, content, placement);
+  });
+  anchor.addEventListener("pointerleave", hideTooltip);
+  anchor.setAttribute("aria-label", typeof content === "string" ? content : anchor.getAttribute("aria-label") || "");
+}
+
+function showTooltip(anchor, content, placement) {
+  hideTooltip();
+  const body = typeof content === "function" ? content() : content;
+  const node = h("div", { class: "tooltip", role: "tooltip" });
+  node.append(body instanceof Node ? body : document.createTextNode(String(body)));
+  document.body.append(node);
+  placeFloating(node, anchor.getBoundingClientRect(), placement);
+  tooltip = { node, anchor };
+}
+
+function hideTooltip() {
+  if (!tooltip) return;
+  tooltip.node.remove();
+  tooltip = null;
+}
+
+/** Якорь подсказки пропал со страницы (лента перерисовалась) — убрать и её. */
+function dropStaleTooltip() {
+  if (tooltip && !tooltip.anchor.isConnected) hideTooltip();
+}
+
+// ─────────────────────────── контекстное меню (ContextMenu.tsx) ───────────────────────────
+
+/**
+ * Пункт меню. `item`: `icon` (значок 16 px), `label` или `node`, `danger`
+ * (красный, «destructive»), `selected`, `action(event)`; `submenu` — список
+ * пунктов, который открывается справа при наведении (ContextMenuSubMenu).
+ */
+function menuItemNode(item) {
+  const content = item.node
+    ? [item.node]
+    : [item.icon ? symbol(item.icon, 16) : null, h("span", { class: "menu-item-label", text: item.label })];
+  if (item.submenu) content.push(symbol("md:chevron_right", 20));
+  const button = h(
+    "button",
+    {
+      type: "button",
+      class: "menu-item" + (item.danger ? " danger" : "") + (item.selected ? " selected" : ""),
+      role: item.selected === undefined ? "menuitem" : "menuitemradio",
+      "aria-checked": item.selected === undefined ? null : String(item.selected),
+      "aria-haspopup": item.submenu ? "menu" : null,
+    },
+    content,
+  );
+  button.onclick = async (event) => {
+    if (item.submenu && !item.action) {
+      // без своего действия пункт только раскрывает вложенное меню
+      event.stopPropagation();
+      return;
+    }
+    closeMenus();
+    try {
+      await item.action(event);
+    } catch (error) {
+      toast(describe(error), "error");
+    }
+  };
+  if (item.submenu) bindSubmenu(button, item.submenu);
+  return button;
+}
+
+function fillMenu(menu, items) {
+  menu.textContent = "";
+  for (const item of items) {
+    if (!item) continue;
+    menu.append(item.divider ? h("div", { class: "menu-divider" }) : menuItemNode(item));
+  }
+}
+
+/**
+ * Вложенное меню: открывается при наведении на пункт, справа от него
+ * (right-start, отступ 5), и закрывается, когда курсор уходит и с пункта,
+ * и с самого меню.
+ */
+function bindSubmenu(button, items) {
+  const open = () => {
+    if (button.classList.contains("selected")) return;
+    if (closeSubmenu) closeSubmenu();
+    const menu = h("div", { class: "menu context-menu submenu", role: "menu" });
+    fillMenu(menu, items);
+    document.body.append(menu);
+    const anchor = button.getBoundingClientRect();
+    const side = placeFloating(menu, anchor, "right-start");
+    // мостик через зазор между пунктом и меню, чтобы курсор не «терял» меню по пути
+    const top = anchor.top - menu.getBoundingClientRect().top;
+    menu.append(
+      h("div", {
+        class: "submenu-bridge",
+        style: { top: top + "px", height: anchor.height + "px", [side === "left" ? "right" : "left"]: "-5px" },
+      }),
+    );
+    button.classList.add("selected");
+    const leave = (event) => {
+      const next = event.relatedTarget;
+      if (next && (menu.contains(next) || button.contains(next))) return;
+      close();
+    };
+    const close = () => {
+      menu.remove();
+      button.classList.remove("selected");
+      button.removeEventListener("mouseleave", leave);
+      if (closeSubmenu === close) closeSubmenu = null;
+    };
+    menu.addEventListener("mouseleave", leave);
+    button.addEventListener("mouseleave", leave);
+    closeSubmenu = close;
+  };
+  button.addEventListener("mouseenter", open);
+}
+
+/**
+ * Контекстное меню у курсора: справа от точки с отступом `offset` (как
+ * floating-ui в оригинале), у края окна — слева от неё.
+ */
+function openContextMenu(event, items, onClose, { offset = 5 } = {}) {
   event.preventDefault();
   event.stopPropagation();
   closeMenus();
   menuClosed = onClose || null;
   const menu = el("ctx-menu");
-  menu.textContent = "";
-  for (const item of items) {
-    if (!item) continue;
-    if (item.divider) {
-      menu.append(h("div", { class: "menu-divider" }));
-      continue;
-    }
-    menu.append(
-      h(
-        "button",
-        {
-          type: "button",
-          class: "menu-item" + (item.danger ? " danger" : "") + (item.selected ? " selected" : ""),
-          role: item.selected === undefined ? "menuitem" : "menuitemradio",
-          "aria-checked": item.selected === undefined ? null : String(item.selected),
-          onclick: async (clickEvent) => {
-            closeMenus();
-            try {
-              await item.action(clickEvent);
-            } catch (error) {
-              toast(describe(error), "error");
-            }
-          },
-        },
-        item.node ? [item.node] : [item.icon ? symbol(item.icon, 20) : null, item.label],
-      ),
-    );
-  }
+  fillMenu(menu, items);
   menu.classList.remove("hidden");
-  const box = menu.getBoundingClientRect();
-  const x = Math.min(event.clientX, window.innerWidth - box.width - 8);
-  const y = Math.min(event.clientY, window.innerHeight - box.height - 8);
-  menu.style.left = Math.max(8, x) + "px";
-  menu.style.top = Math.max(8, y) + "px";
+  placeFloating(menu, pointRect(event.clientX, event.clientY), "right-start", offset);
 }
 
 async function messageLink(message) {
+  const found = findChannel(message.channel);
+  const server = found && found.server ? found.server.id : null;
   try {
-    return await call("message_link", {
-      server: state.serverId,
-      channel: message.channel || state.channelId,
-      message: message.id,
-    });
+    return await call("message_link", { server, channel: message.channel, message: message.id });
   } catch {
-    return `https://stoat.chat/channel/${message.channel || state.channelId}/${message.id}`;
+    return `https://stoat.chat${server ? `/server/${server}` : ""}/channel/${message.channel}/${message.id}`;
   }
 }
 
-function openMessageMenu(event, message, onClose) {
-  if (message.pending) return;
-  openContextMenu(
-    event,
-    [
-      !message.system && { icon: "reply", label: t("Reply"), action: () => addReply(message) },
-      message.mine && !message.system && { icon: "edit", label: t("Edit message"), action: () => startEdit(message) },
-      message.content && { icon: "content_copy", label: t("Copy text"), action: () => copyText(message.content) },
+// ─────────────────────────── действия с сообщением ───────────────────────────
+
+/** Биты прав для сообщений (`Permission` в API). */
+const MESSAGE_PERM = {
+  SendMessage: 2 ** 22,
+  ManageMessages: 2 ** 23,
+  React: 2 ** 29,
+};
+
+/** Есть ли у меня право в канале сообщения (`channel.havePermission`). */
+function canInChannel(channelId, bit) {
+  const found = findChannel(channelId);
+  return Boolean(found && hasBit(found.channel.permissions, bit));
+}
+
+function isDirectMessage(channelId) {
+  const found = findChannel(channelId);
+  return Boolean(found && found.channel.kind === "dm");
+}
+
+/**
+ * Пункты меню сообщения в порядке MessageContextMenu.tsx. `file` — файл
+ * или встраивание под курсором, `link` — ссылка под курсором; без
+ * `message` (картинка встраивания, просмотрщик) остаются только они.
+ */
+function messageMenuItems({ message = null, file = null, link = null, anchor = null }) {
+  const items = [];
+  if (file) {
+    items.push(
+      { icon: "md:open_in_new", label: t("Open file"), action: () => openExternal(file.url) },
+      { icon: "md:link", label: t("Copy link to file"), action: () => copyText(file.url) },
+    );
+    if (file.original) {
+      items.push(
+        { icon: "md:download", label: t("Save file"), action: () => downloadFile(file.original, file.name) },
+        { icon: "md:content_copy", label: t("Copy file"), action: () => copyFile(file.original) },
+      );
+    }
+    if (link || message) items.push({ divider: true });
+  }
+  if (link) {
+    items.push({ icon: "md:link", label: t("Copy link"), action: () => copyText(link) }, { divider: true });
+  }
+  if (!message) return items;
+
+  const channel = message.channel;
+  const can = (bit) => canInChannel(channel, bit);
+  const manage = can(MESSAGE_PERM.ManageMessages);
+  const reactions = message.reactions || [];
+  items.push(
+    can(MESSAGE_PERM.SendMessage) && { icon: "md:reply", label: t("Reply"), action: () => addReply(message) },
+    { icon: "md:mark_chat_unread", label: t("Mark as unread"), action: () => markUnread(message) },
+    { icon: "md:content_copy", label: t("Copy text"), action: () => copyText(message.content || "") },
+    { divider: true },
+    can(MESSAGE_PERM.React) && {
+      icon: "md:emoji_emotions",
+      label: t("React"),
+      action: (event) => openReactionPicker(event, message, anchor),
+    },
+    message.mine &&
+      can(MESSAGE_PERM.SendMessage) && { icon: "md:edit", label: t("Edit message"), action: () => startEdit(message) },
+    (isDirectMessage(channel) || manage) && {
+      icon: "md:pin_invoke",
+      label: message.pinned ? t("Unpin message") : t("Pin message"),
+      action: (event) => pinMessage(message, event.shiftKey),
+    },
+    reactions.length > 0 &&
+      manage && {
+        icon: "md:delete_sweep",
+        label: t("Remove reaction"),
+        danger: true,
+        // нажатие на сам пункт снимает все реакции, как в оригинале
+        action: () => clearReactions(message),
+        submenu: reactions.map((reaction) => ({
+          node: reactionEmoji(reaction.emoji, message),
+          action: () => call("unreact_message", { channelId: channel, messageId: message.id, emoji: reaction.emoji, removeAll: true }),
+        })),
+      },
+    reactions.length > 0 &&
+      manage && {
+        icon: "sentiment_content",
+        label: t("Remove all reactions"),
+        danger: true,
+        action: () => clearReactions(message),
+      },
+    (message.mine || manage) && {
+      icon: "md:delete",
+      label: t("Delete message"),
+      danger: true,
+      action: (event) => removeMessage(message, event.shiftKey),
+    },
+    !message.mine &&
+      !message.system && { icon: "md:report", label: t("Report message"), danger: true, action: () => reportMessage(message) },
+    { divider: true },
+    getOption("advanced:admin_panel") && {
+      icon: "md:shield",
+      label: t("Admin Panel"),
+      action: () => openExternal(`https://admin.stoatinternal.com/panel/inspect/message/${message.id}`),
+    },
+    {
+      icon: "md:share",
+      label: t("Copy message link"),
+      action: async () => copyText(await messageLink(message)),
+    },
+    getOption("advanced:copy_id") && { icon: "md:badge", label: t("Copy message ID"), action: () => copyText(message.id) },
+  );
+  return items;
+}
+
+/** Контекстное меню сообщения (MessageContextMenu.tsx); при правке его нет. */
+function openMessageMenu(event, message, extra = {}) {
+  if (message && (message.pending || state.editing === message.id)) return;
+  openContextMenu(event, messageMenuItems({ message, ...extra }));
+}
+
+/** Закрепить или открепить; с Shift — без вопроса (PinMessage.tsx). */
+async function pinMessage(message, skipConfirm) {
+  const pinned = !message.pinned;
+  const run = () => call("pin_message", { channelId: message.channel, messageId: message.id, pinned });
+  if (skipConfirm) {
+    await run();
+    return;
+  }
+  dialogModal({
+    title: message.pinned ? t("Unpin message") : t("Pin message"),
+    body: h("p", {
+      class: "dialog-text",
+      text: message.pinned ? t("Are you sure you want to unpin this message?") : t("Are you sure you want to pin this message?"),
+    }),
+    confirm: message.pinned ? t("Unpin") : t("Pin"),
+    run,
+  });
+}
+
+function clearReactions(message) {
+  return call("clear_reactions", { channelId: message.channel, messageId: message.id });
+}
+
+/**
+ * «Пометить как непрочитанное» (`message.ack(true, false, true)`): отметка
+ * прочитанного встаёт на это сообщение и сразу уходит на сервер, а
+ * следующее автоматическое прочтение пропускается — иначе канал, который
+ * открыт и прокручен вниз, тут же снова стал бы прочитанным.
+ */
+async function markUnread(message) {
+  const channelId = message.channel;
+  clearTimeout(ackTimers.get(channelId));
+  ackTimers.delete(channelId);
+  ownAcks.note(channelId, message.id);
+  await call("mark_unread", { channelId, messageId: message.id });
+  const found = findChannel(channelId);
+  if (found) {
+    found.channel.last_read = message.id;
+    found.channel.unread = Boolean(found.channel.last_message_id && found.channel.last_message_id > message.id);
+    if (found.server) recountServer(found.server);
+    renderRail();
+    renderSidebar();
+  }
+  if (state.channelId === channelId) {
+    state.ackHeld = channelId;
+    state.lastRead = message.id;
+    renderMessages();
+  }
+}
+
+/** Пожаловаться на сообщение (ReportContent.tsx). */
+function reportMessage(message) {
+  const reasons = [
+    ["Illegal", /* i18n */ "Content breaks one or more laws"],
+    ["IllegalGoods", /* i18n */ "Drugs or illegal goods"],
+    ["IllegalExtortion", /* i18n */ "Extortion or blackmail"],
+    ["IllegalPornography", /* i18n */ "Revenge or underage pornography"],
+    ["IllegalHacking", /* i18n */ "Illegal hacking or cracking"],
+    ["ExtremeViolence", /* i18n */ "Extreme violence, gore or animal cruelty"],
+    ["PromotesHarm", /* i18n */ "Promotes harm"],
+    ["UnsolicitedSpam", /* i18n */ "Unsolicited advertising or spam"],
+    ["Raid", /* i18n */ "Raid or spam attack"],
+    ["SpamAbuse", /* i18n */ "Spam or similar platform abuse"],
+    ["ScamsFraud", /* i18n */ "Scams or fraud"],
+    ["Malware", /* i18n */ "Malware or phishing"],
+    ["Harassment", /* i18n */ "Harassment or cyberbullying"],
+    ["NoneSpecified", /* i18n */ "Other"],
+  ];
+  const select = h("select", { class: "text-field" }, [
+    h("option", { value: "", text: t("Please select a reason") }),
+    ...reasons.map(([value, label]) => h("option", { value, text: t(label) })),
+  ]);
+  const detail = h("input", { class: "text-field", type: "text", maxlength: 1000, autocomplete: "off" });
+
+  const box = dialogModal({
+    title: t("Tell us what's wrong with this message"),
+    body: h("div", { class: "form-stack" }, [
+      h("div", { class: "report-preview" }, [messagePreview(message)]),
+      labelled(t("Reason for report"), select),
+      labelled(t("Give us some detail"), detail),
+    ]),
+    confirm: t("Report"),
+    run: async () => {
+      const reason = select.value;
+      if (!reason || (reason === "NoneSpecified" && !detail.value.trim())) {
+        throw { kind: "NoReasonProvided" };
+      }
+      await call("report_content", { kind: "Message", id: message.id, reason, detail: detail.value, messageId: null });
+    },
+  });
+  // пока причина не выбрана, отправлять нечего (Form2.canSubmit)
+  const submit = box.querySelector(".modal-actions .button:last-child");
+  const sync = () => (submit.disabled = !select.value);
+  select.addEventListener("change", sync);
+  sync();
+}
+
+/**
+ * Окно в духе Dialog.tsx: заголовок, содержимое и текстовые кнопки
+ * «Отменить» и действие. Окно закрывается, когда действие выполнено;
+ * пока оно идёт, кнопки неактивны.
+ */
+function dialogModal({ title, body, confirm, run }) {
+  const box = openModal({
+    title,
+    body,
+    actions: [
+      { label: t("Cancel"), onclick: closeModal },
       {
-        icon: "link",
-        label: t("Copy message link"),
-        action: async () => {
-          await copyText(await messageLink(message));
-          toast(t("Link copied"));
+        label: confirm,
+        onclick: async () => {
+          const buttons = [...box.querySelectorAll(".modal-actions .button")];
+          buttons.forEach((button) => (button.disabled = true));
+          try {
+            await run();
+            closeModal();
+          } catch (error) {
+            buttons.forEach((button) => (button.disabled = false));
+            toast(describe(error), "error");
+          }
         },
       },
-      message.mine && { divider: true },
-      message.mine && {
-        icon: "delete",
-        label: t("Delete message"),
-        danger: true,
-        action: (clickEvent) => removeMessage(message, clickEvent.shiftKey),
-      },
-      ...developerItems("message", message.id, t("Copy message ID")),
     ],
-    onClose,
-  );
+  });
+  box.classList.add("dialog");
+  return box;
+}
+
+/** Сообщение как в ленте, без панели действий и меню (`isLink="hide"`). */
+function messagePreview(message) {
+  return h("div", { class: "message-preview" }, [messageNode(message, false, { preview: true })]);
+}
+
+/** Скачать файл и положить его в буфер обмена (`copyFile` в оригинале). */
+async function copyFile(url) {
+  const response = await fetch(mediaSrc(url));
+  if (!response.ok) throw new Error(t("Failed to download file: {0}.", [response.statusText]));
+  const blob = await response.blob();
+  const supports = (type) =>
+    typeof ClipboardItem.supports === "function" ? ClipboardItem.supports(type) : ["image/png", "text/plain", "text/html"].includes(type);
+  const write = async (data, type) => {
+    if (!data) throw new Error(t("Can't write nothing to the clipboard"));
+    await navigator.clipboard.write([new ClipboardItem({ [type || data.type]: data })]);
+    toast(t("Copied file to clipboard"));
+  };
+  if (supports(blob.type)) return write(blob);
+  if (!blob.type.startsWith("image/")) return write(blob, `web ${blob.type}`);
+  // картинку, которую буфер не принимает как есть, переводим в PNG
+  const source = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = source;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    const png = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    await write(png, "image/png");
+  } finally {
+    URL.revokeObjectURL(source);
+  }
 }
 
 /** Контекстное меню пользователя (UserContextMenu.tsx). */
@@ -2952,7 +3573,11 @@ async function refreshWorkspace({ reloadChannel = false } = {}) {
   }
   workspaceTask = (async () => {
     const ws = await call("workspace");
+    const before = currentChannel();
     state.workspace = ws;
+    // от прав зависят кнопки панели действий у готовых узлов сообщений
+    const after = currentChannel();
+    if (before && after && before.permissions !== after.permissions) invalidateMessageNodes();
     state.me = ws.me;
     markMine(state.messages);
     loadEmojiIndex();
@@ -3017,6 +3642,27 @@ function onMessage(message) {
   ackVisible();
 }
 
+/**
+ * Сообщение изменилось: правка, реакция, закрепление. Подменяется на месте —
+ * канал от этого не становится непрочитанным, а лента не прыгает вниз.
+ */
+function onMessageUpdate(message) {
+  if (!message || !message.id) return;
+  markMine([message]);
+  // в сохранённой истории канала — только замена: старое сообщение не дописывается в конец
+  const cached = historyCache.get(message.channel);
+  if (cached) {
+    const at = cached.messages.findIndex((item) => item.id === message.id);
+    if (at >= 0) cached.messages[at] = message;
+  }
+  if (message.channel !== state.channelId) return;
+  // недоотправленное своё сообщение не трогаем: его заменит ответ сервера
+  const index = state.messages.findIndex((item) => item.id === message.id && !item.pending);
+  if (index < 0) return;
+  state.messages[index] = message;
+  renderMessages();
+}
+
 /** Сколько сообщений держит лента, пока читаешь внизу (старые догружаются при прокрутке). */
 const LIVE_KEEP = 150;
 
@@ -3071,13 +3717,23 @@ function onGateway(payload) {
       }
       break;
     case "ChannelAck": {
+      // своё же прочтение, вернувшееся с сервера, уже учтено
+      if (ownAcks.take(event.id, event.message_id)) break;
       const found = findChannel(event.id);
-      if (found && (!found.channel.last_message_id || event.message_id >= found.channel.last_message_id)) {
-        found.channel.unread = false;
-        found.channel.mentions = 0;
-        if (found.server) recountServer(found.server);
-        renderRail();
-        renderSidebar();
+      if (!found) break;
+      const channel = found.channel;
+      const back = Boolean(channel.last_read && event.message_id < channel.last_read);
+      channel.last_read = event.message_id;
+      channel.unread = Boolean(channel.last_message_id && channel.last_message_id > event.message_id);
+      if (!channel.unread) channel.mentions = 0;
+      if (found.server) recountServer(found.server);
+      renderRail();
+      renderSidebar();
+      // помечено непрочитанным в другом клиенте — разделитель «новое» на место
+      if (back && state.channelId === channel.id) {
+        state.ackHeld = channel.id;
+        state.lastRead = event.message_id;
+        renderMessages();
       }
       break;
     }
@@ -3186,7 +3842,10 @@ function bindUi() {
   setIcon(el("btn-members"), "group", 24);
 
   messagesEl.addEventListener("scroll", () => {
+    const wasAtEnd = state.stickToBottom;
     state.stickToBottom = distanceFromBottom() < 40;
+    // ушли от конца ленты — при возвращении канал прочитается
+    if (wasAtEnd && !state.stickToBottom) state.ackHeld = null;
     if (messagesEl.scrollTop < 400) loadOlder();
     if (state.stickToBottom) {
       ackVisible();
@@ -3229,10 +3888,15 @@ function bindUi() {
     if (event.key !== "Escape") return;
     if (modalOpen()) closeModal();
     else if (menusOpen()) closeMenus();
+    else if (!el("emoji-picker").classList.contains("hidden")) toggleEmojiPicker(false);
     else if (settingsOpen()) closeSettings();
   });
   window.addEventListener("resize", closeMenus);
-  window.addEventListener("focus", ackVisible);
+  window.addEventListener("focus", () => {
+    // вернулись в окно — канал снова читается, как в оригинале по onFocus
+    state.ackHeld = null;
+    ackVisible();
+  });
 }
 
 async function boot() {
@@ -3276,6 +3940,13 @@ async function boot() {
         onMessage(JSON.parse(event.payload));
       } catch (error) {
         console.warn("плохое событие сообщения:", error);
+      }
+    });
+    await listen("stoat:message-update", (event) => {
+      try {
+        onMessageUpdate(JSON.parse(event.payload));
+      } catch (error) {
+        console.warn("плохое событие правки сообщения:", error);
       }
     });
   }

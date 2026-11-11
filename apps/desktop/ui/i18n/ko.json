@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1명이 반응했어요",
 "12 hours": "12시간",
 "24 hours": "24시간",
 "<0/> has been banned from the server": "<0/> 이(가) 서버에서 밴되었습니다",
@@ -46,6 +47,7 @@
 "Confirm": "확인",
 "Confirm action": "작업 확인",
 "Connect": "연결",
+"Content breaks one or more laws": "콘텐츠가 하나 이상의 법률을 위반함",
 "Continue": "계속",
 "Conversations": "대화",
 "Copy ID": "ID 복사",
@@ -101,6 +103,7 @@
 "Manage Server": "서버 관리",
 "Manage Webhooks": "웹훅 관리",
 "Mark as read": "읽음으로 표시하기",
+"Mark as unread": "읽지 않음으로 표시",
 "Masquerade": "프로필 위장",
 "Members": "멤버",
 "Mention": "멘션",
@@ -137,6 +140,8 @@
 "Remove friend": "친구 삭제",
 "Reply": "답장",
 "Replying to": "답장:",
+"Report": "신고",
+"Report message": "메시지 신고하기",
 "Reset": "초기화",
 "Reset Token": "토큰 초기화",
 "Role Name": "역할 이름",
@@ -181,5 +186,8 @@
 "[Today at] LT": "[오늘] LT",
 "[Yesterday at] LT": "[어제] LT",
 "{0} and {1} are typing…": "{0} 과(와) {1}이(가) 적는 중…",
-"{0} is typing…": "{0} 이(가) 적는 중…"
+"{0} is typing…": "{0} 이(가) 적는 중…",
+"{unknown} reacted": "{unknown} 명이 반응함",
+"{usernames} and {unknown} others reacted": "{usernames} 과(와) {unknown} 의 사람들이 반응함",
+"{usernames} reacted": "{usernames} 이(가) 반응함"
 }

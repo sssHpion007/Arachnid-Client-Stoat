@@ -38,6 +38,12 @@ const CACHE_TOTAL_MAX: usize = 32 * 1024 * 1024;
 /// Файлы на CDN неизменны (новый файл — новый id), webview может их не перезапрашивать.
 const CACHE_CONTROL: &str = "public, max-age=604800, immutable";
 
+/// Страница интерфейса и протокол — разные источники, поэтому без этого
+/// заголовка `fetch()` не прочитает файл («Скопировать файл» в меню
+/// сообщения), а `<canvas>` с такой картинкой нельзя выгрузить в PNG.
+/// Файлы CDN и так публичны.
+const ALLOW_ORIGIN: &str = "*";
+
 /// Скачанный файл.
 struct Entry {
     content_type: String,
@@ -240,6 +246,7 @@ impl MediaProxy {
                 .status(StatusCode::PARTIAL_CONTENT)
                 .header(header::CONTENT_TYPE, content_type)
                 .header(header::CACHE_CONTROL, CACHE_CONTROL)
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW_ORIGIN)
                 .header(header::ACCEPT_RANGES, "bytes")
                 .header(header::CONTENT_LENGTH, body.len());
             if let Some(content_range) = content_range {
@@ -300,7 +307,8 @@ fn respond(content_type: &str, body: Body<'_>, range: Option<ByteRange>) -> Resp
     let builder = Response::builder()
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCEPT_RANGES, "bytes")
-        .header(header::CACHE_CONTROL, CACHE_CONTROL);
+        .header(header::CACHE_CONTROL, CACHE_CONTROL)
+        .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, ALLOW_ORIGIN);
 
     let response = match range {
         None => builder

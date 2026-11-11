@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 người đã bày tỏ cảm xúc",
 "<0/> has been added by <1/>": "<0/> đã được thêm bởi <1/>",
 "<0/> has been banned from the server": "<0/> đã bị cấm khỏi máy chủ",
 "<0/> has been kicked from the server": "<0/> đã bị đuổi khỏi máy chủ",
@@ -51,6 +52,7 @@
 "Connect": "Kết Nối",
 "Connect to voice channel": "Kết nối đến kênh thoại",
 "Connecting": "Đang kết nối",
+"Content breaks one or more laws": "Nội dung vi phạm một hoặc nhiều luật",
 "Continue": "Tiếp tục",
 "Conversations": "Cuộc Trò chuyện",
 "Copy ID": "Sao chép ID",
@@ -109,6 +111,7 @@
 "Manage Server": "Quản Lí Máy Chủ",
 "Manage Webhooks": "Điều Hành Webhook",
 "Mark as read": "Đánh dấu đã đọc",
+"Mark as unread": "Đánh dấu là chưa đọc",
 "Masquerade": "Hóa Trang",
 "Members": "Thành Viên",
 "Mention": "Đề cập",
@@ -145,6 +148,8 @@
 "Remove friend": "Bỏ bạn",
 "Reply": "Trả lời",
 "Replying to": "Đang phản hồi",
+"Report": "Báo cáo",
+"Report message": "Báo cáo tin nhắn",
 "Reset": "Đặt lại",
 "Reset Token": "Đặt lại token",
 "Role Name": "Tên Vai Trò",
@@ -188,5 +193,7 @@
 "[Today at] LT": "[Hôm nay lúc] LT",
 "[Yesterday at] LT": "[Hôm qua lúc] LT",
 "{0} and {1} are typing…": "{0} và {1} đang gõ…",
-"{0} is typing…": "{0} đang nhập…"
+"{0} is typing…": "{0} đang nhập…",
+"{unknown} reacted": "{unknown} đã thả biểu cảm",
+"{usernames} and {unknown} others reacted": "{usernames} và {unknown} người khác đã thả biểu cảm"
 }

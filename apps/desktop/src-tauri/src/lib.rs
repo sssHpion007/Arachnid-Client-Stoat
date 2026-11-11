@@ -18,6 +18,7 @@ mod bots;
 mod desktop;
 mod markdown;
 mod media;
+mod messages;
 mod permissions;
 mod profile;
 mod security;
@@ -580,8 +581,19 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
             }
 
             // Изменённое сообщение тоже собираем целиком: иначе после правки
-            // пропадала разметка, эмбеды и имя вебхука.
-            if let GatewayEvent::MessageUpdate { id, channel, .. } = &event {
+            // пропадала разметка, эмбеды и имя вебхука. Реакции и закрепление
+            // меняют сообщение так же. Отдельное событие: правка — не новое
+            // сообщение, она не должна помечать канал непрочитанным.
+            let changed = match &event {
+                GatewayEvent::MessageUpdate { id, channel, .. } => Some((id, channel)),
+                GatewayEvent::MessageReact { id, channel_id, .. }
+                | GatewayEvent::MessageUnreact { id, channel_id, .. }
+                | GatewayEvent::MessageRemoveReaction { id, channel_id, .. } => {
+                    Some((id, channel_id))
+                }
+                _ => None,
+            };
+            if let Some((id, channel)) = changed {
                 let merged = cache
                     .messages(channel)
                     .await
@@ -591,12 +603,13 @@ async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>)
                     let cdn = app_state.cdn_url.read().await.clone();
                     let view = message_view(&cache, cdn.as_deref(), message).await;
                     if let Ok(payload) = serde_json::to_string(&view)
-                        && emitter.emit("stoat:message", payload).is_err()
+                        && emitter.emit("stoat:message-update", payload).is_err()
                     {
                         break;
                     }
+                    continue;
                 }
-                continue;
+                // сообщения нет в кэше: интерфейс поправит своё по событию
             }
 
             // остальное — как есть; UI решает, что перерисовать
@@ -1520,6 +1533,12 @@ pub fn run() {
             edit_message,
             delete_message,
             ack_channel,
+            messages::react_message,
+            messages::unreact_message,
+            messages::clear_reactions,
+            messages::pin_message,
+            messages::mark_unread,
+            messages::report_content,
             cache_snapshot,
             data_dir,
             desktop::desktop_config,

@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 անձ արձագանքեց",
 "12 hours": "12 ժամ",
 "24 hours": "24 ժամ",
 "<0/> has been added by <1/>": "<0/> ավելացվել է <1/>֊ի կողմից",
@@ -42,6 +43,7 @@
 "Confirm": "հաստատել",
 "Confirm action": "Հաստատեք գործողությունը",
 "Connect": "Միացնել",
+"Content breaks one or more laws": "Բովանդակությունը խախտում է մեկ կամ մի քանի օրենքներ",
 "Continue": "Շարունակել",
 "Conversations": "Զրույցներ",
 "Copy ID": "Պատճենել ID",
@@ -97,6 +99,7 @@
 "Manage Server": "Կառավարեք սերվերը",
 "Manage Webhooks": "Կառավարեք Webhooks",
 "Mark as read": "Նշել որպես կարդացված",
+"Mark as unread": "չընթերցված",
 "Masquerade": "Դիմակահանդես",
 "Members": "անդամներ",
 "Mention": "Նշել",
@@ -131,6 +134,8 @@
 "Remove friend": "Հեռացրեք ընկերոջը",
 "Reply": "Պատասխանել",
 "Replying to": "Պատասխանելով",
+"Report": "հաշվետվություն",
+"Report message": "Հաղորդել հաղորդագրության մասին",
 "Reset": "վերակայել",
 "Role Name": "Դերի անվանումը",
 "Roles": "դերեր",
@@ -173,5 +178,8 @@
 "[Today at] LT": "[Այսօր] LT",
 "[Yesterday at] LT": "[Երեկ] LT",
 "{0} and {1} are typing…": "{0} եւ {1} գրում են․․․",
-"{0} is typing…": "{0} գրում է․․․"
+"{0} is typing…": "{0} գրում է․․․",
+"{unknown} reacted": "{unknown} արձագանքեց",
+"{usernames} and {unknown} others reacted": "{usernames} եւ {unknown} ուրիշները արձագանքեցին",
+"{usernames} reacted": "{usernames} արձագանքեցին"
 }

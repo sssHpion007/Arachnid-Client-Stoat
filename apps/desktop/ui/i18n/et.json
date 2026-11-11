@@ -1,4 +1,5 @@
 {
+"1 person reacted": "1 inimene reageeris",
 "12 hours": "12 tundi",
 "24 hours": "24 tundi",
 "<0/> has been added by <1/>": "<0/> on lisatud <1/>",
@@ -73,6 +74,7 @@
 "Connect": "Ühendage",
 "Connect to voice channel": "Ühenda häälekanaliga",
 "Connecting": "Ühendamine",
+"Content breaks one or more laws": "Sisu rikub ühte või mitut seadust",
 "Continue": "Jätka",
 "Contribute a language": "Abi tõlkimisega",
 "Conversations": "Vestlused",
@@ -130,6 +132,7 @@
 "Manage Server": "Halda serverit",
 "Manage Webhooks": "Veebikonksude haldamine",
 "Mark as read": "Märgi loetuks",
+"Mark as unread": "Märgi mitteloetuks",
 "Masquerade": "Maskeraad",
 "Members": "Liikmed",
 "Mention": "Mainitus",
@@ -166,6 +169,8 @@
 "Remove friend": "Eemalda sõber",
 "Reply": "Vasta",
 "Replying to": "Vastamine",
+"Report": "Aruanne",
+"Report message": "Teata sõnumist",
 "Reset": "Lähtesta",
 "Role Name": "Rolli nimi",
 "Roles": "Rollid",
@@ -206,5 +211,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Te ei saa uuesti ühineda kui teid pole uuesti kutsutud.",
 "Your recovery codes": "Teie taastekoodid",
 "{0} and {1} are typing…": "{0} ja {1} kirjutavad…",
-"{0} is typing…": "{0} kirjutab…"
+"{0} is typing…": "{0} kirjutab…",
+"{unknown} reacted": "{tundmatu} reageeris",
+"{usernames} and {unknown} others reacted": "{usernames} ja {unknown} reageerisid",
+"{usernames} reacted": "{usernames} reageeris"
 }

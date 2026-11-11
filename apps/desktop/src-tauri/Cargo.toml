@@ -18,6 +18,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 stoat-core = { path = "../../../crates/stoat-core" }
 revolt-models.workspace = true
+# сроки тайм-аутов участников — в правах канала
+iso8601-timestamp.workspace = true
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-store = "2"

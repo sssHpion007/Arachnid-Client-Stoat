@@ -209,6 +209,8 @@ function emojiPackSelect() {
           renderSettings();
         },
       })),
+      null,
+      { offset: 0 },
     );
   };
   return head;

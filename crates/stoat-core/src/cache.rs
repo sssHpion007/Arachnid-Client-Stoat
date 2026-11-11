@@ -400,6 +400,15 @@ impl Cache {
         self.publish(CacheEvent::ChannelChanged(channel.to_string()));
     }
 
+    /// Поставить отметку прочитанного ровно на `message` — «Пометить как
+    /// непрочитанное»: всё, что после него, снова считается новым.
+    pub async fn mark_unread(&self, channel: &str, message: &str) {
+        let mut state = self.state.write().await;
+        set_read(&mut state, channel, message);
+        drop(state);
+        self.publish(CacheEvent::ChannelChanged(channel.to_string()));
+    }
+
     /// Пользователь по id.
     pub async fn user(&self, id: &str) -> Option<v0::User> {
         self.state.read().await.users.get(id).cloned()
@@ -566,6 +575,26 @@ fn mark_read(state: &mut State, channel: &str, message: &str) {
         unread.last_id = Some(message.to_string());
     }
     unread.mentions.retain(|id| id.as_str() > message);
+}
+
+/// Отметка прочитанного как есть, даже назад: так её ставит сервер,
+/// когда сообщение пометили непрочитанным (здесь или в другом клиенте).
+fn set_read(state: &mut State, channel: &str, message: &str) {
+    let unread = state.unreads.entry(channel.to_string()).or_default();
+    unread.last_id = Some(message.to_string());
+    unread.mentions.retain(|id| id.as_str() > message);
+}
+
+/// Сообщение из кэша, если оно там есть.
+fn cached_message<'a>(
+    state: &'a mut State,
+    channel: &str,
+    id: &str,
+) -> Option<&'a mut v0::Message> {
+    state
+        .messages
+        .get_mut(channel)
+        .and_then(|map| map.get_mut(id))
 }
 
 fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEvent>) {
@@ -803,14 +832,59 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
             emitted.push(CacheEvent::UserChanged(user_id));
         }
         GatewayEvent::ChannelAck { id, message_id, .. } => {
-            mark_read(state, &id, &message_id);
+            set_read(state, &id, &message_id);
             emitted.push(CacheEvent::ChannelChanged(id));
         }
-        GatewayEvent::MessageReact { .. }
-        | GatewayEvent::MessageUnreact { .. }
-        | GatewayEvent::MessageRemoveReaction { .. } => {
-            // реакции приходят отдельными событиями; полное состояние подтянет UI
-            // через повторную загрузку сообщения, кэш не пытается угадывать счётчики
+        // реакции приходят по одной; порядок эмодзи сохраняется, как на сервере
+        GatewayEvent::MessageReact {
+            id,
+            channel_id,
+            user_id,
+            emoji_id,
+        } => {
+            if let Some(message) = cached_message(state, &channel_id, &id) {
+                message
+                    .reactions
+                    .entry(emoji_id)
+                    .or_default()
+                    .insert(user_id);
+                emitted.push(CacheEvent::MessageChanged {
+                    channel: channel_id,
+                    message: id,
+                });
+            }
+        }
+        GatewayEvent::MessageUnreact {
+            id,
+            channel_id,
+            user_id,
+            emoji_id,
+        } => {
+            if let Some(message) = cached_message(state, &channel_id, &id) {
+                if let Some(users) = message.reactions.get_mut(&emoji_id) {
+                    users.shift_remove(&user_id);
+                    if users.is_empty() {
+                        message.reactions.shift_remove(&emoji_id);
+                    }
+                }
+                emitted.push(CacheEvent::MessageChanged {
+                    channel: channel_id,
+                    message: id,
+                });
+            }
+        }
+        GatewayEvent::MessageRemoveReaction {
+            id,
+            channel_id,
+            emoji_id,
+        } => {
+            if let Some(message) = cached_message(state, &channel_id, &id) {
+                message.reactions.shift_remove(&emoji_id);
+                emitted.push(CacheEvent::MessageChanged {
+                    channel: channel_id,
+                    message: id,
+                });
+            }
         }
         GatewayEvent::EmojiCreate(emoji) => {
             if let v0::EmojiParent::Server { id } = &emoji.parent {
@@ -971,6 +1045,92 @@ mod tests {
 
         let snapshot = cache.snapshot().await;
         assert_eq!(snapshot.unreads["c1"].last_id.as_deref(), Some("01B"));
+    }
+
+    #[tokio::test]
+    async fn ack_from_server_can_move_marker_back() {
+        let cache = Cache::new();
+        cache.mark_read("c1", "01C").await;
+        // «Пометить как непрочитанное» в другом клиенте
+        cache
+            .apply(GatewayEvent::ChannelAck {
+                id: "c1".into(),
+                user: "me".into(),
+                message_id: "01A".into(),
+            })
+            .await;
+        let snapshot = cache.snapshot().await;
+        assert_eq!(snapshot.unreads["c1"].last_id.as_deref(), Some("01A"));
+
+        cache.mark_unread("c1", "01B").await;
+        let snapshot = cache.snapshot().await;
+        assert_eq!(snapshot.unreads["c1"].last_id.as_deref(), Some("01B"));
+    }
+
+    #[tokio::test]
+    async fn reactions_are_tracked_in_order() {
+        let cache = Cache::new();
+        cache
+            .apply(GatewayEvent::Message(Box::new(message("01A", "c1", "hi"))))
+            .await;
+        let react = |user: &str, emoji: &str| GatewayEvent::MessageReact {
+            id: "01A".into(),
+            channel_id: "c1".into(),
+            user_id: user.into(),
+            emoji_id: emoji.into(),
+        };
+        cache.apply(react("u1", "👍")).await;
+        cache.apply(react("u2", "👍")).await;
+        let emitted = cache.apply(react("u1", "🎉")).await;
+        assert_eq!(
+            emitted,
+            vec![CacheEvent::MessageChanged {
+                channel: "c1".into(),
+                message: "01A".into()
+            }]
+        );
+
+        let reactions = |messages: Vec<v0::Message>| {
+            messages[0]
+                .reactions
+                .iter()
+                .map(|(emoji, users)| (emoji.clone(), users.iter().cloned().collect::<Vec<_>>()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            reactions(cache.messages("c1").await),
+            vec![
+                ("👍".to_string(), vec!["u1".to_string(), "u2".to_string()]),
+                ("🎉".to_string(), vec!["u1".to_string()]),
+            ]
+        );
+
+        // последний снявший реакцию убирает и сам эмодзи
+        cache
+            .apply(GatewayEvent::MessageUnreact {
+                id: "01A".into(),
+                channel_id: "c1".into(),
+                user_id: "u1".into(),
+                emoji_id: "🎉".into(),
+            })
+            .await;
+        cache
+            .apply(GatewayEvent::MessageRemoveReaction {
+                id: "01A".into(),
+                channel_id: "c1".into(),
+                emoji_id: "👍".into(),
+            })
+            .await;
+        assert!(cache.messages("c1").await[0].reactions.is_empty());
+
+        // реакция на сообщение вне кэша ничего не объявляет
+        let unknown = GatewayEvent::MessageReact {
+            id: "01Z".into(),
+            channel_id: "c2".into(),
+            user_id: "u1".into(),
+            emoji_id: "👍".into(),
+        };
+        assert!(cache.apply(unknown).await.is_empty());
     }
 
     #[tokio::test]

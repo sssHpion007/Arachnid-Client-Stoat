@@ -272,10 +272,30 @@ impl WorkspaceView {
             servers.sort_by_key(|server| server.name.to_lowercase());
         }
 
+        // права в каналах: от них зависят пункты меню сообщений
+        let viewer = crate::permissions::Viewer {
+            me: snapshot.me.as_ref(),
+            users: &snapshot.users,
+        };
+        let channel_permissions = |view: &ChannelView, server: Option<&v0::Server>| {
+            let source = channels.iter().find(|channel| id_of(channel) == view.id)?;
+            let member = server.and_then(|server| {
+                let id = me_id?;
+                snapshot
+                    .members
+                    .get(&server.id)?
+                    .iter()
+                    .find(|member| member.id.user == id)
+            });
+            Some(crate::permissions::channel(source, &viewer, server, member))
+        };
+
         for server in &mut servers {
+            let source = snapshot.servers.iter().find(|item| item.id == server.id);
             for category in &mut server.categories {
                 for channel in &mut category.channels {
                     channel.apply_unread(&snapshot.unreads);
+                    channel.permissions = channel_permissions(channel, source).unwrap_or(0);
                 }
             }
             let listed = server
@@ -299,6 +319,7 @@ impl WorkspaceView {
                 let mut view =
                     ChannelView::build(channel, &snapshot.users, None, me, cdn.as_deref());
                 view.apply_unread(&snapshot.unreads);
+                view.permissions = channel_permissions(&view, None).unwrap_or(0);
                 view
             })
             .collect();
@@ -491,6 +512,8 @@ pub struct ChannelView {
     pub mentions: usize,
     /// Последнее прочитанное сообщение: по нему ставится разделитель «новое»
     pub last_read: Option<String>,
+    /// Мои права в канале (биты API): ответить, отреагировать, закрепить, удалить чужое
+    pub permissions: u64,
 }
 
 impl ChannelView {
@@ -524,6 +547,7 @@ impl ChannelView {
                 unread: false,
                 mentions: 0,
                 last_read: None,
+                permissions: 0,
             },
             v0::Channel::DirectMessage {
                 id,
@@ -554,6 +578,7 @@ impl ChannelView {
                     unread: false,
                     mentions: 0,
                     last_read: None,
+                    permissions: 0,
                 }
             }
             v0::Channel::Group {
@@ -576,6 +601,7 @@ impl ChannelView {
                 unread: false,
                 mentions: 0,
                 last_read: None,
+                permissions: 0,
             },
             v0::Channel::SavedMessages { id, .. } => Self {
                 id: id.clone(),
@@ -590,6 +616,7 @@ impl ChannelView {
                 unread: false,
                 mentions: 0,
                 last_read: None,
+                permissions: 0,
             },
         }
     }
@@ -650,6 +677,31 @@ pub struct ChatMessage {
     pub embeds: Vec<EmbedView>,
     /// Id сообщений, на которые это сообщение отвечает
     pub replies: Vec<String>,
+    /// Закреплено в канале
+    pub pinned: bool,
+    /// Реакции в порядке появления: эмодзи и кто поставил
+    pub reactions: Vec<ReactionView>,
+    /// Как с сообщением можно взаимодействовать (реакции бота)
+    pub interactions: InteractionsView,
+}
+
+/// Реакция: юникод-эмодзи или id своего эмодзи (адрес — в `ChatMessage::emoji`).
+#[derive(Debug, Serialize)]
+pub struct ReactionView {
+    /// Эмодзи
+    pub emoji: String,
+    /// Кто поставил
+    pub users: Vec<String>,
+}
+
+/// `interactions` сообщения: реакции, которые показываются всегда, даже без
+/// счётчика, и запрет на остальные.
+#[derive(Debug, Default, Serialize)]
+pub struct InteractionsView {
+    /// Обязательные реакции
+    pub reactions: Vec<String>,
+    /// Ставить можно только их
+    pub restrict_reactions: bool,
 }
 
 /// Собрать список участников сервера для правой панели.
@@ -1008,7 +1060,37 @@ impl ChatMessage {
             Some(event) => system_text(event, who),
             None => message.content.unwrap_or_default(),
         };
-        let emoji = custom_emojis(&content, cdn);
+        let reactions: Vec<ReactionView> = message
+            .reactions
+            .iter()
+            .map(|(emoji, users)| ReactionView {
+                emoji: emoji.clone(),
+                users: users.iter().cloned().collect(),
+            })
+            .collect();
+        let interactions = InteractionsView {
+            reactions: message
+                .interactions
+                .reactions
+                .iter()
+                .flatten()
+                .cloned()
+                .collect(),
+            restrict_reactions: message.interactions.restrict_reactions,
+        };
+        let mut emoji = custom_emojis(&content, cdn);
+        // свои эмодзи в реакциях — тоже картинками с CDN
+        if let Some(base) = cdn.map(|base| base.trim_end_matches('/')) {
+            let ids = reactions
+                .iter()
+                .map(|reaction| reaction.emoji.as_str())
+                .chain(interactions.reactions.iter().map(String::as_str));
+            for id in ids.filter(|id| is_ulid(id)) {
+                emoji
+                    .entry(id.to_string())
+                    .or_insert_with(|| format!("{base}/emojis/{id}"));
+            }
+        }
         let mentions = mentioned_users(&content);
 
         Self {
@@ -1033,8 +1115,19 @@ impl ChatMessage {
             roles,
             mentions,
             replies: message.replies.unwrap_or_default(),
+            pinned: message.pinned.unwrap_or(false),
+            reactions,
+            interactions,
         }
     }
+}
+
+/// Похоже на id Stoat (ULID): 26 знаков из цифр и заглавных латинских.
+fn is_ulid(value: &str) -> bool {
+    value.len() == 26
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte.is_ascii_uppercase())
 }
 
 impl EmbedView {

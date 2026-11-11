@@ -108,6 +108,21 @@ pub(super) fn segment(value: &str) -> String {
         .replace('+', "%20")
 }
 
+/// Путь реакции; `remove_all` уходит параметром запроса, как в stoat.js.
+fn reaction_path(channel_id: &str, message_id: &str, emoji: &str, remove_all: bool) -> String {
+    let path = format!(
+        "/channels/{}/messages/{}/reactions/{}",
+        segment(channel_id),
+        segment(message_id),
+        segment(emoji)
+    );
+    if remove_all {
+        path + "?remove_all=true"
+    } else {
+        path
+    }
+}
+
 impl HttpClient {
     pub(super) async fn get_json<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T> {
         let url = self.endpoint(path)?;
@@ -531,15 +546,32 @@ impl HttpClient {
         .await
     }
 
-    /// `DELETE /channels/{id}/messages/{msg}/reactions/{emoji}` — убрать свою реакцию.
-    pub async fn unreact(&self, channel_id: &str, message_id: &str, emoji: &str) -> Result<()> {
+    /// `DELETE /channels/{id}/messages/{msg}/reactions/{emoji}` — убрать реакцию.
+    ///
+    /// Со `remove_all` снимается этот эмодзи у всех (нужно право `ManageMessages`).
+    pub async fn unreact(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        emoji: &str,
+        remove_all: bool,
+    ) -> Result<()> {
+        self.send_empty(
+            Method::DELETE,
+            &reaction_path(channel_id, message_id, emoji, remove_all),
+            None,
+        )
+        .await
+    }
+
+    /// `DELETE /channels/{id}/messages/{msg}/reactions` — снять все реакции.
+    pub async fn clear_reactions(&self, channel_id: &str, message_id: &str) -> Result<()> {
         self.send_empty(
             Method::DELETE,
             &format!(
-                "/channels/{}/messages/{}/reactions/{}",
+                "/channels/{}/messages/{}/reactions",
                 segment(channel_id),
-                segment(message_id),
-                segment(emoji)
+                segment(message_id)
             ),
             None,
         )
@@ -559,6 +591,18 @@ impl HttpClient {
             None,
         )
         .await
+    }
+
+    /// `POST /safety/report` — пожаловаться модераторам Stoat.
+    ///
+    /// `content` — что именно: `{"type": "Message" | "Server" | "User", "id", "report_reason", …}`.
+    pub async fn report_content(&self, content: &Value, additional_context: &str) -> Result<()> {
+        let body = json!({
+            "content": content,
+            "additional_context": additional_context,
+        });
+        self.send_empty(Method::POST, "/safety/report", Some(&body))
+            .await
     }
 
     // ──────────────────────────────── файлы ─────────────────────────────────
@@ -613,6 +657,18 @@ mod tests {
         );
         assert_eq!(segment("👍"), "%F0%9F%91%8D");
         assert_eq!(segment("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn reaction_paths_escape_emoji() {
+        assert_eq!(
+            reaction_path("c1", "m1", "👍", false),
+            "/channels/c1/messages/m1/reactions/%F0%9F%91%8D"
+        );
+        assert_eq!(
+            reaction_path("c1", "m1", "01GZ8K1WZ6J0X8Y4V3T2R1Q0PN", true),
+            "/channels/c1/messages/m1/reactions/01GZ8K1WZ6J0X8Y4V3T2R1Q0PN?remove_all=true"
+        );
     }
 
     #[test]
