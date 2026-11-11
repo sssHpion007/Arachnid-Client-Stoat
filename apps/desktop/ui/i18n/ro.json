@@ -173,6 +173,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "Nu îți vei putea accesa contul decât dacă contactezi asistența - însă, datele tale nu vor fi șterse.",
 "You won't be able to rejoin unless you are re-invited.": "Nu vei putea să reintri decât dacă ești reinvitat.",
 "Your recovery codes": "Codurile tale de recuperare",
+"[Today at] LT": "[Astăzi la] LT",
+"[Yesterday at] LT": "[Ieri la] LT",
 "{0} and {1} are typing…": "{0} și {1} scriu…",
 "{0} is typing…": "{0} scrie…"
 }

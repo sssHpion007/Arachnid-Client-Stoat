@@ -383,6 +383,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Du kannst nicht wieder beitreten, außer du erhältst eine neue Einladung.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Dein Konto sowie alle deine Daten (einschließlich deiner Nachrichten und Freundesliste) werden zur Löschung vorgemerkt. Du erhältst eine Bestätigungsmail – du kannst den Vorgang innerhalb von 7 Tagen rückgängig machen, indem du den Support kontaktierst.",
 "Your recovery codes": "Deine Wiederherstellungscodes",
+"[Today at] LT": "[Heute um] LT",
+"[Yesterday at] LT": "[Gestern um] LT",
 "{0} and {1} are typing…": "{0} und {1} schreiben…",
 "{0} is typing…": "{0} schreibt…"
 }

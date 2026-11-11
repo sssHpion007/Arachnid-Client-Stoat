@@ -168,7 +168,7 @@
         ticket = step.ticket;
         methods = step.methods || [];
         const method = methods[0] || "Totp";
-        mfaLabel.textContent = t(METHOD_TITLES[method] || "Verification code");
+        mfaLabel.textContent = t(METHOD_TITLES[method] || /* i18n */ "Verification code");
         mfaValue.placeholder = t(METHOD_PLACEHOLDERS[method] || /* i18n */ "code");
         mfaValue.type = method === "Password" ? "password" : "text";
         mfaValue.inputMode = method === "Totp" ? "numeric" : "text";
@@ -176,7 +176,7 @@
         mfaHint.textContent =
           methods.length > 1
             ? t("Available: {0}", [methods.map((m) => (METHOD_TITLES[m] ? t(METHOD_TITLES[m]) : m)).join(", ")])
-            : t("Enter: {0}.", [t(METHOD_TITLES[method] || "code").toLowerCase()]);
+            : t("Enter: {0}.", [t(METHOD_TITLES[method] || /* i18n */ "code").toLowerCase()]);
         formPassword.classList.add("hidden");
         formMfa.classList.remove("hidden");
         setMsg(t("The account is protected by a second factor."), "warn");

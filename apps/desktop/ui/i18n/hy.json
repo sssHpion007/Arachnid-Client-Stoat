@@ -170,6 +170,8 @@
 "You cannot undo this action.": "Դուք չեք կարող հետարկել այս գործողությունը.",
 "You won't be able to rejoin unless you are re-invited.": "Դուք չեք կարողանա նորից միանալ, քանի դեռ ձեզ նորից չեն հրավիրել.",
 "Your recovery codes": "Ձեր վերականգնման կոդերը",
+"[Today at] LT": "[Այսօր] LT",
+"[Yesterday at] LT": "[Երեկ] LT",
 "{0} and {1} are typing…": "{0} եւ {1} գրում են․․․",
 "{0} is typing…": "{0} գրում է․․․"
 }

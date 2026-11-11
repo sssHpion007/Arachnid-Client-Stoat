@@ -388,6 +388,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Je kunt pas weer deelnemen als je opnieuw wordt uitgenodigd.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Je account en al je gegevens (inclusief je berichten en vriendenlijst) worden in de wachtrij geplaatst voor verwijdering. Er wordt een bevestigingsmail gestuurd – je kunt dit binnen 7 dagen annuleren door contact op te nemen met de ondersteuning.",
 "Your recovery codes": "Jouw herstelcodes",
+"[Today at] LT": "[Vandaag om] LT",
+"[Yesterday at] LT": "[Gisteren om] LT",
 "{0} and {1} are typing…": "{0} en {1} zijn aan het typen…",
 "{0} is typing…": "{0} is aan het typen…"
 }

@@ -281,3 +281,8 @@ summary:hover {
   font-size: 0.75rem;
   text-align: center;
 }
+
+/* под своей рамкой окна (titlebar.css) */
+html.with-titlebar body {
+  padding-top: calc(29px + var(--gap-xl));
+}

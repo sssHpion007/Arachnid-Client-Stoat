@@ -149,6 +149,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Nuk do të mund të bashkohesh sërish nëse nuk ftoheni sërish.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Llogaria juaj dhe të gjitha të dhënat tuaja (përfshirë mesazhet dhe listën e miqve) do të vendosen në radhë për fshirje. Do t’ju dërgohet një email konfirmimi — mund ta anuloni këtë brenda 7 ditëve duke kontaktuar mbështetjen.",
 "Your recovery codes": "Kodet e tua të rikthimit",
+"[Today at] LT": "[Sot në] LT",
+"[Yesterday at] LT": "[Dje në] LT",
 "{0} and {1} are typing…": "{0} dhe {1} po shkruajnë…",
 "{0} is typing…": "{0} po shkruan…"
 }

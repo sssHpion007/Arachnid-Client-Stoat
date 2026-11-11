@@ -440,6 +440,8 @@
 "Your discover request has been removed": "تم رفض طلب الكشف الخاص بك.",
 "Your recovery codes": "رموز الإسترجاع الخاصة بك",
 "Your {0} is under review": "{0} الخاص بك قيد المراجعة",
+"[Today at] LT": "[اليوم في] LT",
+"[Yesterday at] LT": "[امس في] LT",
 "{0} and {1} are typing…": "{0} و {1} يكتبون…",
 "{0} is typing…": "{0} يكتب…"
 }

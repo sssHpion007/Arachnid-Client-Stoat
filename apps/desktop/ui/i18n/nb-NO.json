@@ -360,6 +360,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Du vil ikke kunne bli med igjen med mindre du inviteres igjen.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Kontoen din og alle dataene dine (inkludert meldingene og vennelisten din) vil bli satt for sletting. En bekreftelsese-post har blitt sendt - du kan kanselere dette innen 7 dager ved å kontakte støtte.",
 "Your recovery codes": "Dine gjenopprettingskoder",
+"[Today at] LT": "[Idag kl.] LT",
+"[Yesterday at] LT": "[Igår kl.] LT",
 "{0} and {1} are typing…": "{0} og {1} skriver…",
 "{0} is typing…": "{0} skriver…"
 }

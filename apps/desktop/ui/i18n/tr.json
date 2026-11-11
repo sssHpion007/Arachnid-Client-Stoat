@@ -437,6 +437,8 @@
 "Your discover request has been removed": "Keşfet talebiniz kaldırıldı",
 "Your recovery codes": "Kurtarma kodların",
 "Your {0} is under review": "{0} incelenmektedir",
+"[Today at] LT": "[Bugün saat] LT",
+"[Yesterday at] LT": "[Dün saat] LT",
 "{0} and {1} are typing…": "{0} ve {1} yazıyor…",
 "{0} is typing…": "{0} yazıyor…"
 }

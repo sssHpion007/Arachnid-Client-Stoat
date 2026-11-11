@@ -218,6 +218,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "Вы не будзеце мець доступу да ўліковага запісу, пакуль не звернецеся да службы падтрымкі, але вашы дадзеныя не будуць выдалены.",
 "You won't be able to rejoin unless you are re-invited.": "Вы не зможаце далучыцца ізноў, пакуль вас не запросяць паўторна.",
 "Your recovery codes": "Вашы коды аднаўлення",
+"[Today at] LT": "[Сёння а] LT",
+"[Yesterday at] LT": "[Учора а] LT",
 "{0} and {1} are typing…": "{0} і {1} пішуць…",
 "{0} is typing…": "{0} піша…"
 }

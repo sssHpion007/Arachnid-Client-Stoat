@@ -430,6 +430,8 @@
 "Your discover request has been removed": "Permintaan jelajahi Anda telah dihapus",
 "Your recovery codes": "Kode pemulihan kamu",
 "Your {0} is under review": "{0} Anda sedang ditinjau",
+"[Today at] LT": "[Hari ini pukul] LT",
+"[Yesterday at] LT": "[Kemarin pukul] LT",
 "{0} and {1} are typing…": "{0} dan {1} sedang mengetik…",
 "{0} is typing…": "{0} sedang mengetik…"
 }

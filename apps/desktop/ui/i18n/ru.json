@@ -597,6 +597,8 @@
 "Your {0} is under review": "Ваш {0} находится на рассмотрении",
 "Zoom in": "Увеличить",
 "Zoom out": "Уменьшить",
+"[Today at] LT": "[Сегодня в] LT",
+"[Yesterday at] LT": "[Вчера в] LT",
 "account password": "пароль от аккаунта",
 "authorising…": "авторизация…",
 "bot": "бот",

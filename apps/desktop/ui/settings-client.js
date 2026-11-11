@@ -339,15 +339,15 @@ function renderAppearancePage(column) {
 
 /** Звуки в порядке оригинала (Sounds.tsx). */
 const SOUND_ROWS = [
-  ["message", "Message Received"],
-  ["mute", "Mute"],
-  ["unmute", "Unmute"],
-  ["deafen", "Deafen"],
-  ["undeafen", "Undeafen"],
-  ["userJoinVoice", "User Joined Call"],
-  ["userLeaveVoice", "User Left Call"],
-  ["streamStart", "Stream Start"],
-  ["streamEnd", "Stream End"],
+  ["message", /* i18n */ "Message Received"],
+  ["mute", /* i18n */ "Mute"],
+  ["unmute", /* i18n */ "Unmute"],
+  ["deafen", /* i18n */ "Deafen"],
+  ["undeafen", /* i18n */ "Undeafen"],
+  ["userJoinVoice", /* i18n */ "User Joined Call"],
+  ["userLeaveVoice", /* i18n */ "User Left Call"],
+  ["streamStart", /* i18n */ "Stream Start"],
+  ["streamEnd", /* i18n */ "Stream End"],
 ];
 
 function renderNotificationsPage(column) {
@@ -533,8 +533,8 @@ async function renderDesktopPage(column, alive) {
 
 /** Эксперименты (Experiments.ts): пока только заглушки. */
 const EXPERIMENTS = {
-  gif_picker: { title: "GIF Picker Placeholder", description: "Not available yet." },
-  plugins: { title: "Plugins v2 Placeholder", description: "Not available yet." },
+  gif_picker: { title: /* i18n */ "GIF Picker Placeholder", description: /* i18n */ "Not available yet." },
+  plugins: { title: /* i18n */ "Plugins v2 Placeholder", description: /* i18n */ "Not available yet." },
 };
 
 function readExperiments() {

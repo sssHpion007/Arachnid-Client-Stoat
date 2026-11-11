@@ -432,6 +432,8 @@
 "Your discover request has been removed": "Tu solicitud de Discover ha sido eliminada",
 "Your recovery codes": "Tus códigos de recuperación",
 "Your {0} is under review": "Tu {0} está en revisión",
+"[Today at] LT": "[Hoy a las] LT",
+"[Yesterday at] LT": "[Ayer a las] LT",
 "{0} and {1} are typing…": "{0} y {1} están escribiendo…",
 "{0} is typing…": "{0} está escribiendo…"
 }

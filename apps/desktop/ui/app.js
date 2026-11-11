@@ -220,8 +220,8 @@ function calendarText(date) {
   const now = new Date();
   const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
   // «[Today at] LT» и «[Yesterday at] LT» — форматы dayjs из каталогов for-web
-  if (sameDay(date, now)) return calendarFormat("[Today at] LT", date);
-  if (sameDay(date, yesterday)) return calendarFormat("[Yesterday at] LT", date);
+  if (sameDay(date, now)) return calendarFormat(/* i18n */ "[Today at] LT", date);
+  if (sameDay(date, yesterday)) return calendarFormat(/* i18n */ "[Yesterday at] LT", date);
   return I18N.date(date) + " " + clockText(date);
 }
 
@@ -1552,7 +1552,7 @@ function systemEventText(event, { plain = false, server = false, channelId = nul
     return node;
   };
   const target = event.message_id && channelId
-    ? linkNode(channelLink({ id: channelId }) + "/" + event.message_id, null)
+    ? linkNode(channelLink({ id: channelId }) + "/" + event.message_id, t("message"))
     : mention(second);
   return I18N.rich(msgid, values, {
     0: mention(first),
@@ -3250,7 +3250,10 @@ async function boot() {
   window.addEventListener("arachnid-locale", relocalize);
   window.addEventListener("arachnid-options", (event) => {
     const key = event.detail && event.detail.key;
-    if (key === "appearance:compact_mode" || key === "appearance:unicode_emoji") renderMessages();
+    if (key === "appearance:compact_mode" || key === "appearance:unicode_emoji") {
+      invalidateMessageNodes();
+      renderMessages();
+    }
   });
   bindUi();
   closeChannel();
@@ -3303,6 +3306,7 @@ function relocalize() {
   renderReplies();
   renderTyping();
   renderMembers();
+  invalidateMessageNodes();
   renderMessages();
   if (settingsOpen()) renderSettings();
 }

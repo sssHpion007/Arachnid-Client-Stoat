@@ -308,6 +308,8 @@
 "You cannot undo this action.": "Túto akciu nemôžete vrátiť späť.",
 "You won't be able to rejoin unless you are re-invited.": "Nebudete sa môcť znova pripojiť, pokiaľ nebudete znova pozvaní.",
 "Your recovery codes": "Vaše kódy na obnovenie",
+"[Today at] LT": "[Dnes o] LT",
+"[Yesterday at] LT": "[Včera o] LT",
 "{0} and {1} are typing…": "{0} a {1} píšu…",
 "{0} is typing…": "{0} píše…"
 }

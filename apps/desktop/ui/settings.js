@@ -600,7 +600,7 @@ function imagePicker({ label, url, round = false, wide = false, tag, onchange })
     async () => {
       const file = await pickFile();
       if (!file) return;
-      const limit = uploadLimit(tag);
+      const limit = await uploadLimit(tag);
       if (file.size > limit) throw new Error(t("The file exceeds the maximum size limit of {0}.", [humanSize(limit)]));
       choice.file = file;
       choice.removed = false;
@@ -1549,7 +1549,7 @@ function renderOverviewPage(column) {
 
 async function renderEmojiPage(column, alive) {
   const serverId = settings.serverId;
-  const list = await call("server_emojis", { serverId });
+  const [list, emojiLimit] = await Promise.all([call("server_emojis", { serverId }), uploadLimit("emojis")]);
   if (!alive()) return;
 
   const name = textInput({ placeholder: t("emoji_name"), maxlength: 32 });
@@ -1564,8 +1564,7 @@ async function renderEmojiPage(column, alive) {
   }, { kind: "tonal", icon: "attach_file" });
   const add = actionButton(t("Add"), async () => {
     if (!picked) throw new Error(t("Select an image first"));
-    const limit = uploadLimit("emojis");
-    if (picked.size > limit) throw new Error(t("The file exceeds the maximum size limit of {0}.", [humanSize(limit)]));
+    if (picked.size > emojiLimit) throw new Error(t("The file exceeds the maximum size limit of {0}.", [humanSize(emojiLimit)]));
     const fileId = await uploadPicked(picked, "emojis");
     await call("create_emoji", { serverId, name: name.value, fileId });
     serverEmoji.delete(serverId);
@@ -1600,7 +1599,7 @@ async function renderEmojiPage(column, alive) {
   put(column,
     section(t("Upload Emoji"), [
       h("div", { class: "emoji-upload" }, [preview, h("div", { class: "form-stack grow" }, [labelled(t("Emoji Name"), name), h("div", { class: "image-actions" }, [choose, add])])]),
-    ], t("PNG, JPEG, GIF or WebP up to {0}. The name may contain lowercase Latin letters, digits and underscores.", [humanSize(uploadLimit("emojis"))])),
+    ], t("PNG, JPEG, GIF or WebP up to {0}. The name may contain lowercase Latin letters, digits and underscores.", [humanSize(emojiLimit)])),
     section(`${t("Emojis")} – ${list.length}`, [list.length ? grid : h("p", { class: "settings-hint", text: t("No custom emojis yet.") })]),
   );
 }

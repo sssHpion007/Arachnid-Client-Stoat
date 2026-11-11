@@ -381,6 +381,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Du kommer inte kunna gå med igen om inte du blir inbjuden.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Ditt konto och all din data (inklusive dina meddelanden och din vänlista) kommer att köas för radering. Ett bekräftelsemejl skickas – du kan avbryta detta inom 7 dagar genom att kontakta supporten.",
 "Your recovery codes": "Dina återvinningskoder",
+"[Today at] LT": "[Idag vid] LT",
+"[Yesterday at] LT": "[Igår vid] LT",
 "{0} and {1} are typing…": "{0} och {1} skriver…",
 "{0} is typing…": "{0} skriver…"
 }

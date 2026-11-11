@@ -273,6 +273,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "Nem fogsz tudni hozzáférni a fiókodhoz, amíg segítséget nem kérsz az ügyfélszolgálattól. Az adataid nem lesznek törölve.",
 "You won't be able to rejoin unless you are re-invited.": "Nem fogsz tudni visszalépni, amíg újra meg nem hívnak.",
 "Your recovery codes": "Helyreállító kódok",
+"[Today at] LT": "[Ma ekkor] LT",
+"[Yesterday at] LT": "[Tegnap ekkor] LT",
 "{0} and {1} are typing…": "{0} és {1} éppen gépelnek…",
 "{0} is typing…": "{0} éppen gépel…"
 }

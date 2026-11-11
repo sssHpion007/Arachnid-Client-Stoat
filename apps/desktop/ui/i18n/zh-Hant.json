@@ -178,6 +178,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "除非您聯絡支援人員，否則您將無法存取您的帳戶 - 但您的資料不會被刪除。",
 "You won't be able to rejoin unless you are re-invited.": "除非再度收到邀請，否則您將無法再次加入。",
 "Your recovery codes": "您的恢復代碼",
+"[Today at] LT": "[今天] LT",
+"[Yesterday at] LT": "[昨天] LT",
 "{0} and {1} are typing…": "{0} 和 {1} 正在輸入…",
 "{0} is typing…": "{0} 正在輸入…"
 }

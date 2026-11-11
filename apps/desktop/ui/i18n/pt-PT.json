@@ -409,6 +409,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Não poderás reentrar a menos que sejas convidado novamente.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "A tua conta e todos os teus dados (incluindo as tuas mensagens e lista de amigos) serão colocados em fila para eliminação. Será enviado um e-mail de confirmação. Podes cancelar a eliminação no prazo de 7 dias entrando em contacto com o suporte.",
 "Your recovery codes": "Os teus códigos de recuperação",
+"[Today at] LT": "[Hoje às] LT",
+"[Yesterday at] LT": "[Ontem às] LT",
 "{0} and {1} are typing…": "{0} e {1} estão a escrever…",
 "{0} is typing…": "{0} está a escrever…"
 }

@@ -427,6 +427,8 @@
 "Your discover request has been removed": "Votre demande à découvrir a été supprimée",
 "Your recovery codes": "Vos codes de récupération",
 "Your {0} is under review": "Votre {0} est en cours d'examen",
+"[Today at] LT": "[Aujourd'hui à] LT",
+"[Yesterday at] LT": "[Hier à] LT",
 "{0} and {1} are typing…": "{0} et {1} sont en train d'écrire…",
 "{0} is typing…": "{0} est en train d'écrire…"
 }

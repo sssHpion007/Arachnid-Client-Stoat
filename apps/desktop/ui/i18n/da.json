@@ -159,6 +159,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "Du vil ikke kunne få adgang til din konto, medmindre du kontakter support – dine data slettes dog ikke.",
 "You won't be able to rejoin unless you are re-invited.": "Du vil ikke kunne deltage igen, medmindre du inviteres igen.",
 "Your recovery codes": "Dine gendannelseskoder",
+"[Today at] LT": "[I dag kl.] LT",
+"[Yesterday at] LT": "[I går kl.] LT",
 "{0} and {1} are typing…": "{0} og {1} skriver…",
 "{0} is typing…": "{0} skriver…"
 }

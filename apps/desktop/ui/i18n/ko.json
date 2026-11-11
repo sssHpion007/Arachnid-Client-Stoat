@@ -178,6 +178,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "지원팀에 문의하지 않으면 귀하의 계정에 액세스할 수 없습니다. 그러나 귀하의 데이터는 삭제되지 않습니다.",
 "You won't be able to rejoin unless you are re-invited.": "다시 초대되지 않는 이상 다시 들어올 수 없어요.",
 "Your recovery codes": "나의 복구 코드",
+"[Today at] LT": "[오늘] LT",
+"[Yesterday at] LT": "[어제] LT",
 "{0} and {1} are typing…": "{0} 과(와) {1}이(가) 적는 중…",
 "{0} is typing…": "{0} 이(가) 적는 중…"
 }

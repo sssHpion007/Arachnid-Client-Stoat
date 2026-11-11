@@ -163,6 +163,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "除非您联系技术支持人员，否则就无法访问您的账户——但您的数据不会被删除。",
 "You won't be able to rejoin unless you are re-invited.": "除非重新接受邀请，否则您将无法重新加入。",
 "Your recovery codes": "您的恢复代码",
+"[Today at] LT": "今天 LT",
+"[Yesterday at] LT": "昨天 LT",
 "{0} and {1} are typing…": "{0}和{1}正在輸入…",
 "{0} is typing…": "{0}正在輸入…"
 }

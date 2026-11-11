@@ -112,6 +112,8 @@
 "Voice Channel": "poki toki kalama",
 "You can report issues and discuss improvements with us directly here.": "sina wile toki lon pakala la o toki tawa mi lon ni.",
 "You won't be able to rejoin unless you are re-invited.": "sina wile kama sin lon tenpo kama la sina wile e nimi kama sin.",
+"[Today at] LT": "[suno ni la tenpo] LT",
+"[Yesterday at] LT": "[suno weka la tenpo] LT",
 "{0} and {1} are typing…": "{0} en {1} li sitelen…",
 "{0} is typing…": "{0} li sitelen…"
 }

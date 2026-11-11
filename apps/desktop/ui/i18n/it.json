@@ -423,6 +423,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Non potrai rientrare se non sarai invitato nuovamente.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Il tuo account e tutti i tuoi dati (inclusi i messaggi e la lista amici) verranno messi in coda per essere eliminati. Una mail di conferma verrà inviata - puoi cancellare quest'operazione entro 7 giorni contattando il servizio di supporto.",
 "Your recovery codes": "I tuoi codici di recupero",
+"[Today at] LT": "[Oggi alle] LT",
+"[Yesterday at] LT": "[Ieri alle] LT",
 "{0} and {1} are typing…": "{0} e {1} stanno scrivendo…",
 "{0} is typing…": "{0} sta scrivendo…"
 }

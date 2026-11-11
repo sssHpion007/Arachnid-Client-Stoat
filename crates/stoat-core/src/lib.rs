@@ -287,7 +287,27 @@ pub struct UploadLimits {
     pub default: BTreeMap<String, u64>,
 }
 
+impl Default for UploadLimits {
+    /// Ограничения сервера Stoat по умолчанию — пока конфигурация не получена.
+    fn default() -> Self {
+        Self {
+            new_user_hours: 72,
+            new_user: Self::fallback_sizes(),
+            default: Self::fallback_sizes(),
+        }
+    }
+}
+
 impl UploadLimits {
+    /// Предельный размер файла с тегом `tag` для обычного (не нового) аккаунта.
+    pub fn max_size(&self, tag: &str) -> u64 {
+        self.default
+            .get(tag)
+            .copied()
+            .or_else(|| Self::fallback_sizes().get(tag).copied())
+            .unwrap_or(0)
+    }
+
     /// Значения по умолчанию сервера Stoat, если инстанс их не прислал.
     fn fallback_sizes() -> BTreeMap<String, u64> {
         [
@@ -338,6 +358,14 @@ mod tests {
 
         let none: ApiRoot = serde_json::from_value(serde_json::json!({ "features": {} })).unwrap();
         assert!(!none.video_enabled());
+    }
+
+    #[test]
+    fn upload_limit_falls_back_to_defaults() {
+        let limits = UploadLimits::default();
+        assert_eq!(limits.max_size("emojis"), 500_000);
+        assert_eq!(limits.max_size("attachments"), 20_000_000);
+        assert_eq!(limits.max_size("unknown"), 0);
     }
 
     #[test]

@@ -367,6 +367,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Et voi liittyä uudelleen, ellet saa uutta kutsua.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Käyttäjätilisi ja tietosi (mukaanlukien viestisi ja kaverilistasi) ovat jonossa poistoa varten. Vahvistusviesti lähetetään sähköpostiisi - voit perua tämän päätöksen 7 päivän sisällä ottamalla yhteyttä tukeen.",
 "Your recovery codes": "Palautuskoodisi",
+"[Today at] LT": "[Tänään klo] LT",
+"[Yesterday at] LT": "[Eilen klo] LT",
 "{0} and {1} are typing…": "{0} ja {1} kirjoittavat…",
 "{0} is typing…": "{0} kirjoittaa…"
 }

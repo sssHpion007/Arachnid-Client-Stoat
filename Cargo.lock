@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "arachnid-client"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64 0.22.1",
  "directories",
@@ -4901,7 +4901,7 @@ dependencies = [
 
 [[package]]
 name = "stoat-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "futures-util",
  "iso8601-timestamp",
@@ -4919,7 +4919,7 @@ dependencies = [
 
 [[package]]
 name = "stoat-plugin-api"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "serde",
  "serde_json",

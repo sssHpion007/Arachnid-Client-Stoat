@@ -167,6 +167,8 @@
 "You cannot undo this action.": "Това действие не може да бъде отменено.",
 "You won't be able to rejoin unless you are re-invited.": "Няма да можете да се присъедините отново, освен ако не бъдете поканени отново.",
 "Your recovery codes": "Вашите кодове за възстановяване",
+"[Today at] LT": "[Днес в] местно време",
+"[Yesterday at] LT": "[Вчера в] местно време",
 "{0} and {1} are typing…": "{0} и {1} пишат…",
 "{0} is typing…": "{0} пише…"
 }

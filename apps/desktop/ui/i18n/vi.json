@@ -185,6 +185,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "Bạn sẽ không thể truy cập tài khoản của bạn trừ khi bạn liên lạc bên hỗ trợ - dù vậy, dữ liệu của bạn sẽ không bị xóa.",
 "You won't be able to rejoin unless you are re-invited.": "Bạn sẽ không thể tham gia trừ khi được mời lại.",
 "Your recovery codes": "Mã khôi phục của bạn",
+"[Today at] LT": "[Hôm nay lúc] LT",
+"[Yesterday at] LT": "[Hôm qua lúc] LT",
 "{0} and {1} are typing…": "{0} và {1} đang gõ…",
 "{0} is typing…": "{0} đang nhập…"
 }

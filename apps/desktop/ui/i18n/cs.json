@@ -320,6 +320,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Nebudete se moci znovu připojit, pokud znovu nedostanete pozvánku.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Váš účet a všechny vaše údaje (i vaše zprávy a list přátel) budou zařazeny do fronty na smazání. E-mail pro potvrzení bude odeslán - toto můžete zrušit do 7 dnů kontaktováním podpory.",
 "Your recovery codes": "Vaše obnovovací kódy",
+"[Today at] LT": "[Dnes v] LT",
+"[Yesterday at] LT": "[Včera v] LT",
 "{0} and {1} are typing…": "{0} a {1} píší…",
 "{0} is typing…": "{0} píše…"
 }

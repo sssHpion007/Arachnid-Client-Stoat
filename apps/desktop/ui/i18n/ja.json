@@ -374,6 +374,8 @@
 "You won't be able to access your account unless you contact support - however, your data will not be deleted.": "サポートに連絡しない限り、アカウントにアクセスすることはできません。ただし、データは削除されません。",
 "You won't be able to rejoin unless you are re-invited.": "再招待されない限り、参加することはできません。",
 "Your recovery codes": "あなたの回復コード",
+"[Today at] LT": "[今日] LT",
+"[Yesterday at] LT": "[昨日] LT",
 "{0} and {1} are typing…": "{0} と {1} が入力中…",
 "{0} is typing…": "{0} が入力中…"
 }

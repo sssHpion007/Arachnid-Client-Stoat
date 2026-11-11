@@ -15,9 +15,6 @@ use crate::profile::store_me;
 use crate::views::{self, UserView};
 use crate::{AppState, CmdResult, CommandError, http_client};
 
-/// Самый большой файл, который отправляем в Autumn (лимит вложений Stoat — 20 МБ).
-const UPLOAD_LIMIT: usize = 20 * 1024 * 1024;
-
 /// Поля профиля, которые можно очистить (`FieldsUser` в API).
 const REMOVABLE: [&str; 6] = [
     "Avatar",
@@ -427,9 +424,6 @@ pub async fn upload_file(
     if bytes.is_empty() {
         return Err(CommandError::new("invalid", "файл пустой"));
     }
-    if bytes.len() > UPLOAD_LIMIT {
-        return Err(CommandError::new("too_large", "файл больше 20 МБ"));
-    }
 
     let mut autumn = state.cdn_url.read().await.clone();
     if autumn.is_none() {
@@ -437,6 +431,16 @@ pub async fn upload_file(
     }
     let autumn = autumn
         .ok_or_else(|| CommandError::new("unsupported", "сервер не сообщил адрес для файлов"))?;
+
+    // предел инстанса для этого тега; более строгий предел нового аккаунта
+    // проверяет интерфейс, а окончательно — сам Autumn
+    let limit = state.upload.read().await.max_size(tag.as_str());
+    if bytes.len() as u64 > limit {
+        return Err(CommandError::new(
+            "too_large",
+            format!("файл больше {} МБ", limit as f64 / 1_000_000.0),
+        ));
+    }
 
     let http = http_client(&state).await?;
     let id = http

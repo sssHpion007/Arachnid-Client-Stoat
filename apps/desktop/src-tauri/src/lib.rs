@@ -57,6 +57,8 @@ pub struct AppState {
     pub session_id: RwLock<Option<String>>,
     /// Ссылки на правила инстанса (подвал списка разделов настроек)
     pub legal: RwLock<stoat_core::LegalLinks>,
+    /// Предельные размеры загружаемых файлов по тегам Autumn
+    pub upload: RwLock<stoat_core::UploadLimits>,
 }
 
 impl AppState {
@@ -75,6 +77,7 @@ impl AppState {
             subscriptions: Mutex::new(std::collections::HashMap::new()),
             session_id: RwLock::new(None),
             legal: RwLock::new(stoat_core::LegalLinks::default()),
+            upload: RwLock::new(stoat_core::UploadLimits::default()),
         }
     }
 }
@@ -1104,6 +1107,7 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
     *state.cdn_url.write().await = url.clone();
     *state.proxy_url.write().await = root.january_url().map(str::to_string);
     *state.legal.write().await = root.legal_links();
+    *state.upload.write().await = root.upload_limits();
     url
 }
 

@@ -404,6 +404,8 @@
 "You won't be able to rejoin unless you are re-invited.": "Ви не зможете під'єднатися ще раз, поки не отримаєте нове запрошення.",
 "Your account and all of your data (including your messages and friends list) will be queued for deletion. A confirmation email will be sent - you can cancel this within 7 days by contacting support.": "Ваш акаунт з усіма вашими даними (включно з вашими повідомленнями і списком друзів) буде додано до черги на видалення. На пошту буде надіслано лист для підтвердження – у вас буде 7 днів, щоб скасувати це, сповістивши підтримку.",
 "Your recovery codes": "Ваші коди відновлення",
+"[Today at] LT": "[Сьогодні о] LT",
+"[Yesterday at] LT": "[Учора о] LT",
 "{0} and {1} are typing…": "{0} і {1} пишуть…",
 "{0} is typing…": "{0} пише…"
 }
