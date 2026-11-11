@@ -4,104 +4,126 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tauri-Stoat</title>
+    <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="theme.css" />
     <link rel="stylesheet" href="app.css" />
   </head>
   <body>
-    <div class="app" id="app">
+    <!-- Маски «дырок» в аватарах, как в официальном клиенте (Masks.tsx):
+         под значок статуса и под счётчик непрочитанного. -->
+    <svg class="masks" aria-hidden="true" width="0" height="0">
+      <defs>
+        <mask id="mask-avatar" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+              x="0" y="0" width="32" height="32">
+          <circle cx="16" cy="16" r="16" fill="#fff" />
+        </mask>
+        <mask id="mask-status" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+              x="0" y="0" width="32" height="32">
+          <circle cx="16" cy="16" r="16" fill="#fff" />
+          <circle cx="27" cy="27" r="7" fill="#000" />
+        </mask>
+        <mask id="mask-badge" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+              x="0" y="0" width="32" height="32">
+          <circle cx="16" cy="16" r="16" fill="#fff" />
+          <circle cx="27" cy="5" r="7" fill="#000" />
+        </mask>
+        <mask id="mask-status-badge" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse"
+              x="0" y="0" width="32" height="32">
+          <circle cx="16" cy="16" r="16" fill="#fff" />
+          <circle cx="27" cy="27" r="7" fill="#000" />
+          <circle cx="27" cy="5" r="7" fill="#000" />
+        </mask>
+      </defs>
+    </svg>
+
+    <div class="layout" id="layout">
       <!-- рельс серверов -->
-      <nav class="rail" id="rail">
-        <div class="rail-list" id="rail-list"></div>
-        <button class="rail-btn" id="rail-me" title="Аккаунт"></button>
+      <nav class="server-list" id="server-list" aria-label="Серверы">
+        <div class="server-list-scroll" id="rail"></div>
       </nav>
 
-      <!-- список каналов -->
-      <aside class="sidebar">
-        <header class="sidebar-head">
-          <div class="sidebar-title" id="server-name">Загрузка…</div>
-          <div class="sidebar-actions">
-            <button class="icon-btn" id="btn-refresh" title="Обновить">⟳</button>
-          </div>
-        </header>
-        <div class="channels" id="channels"></div>
-        <footer class="me-bar" id="me-bar">
-          <div class="avatar" id="me-avatar"></div>
-          <div class="me-text">
-            <div class="me-name" id="me-name">…</div>
-            <div class="me-status" id="me-status">подключаюсь…</div>
-          </div>
-          <button class="icon-btn" id="btn-logout" title="Выйти">⎋</button>
-        </footer>
-      </aside>
+      <div class="workspace">
+        <!-- список каналов / бесед -->
+        <aside class="sidebar" id="sidebar">
+          <header class="sidebar-header" id="sidebar-header"></header>
+          <div class="sidebar-scroll" id="channels"></div>
+        </aside>
 
-      <!-- чат -->
-      <main class="chat">
-        <header class="chat-head">
-          <div class="chat-hash" id="chat-hash">#</div>
-          <div>
-            <div class="chat-title" id="chat-title">Выберите канал</div>
-            <div class="chat-sub" id="chat-sub"></div>
-          </div>
-          <div class="conn" id="conn"><span class="dot"></span><span id="conn-text">не подключено</span></div>
-        </header>
+        <div class="content">
+          <!-- шапка канала -->
+          <header class="channel-header" id="channel-header">
+            <span class="channel-header-icon" id="chat-icon"></span>
+            <span class="channel-header-title" id="chat-title">Tauri-Stoat</span>
+            <span class="channel-header-divider hidden" id="chat-divider"></span>
+            <span class="channel-header-description" id="chat-sub"></span>
+            <span class="spacer"></span>
+            <span class="connection" id="conn" title="Соединение со Stoat">
+              <span class="connection-dot"></span><span id="conn-text">не подключено</span>
+            </span>
+            <button class="icon-button hidden" id="btn-members" type="button" title="Участники"></button>
+          </header>
 
-        <div class="messages" id="messages">
-          <div class="empty" id="empty">
-            <div class="empty-icon">💬</div>
-            <div class="empty-title">Здесь пока пусто</div>
-            <div class="empty-text">Выберите канал слева, чтобы прочитать сообщения</div>
-          </div>
-        </div>
+          <div class="channel-body">
+            <main class="main" id="main">
+              <div class="messages" id="messages"></div>
 
-        <footer class="composer" id="composer">
-          <div class="composer-row">
-            <input id="input" type="text" placeholder="Выберите канал" disabled
-                   autocomplete="off" maxlength="2000" />
-            <button class="emoji-btn" id="btn-emoji" type="button" title="Эмодзи сервера">☺</button>
-            <button class="send" id="btn-send" disabled title="Отправить">➤</button>
-          </div>
-          <div class="emoji-picker hidden" id="emoji-picker">
-            <input id="emoji-search" type="search" placeholder="Поиск эмодзи…" autocomplete="off" />
-            <div class="emoji-body">
-              <div class="emoji-servers" id="emoji-servers"></div>
-              <div class="emoji-scroll">
-                <div class="emoji-list" id="emoji-list"></div>
+              <div class="composition" id="composition">
+                <div class="typing hidden" id="typing"></div>
+                <div class="replies" id="replies"></div>
+                <div class="message-box hidden" id="message-box">
+                  <textarea id="input" rows="1" maxlength="2000" spellcheck="true"
+                            autocomplete="off" placeholder=""></textarea>
+                  <button class="icon-button" id="btn-emoji" type="button" title="Эмодзи"></button>
+                  <button class="icon-button send" id="btn-send" type="button" title="Отправить"></button>
+                </div>
+                <div class="blocked hidden" id="blocked"></div>
+
+                <div class="emoji-picker hidden" id="emoji-picker">
+                  <input id="emoji-search" type="search" placeholder="Поиск эмодзи" autocomplete="off" />
+                  <div class="emoji-body">
+                    <div class="emoji-servers" id="emoji-servers"></div>
+                    <div class="emoji-scroll" id="emoji-scroll">
+                      <div class="emoji-list" id="emoji-list"></div>
+                    </div>
+                  </div>
+                  <div class="emoji-preview" id="emoji-preview">
+                    <span class="emoji-preview-img" id="emoji-preview-img"></span>
+                    <span class="emoji-preview-text">
+                      <b id="emoji-preview-name"></b>
+                      <small id="emoji-preview-from"></small>
+                    </span>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div class="emoji-preview" id="emoji-preview">
-              <span class="emoji-preview-img" id="emoji-preview-img"></span>
-              <span class="emoji-preview-text">
-                <b id="emoji-preview-name"></b>
-                <small id="emoji-preview-from"></small>
-              </span>
-            </div>
-          </div>
-          <div class="composer-hint" id="composer-hint"></div>
-        </footer>
-      </main>
+            </main>
 
-      <!-- участники сервера -->
-      <aside class="members hidden" id="members">
-        <div class="members-head">
-          <span>Участники</span>
-          <span class="members-count" id="members-count"></span>
+            <!-- участники -->
+            <aside class="member-sidebar hidden" id="members"></aside>
+          </div>
         </div>
-        <div class="members-list" id="members-list"></div>
-      </aside>
+      </div>
     </div>
 
     <!-- меню аккаунта -->
-    <div class="menu hidden" id="account-menu">
-      <div class="menu-title" id="menu-name">…</div>
-      <div class="menu-sub" id="menu-id"></div>
-      <button class="menu-item" id="menu-switch">Сменить аккаунт</button>
-      <button class="menu-item danger" id="menu-logout">Выйти</button>
+    <div class="menu account-menu hidden" id="account-menu">
+      <div class="account-card">
+        <span id="menu-avatar"></span>
+        <span class="account-text">
+          <span class="account-name" id="menu-name"></span>
+          <span class="account-id" id="menu-id"></span>
+        </span>
+      </div>
+      <div class="menu-divider"></div>
+      <button class="menu-item" id="menu-switch" type="button"></button>
+      <button class="menu-item danger" id="menu-logout" type="button"></button>
     </div>
 
-    <!-- контекстные меню (ПКМ) -->
-    <div class="ctx hidden" id="ctx-menu"></div>
+    <!-- контекстное меню -->
+    <div class="menu context-menu hidden" id="ctx-menu" role="menu"></div>
 
-    <div class="toast hidden" id="toast"></div>
+    <div class="toast hidden" id="toast" role="status"></div>
 
+    <script src="icons.js"></script>
     <script src="emoji/map.js"></script>
     <script src="app.js" defer></script>
   </body>

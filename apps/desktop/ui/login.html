@@ -4,106 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tauri-Stoat — вход</title>
-    <style>
-      :root {
-        color-scheme: dark;
-        --bg: #0d0f13;
-        --card: #16191f;
-        --line: #262a33;
-        --text: #e8eaf0;
-        --muted: #8d93a1;
-        --accent: #5865f2;
-        --ok: #3ba55d;
-        --warn: #faa61a;
-        --err: #ed4245;
-        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        background: radial-gradient(1200px 600px at 50% -10%, #1b2033 0%, var(--bg) 60%);
-        color: var(--text);
-      }
-      .card {
-        width: 430px;
-        max-width: calc(100vw - 32px);
-        background: var(--card);
-        border: 1px solid var(--line);
-        border-radius: 18px;
-        padding: 28px;
-        box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
-      }
-      .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; }
-      .logo {
-        width: 40px; height: 40px; border-radius: 12px;
-        background: linear-gradient(135deg, var(--accent), #8b5cf6);
-        display: grid; place-items: center; font-weight: 700; font-size: 18px;
-      }
-      h1 { font-size: 19px; margin: 0; }
-      .sub { color: var(--muted); font-size: 13px; margin-top: 3px; }
-      label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; letter-spacing: .02em; }
-      input {
-        width: 100%;
-        font: inherit;
-        color: var(--text);
-        background: #101319;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 11px 13px;
-        outline: none;
-        transition: border-color .12s, box-shadow .12s;
-      }
-      input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88, 101, 242, .18); }
-      input:disabled { opacity: .6; }
-      button {
-        font: inherit;
-        cursor: pointer;
-        border-radius: 10px;
-        border: 1px solid var(--line);
-        background: #1d212a;
-        color: var(--text);
-        padding: 11px 14px;
-        transition: background .12s, filter .12s;
-      }
-      button:hover:not(:disabled) { background: #242a35; }
-      button.primary {
-        width: 100%;
-        margin-top: 18px;
-        background: var(--accent);
-        border-color: transparent;
-        font-weight: 600;
-      }
-      button.primary:hover:not(:disabled) { filter: brightness(1.08); }
-      button:disabled { opacity: .5; cursor: default; }
-      .row { display: flex; gap: 8px; }
-      .row > button { flex: 1; }
-      .msg { margin-top: 14px; font-size: 13px; line-height: 1.45; min-height: 18px; }
-      .msg.err { color: var(--err); }
-      .msg.ok { color: var(--ok); }
-      .msg.warn { color: var(--warn); }
-      .hidden { display: none !important; }
-      .mfa-hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
-      .footer { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
-      .footer summary { cursor: pointer; font-size: 12px; color: var(--muted); }
-      .footer .inner { margin-top: 12px; }
-      .spinner {
-        display: inline-block; width: 13px; height: 13px; margin-right: 8px;
-        border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
-        border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px;
-      }
-      @keyframes spin { to { transform: rotate(360deg); } }
-      .instance { font-size: 11px; color: var(--muted); margin-top: 14px; word-break: break-all; }
-      .checkbox { display: flex; align-items: center; gap: 8px; margin-top: 12px; font-size: 12px; color: var(--muted); }
-      .checkbox input { width: auto; }
-    </style>
+    <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="theme.css" />
+    <link rel="stylesheet" href="login.css" />
   </head>
   <body>
     <div class="card">
       <div class="brand">
-        <div class="logo">S</div>
+        <div class="logo" aria-hidden="true">S</div>
         <div>
           <h1>Вход в Stoat</h1>
           <div class="sub">Tauri-Stoat · <span id="instance-name">stoat.chat</span></div>
@@ -122,7 +30,7 @@
 
         <div class="checkbox">
           <input id="remember" type="checkbox" checked />
-          <label for="remember" style="margin:0">Запомнить сессию на этом устройстве</label>
+          <label for="remember">Запомнить сессию на этом устройстве</label>
         </div>
 
         <button class="primary" type="submit" id="submit-password">Войти</button>
@@ -135,8 +43,8 @@
                placeholder="000000" />
         <div class="mfa-hint" id="mfa-hint"></div>
         <button class="primary" type="submit" id="submit-mfa">Подтвердить</button>
-        <div class="row" style="margin-top: 10px">
-          <button type="button" id="mfa-back">Назад</button>
+        <div class="row">
+          <button class="text" type="button" id="mfa-back">Назад</button>
         </div>
       </form>
 
@@ -148,7 +56,7 @@
           <div class="inner">
             <label for="token">Токен (Stoat → Настройки → Сессии)</label>
             <input id="token" type="password" placeholder="вставьте токен" autocomplete="off" />
-            <button class="primary" type="button" id="submit-token" style="margin-top: 10px">Войти с токеном</button>
+            <button class="primary" type="button" id="submit-token">Войти с токеном</button>
           </div>
         </details>
       </div>

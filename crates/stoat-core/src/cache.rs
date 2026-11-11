@@ -58,6 +58,32 @@ pub enum CacheEvent {
     Cleared,
 }
 
+/// Что пользователь уже прочитал в канале.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Unread {
+    /// Последнее прочитанное сообщение
+    pub last_id: Option<String>,
+    /// Непрочитанные сообщения с упоминанием пользователя
+    pub mentions: Vec<String>,
+}
+
+impl Unread {
+    /// Есть ли в канале что-то новее прочитанного.
+    ///
+    /// Id сообщений — ULID, поэтому их порядок совпадает с порядком строк.
+    /// Канал без отметки о прочтении считается непрочитанным, как в
+    /// браузерном клиенте.
+    pub fn is_behind(unread: Option<&Unread>, last_message_id: Option<&str>) -> bool {
+        let Some(last) = last_message_id else {
+            return false;
+        };
+        match unread.and_then(|unread| unread.last_id.as_deref()) {
+            Some(read) => read < last,
+            None => true,
+        }
+    }
+}
+
 /// Снимок кэша, который отдаётся в UI.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -73,6 +99,9 @@ pub struct Snapshot {
     pub emojis: Vec<v0::Emoji>,
     /// Профиль текущего пользователя
     pub me: Option<v0::User>,
+    /// Отметки о прочтении: id канала → что прочитано
+    #[serde(default)]
+    pub unreads: HashMap<String, Unread>,
 }
 
 #[derive(Debug, Default)]
@@ -87,6 +116,8 @@ struct State {
     messages: HashMap<String, HashMap<String, v0::Message>>,
     /// кто печатает: канал → множество пользователей
     typing: HashMap<String, std::collections::HashSet<String>>,
+    /// отметки о прочтении: канал → что прочитано
+    unreads: HashMap<String, Unread>,
 }
 
 /// Потокобезопасный кэш.
@@ -139,6 +170,7 @@ impl Cache {
         state.emojis.clear();
         state.messages.clear();
         state.typing.clear();
+        state.unreads.clear();
 
         for user in ready.users.unwrap_or_default() {
             state.users.insert(user.id.clone(), user);
@@ -160,6 +192,15 @@ impl Cache {
         }
         for emoji in ready.emojis.unwrap_or_default() {
             state.emojis.insert(emoji.id.clone(), emoji);
+        }
+        for unread in ready.channel_unreads.unwrap_or_default() {
+            state.unreads.insert(
+                unread.id.channel,
+                Unread {
+                    last_id: unread.last_id,
+                    mentions: unread.mentions,
+                },
+            );
         }
         drop(state);
 
@@ -251,7 +292,20 @@ impl Cache {
                 .as_ref()
                 .and_then(|id| state.users.get(id))
                 .cloned(),
+            unreads: state.unreads.clone(),
         }
+    }
+
+    /// Отметить канал прочитанным до сообщения `message` включительно.
+    ///
+    /// Вызывается сразу после успешного `PUT /ack`, не дожидаясь, пока шлюз
+    /// пришлёт `ChannelAck`: иначе повторное открытие клиента до прихода
+    /// события снова показало бы канал непрочитанным.
+    pub async fn mark_read(&self, channel: &str, message: &str) {
+        let mut state = self.state.write().await;
+        mark_read(&mut state, channel, message);
+        drop(state);
+        self.publish(CacheEvent::ChannelChanged(channel.to_string()));
     }
 
     /// Пользователь по id.
@@ -355,11 +409,50 @@ pub fn channel_id(channel: &v0::Channel) -> &str {
     }
 }
 
+/// Запомнить последнее сообщение канала.
+fn set_last_message(channel: &mut v0::Channel, message: &str) {
+    use v0::Channel::*;
+    match channel {
+        DirectMessage {
+            last_message_id, ..
+        }
+        | Group {
+            last_message_id, ..
+        }
+        | TextChannel {
+            last_message_id, ..
+        } => {
+            // события могут прийти не по порядку: назад не откатываемся
+            if last_message_id.as_deref() < Some(message) {
+                *last_message_id = Some(message.to_string());
+            }
+        }
+        SavedMessages { .. } => {}
+    }
+}
+
+/// Сдвинуть отметку о прочтении канала вперёд.
+fn mark_read(state: &mut State, channel: &str, message: &str) {
+    let unread = state.unreads.entry(channel.to_string()).or_default();
+    if unread.last_id.as_deref() < Some(message) {
+        unread.last_id = Some(message.to_string());
+    }
+    unread.mentions.retain(|id| id.as_str() > message);
+}
+
 fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEvent>) {
     match event {
         GatewayEvent::Message(message) => {
             let channel = message.channel.clone();
             let id = message.id.clone();
+            // по `last_message_id` интерфейс решает, есть ли в канале новое
+            if let Some(existing) = state.channels.get_mut(&channel) {
+                set_last_message(existing, &id);
+            }
+            // своё сообщение прочитано сразу
+            if state.me.as_deref() == Some(message.author.as_str()) {
+                mark_read(state, &channel, &id);
+            }
             state
                 .messages
                 .entry(channel.clone())
@@ -522,8 +615,40 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
                 emitted.push(CacheEvent::UserChanged(user));
             }
         }
-        GatewayEvent::UserUpdate { id, data, .. } => {
+        GatewayEvent::UserUpdate {
+            id,
+            data,
+            clear,
+            online,
+        } => {
             if let Some(user) = state.users.get_mut(&id) {
+                // сначала очищаем поля, затем применяем новые значения — так же,
+                // как это делает браузерный клиент
+                for field in &clear {
+                    match field.as_str() {
+                        "Avatar" => user.avatar = None,
+                        "DisplayName" => user.display_name = None,
+                        "StatusText" => {
+                            if let Some(status) = user.status.as_mut() {
+                                status.text = None;
+                            }
+                        }
+                        "StatusPresence" => {
+                            if let Some(status) = user.status.as_mut() {
+                                status.presence = None;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                // присутствие приходит в `data.online`, старые серверы — рядом с `data`
+                if let Some(online) = data
+                    .get("online")
+                    .and_then(|v| v.as_bool())
+                    .or(online)
+                {
+                    user.online = online;
+                }
                 if let Some(display_name) = data.get("display_name").and_then(|v| v.as_str()) {
                     user.display_name = Some(display_name.to_string());
                 }
@@ -557,7 +682,10 @@ fn apply_event(state: &mut State, event: GatewayEvent, emitted: &mut Vec<CacheEv
             state.users.insert(user_id.clone(), *user);
             emitted.push(CacheEvent::UserChanged(user_id));
         }
-        GatewayEvent::ChannelAck { .. } => {}
+        GatewayEvent::ChannelAck { id, message_id, .. } => {
+            mark_read(state, &id, &message_id);
+            emitted.push(CacheEvent::ChannelChanged(id));
+        }
         GatewayEvent::MessageReact { .. }
         | GatewayEvent::MessageUnreact { .. }
         | GatewayEvent::MessageRemoveReaction { .. } => {
@@ -655,6 +783,61 @@ mod tests {
             "content": content
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn unread_compares_message_ids() {
+        let read = Unread {
+            last_id: Some("01B".into()),
+            mentions: Vec::new(),
+        };
+        assert!(!Unread::is_behind(Some(&read), Some("01B")));
+        assert!(!Unread::is_behind(Some(&read), Some("01A")));
+        assert!(Unread::is_behind(Some(&read), Some("01C")));
+        assert!(Unread::is_behind(None, Some("01A")));
+        assert!(!Unread::is_behind(None, None));
+    }
+
+    #[tokio::test]
+    async fn ack_moves_read_marker_forward_only() {
+        let cache = Cache::new();
+        cache
+            .apply(GatewayEvent::ChannelAck {
+                id: "c1".into(),
+                user: "me".into(),
+                message_id: "01B".into(),
+            })
+            .await;
+        cache.mark_read("c1", "01A").await;
+
+        let snapshot = cache.snapshot().await;
+        assert_eq!(snapshot.unreads["c1"].last_id.as_deref(), Some("01B"));
+    }
+
+    #[tokio::test]
+    async fn new_message_updates_channel_last_message() {
+        let cache = Cache::new();
+        let channel: v0::Channel = serde_json::from_value(json!({
+            "channel_type": "TextChannel",
+            "_id": "c1",
+            "server": "s1",
+            "name": "general"
+        }))
+        .unwrap();
+        cache.insert_channel(channel).await;
+        cache
+            .apply(GatewayEvent::Message(Box::new(message("01C", "c1", "hi"))))
+            .await;
+
+        let snapshot = cache.snapshot().await;
+        match &snapshot.channels[0] {
+            v0::Channel::TextChannel {
+                last_message_id, ..
+            } => assert_eq!(last_message_id.as_deref(), Some("01C")),
+            other => panic!("не тот канал: {other:?}"),
+        }
+        // чужое сообщение не отмечает канал прочитанным
+        assert!(Unread::is_behind(snapshot.unreads.get("c1"), Some("01C")));
     }
 
     #[tokio::test]
@@ -781,6 +964,37 @@ mod tests {
             }
             other => panic!("ожидали TextChannel, получили {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn user_update_clears_and_sets_fields() {
+        let cache = Cache::new();
+        let user: v0::User = serde_json::from_value(json!({
+            "_id": "u1",
+            "username": "bob",
+            "discriminator": "0001",
+            "display_name": "Боб",
+            "status": { "text": "занят", "presence": "Busy" },
+            "relationship": "None",
+            "online": false
+        }))
+        .unwrap();
+        cache.insert_user(user).await;
+        cache
+            .apply(GatewayEvent::UserUpdate {
+                id: "u1".into(),
+                data: json!({ "online": true }),
+                clear: vec!["StatusText".into(), "DisplayName".into()],
+                online: None,
+            })
+            .await;
+
+        let user = cache.user("u1").await.unwrap();
+        assert!(user.online);
+        assert_eq!(user.display_name, None);
+        let status = user.status.unwrap();
+        assert_eq!(status.text, None);
+        assert!(status.presence.is_some());
     }
 
     #[tokio::test]

@@ -577,7 +577,7 @@ async fn message_view(
 ) -> ChatMessage {
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::from(user));
+        authors.insert(message.author.clone(), UserView::build(user, cdn));
     }
     let info = server_info(cache, &message.channel).await;
     ChatMessage::build(
@@ -591,10 +591,14 @@ async fn message_view(
 }
 
 /// Отправить сообщение в канал.
+///
+/// `replies` — ответы на сообщения в том виде, в котором их ждёт API:
+/// `{ id, mention }`, как в браузерном клиенте.
 #[tauri::command]
 async fn send_message(
     channel_id: String,
     content: String,
+    replies: Option<Vec<revolt_models::v0::ReplyIntent>>,
     state: State<'_, Arc<AppState>>,
 ) -> CmdResult<ChatMessage> {
     let http = {
@@ -605,8 +609,9 @@ async fn send_message(
             .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
     };
 
-    let data = revolt_send(&content);
+    let data = revolt_send(&content, replies.unwrap_or_default());
     // ключ идемпотентности: повторная отправка не создаст дубликат
+    // (поле `nonce` в теле запроса API считает устаревшим)
     let key = Some(nonce());
     let message = http.send_message(&channel_id, data, key).await?;
     state.cache.insert_message(message.clone()).await;
@@ -614,7 +619,7 @@ async fn send_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::from(user));
+        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -899,6 +904,9 @@ async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
     url
 }
 
+/// Сколько сообщений отдаёт сервер, если размер страницы не указан.
+const DEFAULT_PAGE: u32 = 50;
+
 /// История канала: сообщения с авторами и файлами, готовые к показу.
 #[tauri::command]
 async fn channel_history(
@@ -929,9 +937,10 @@ async fn channel_history(
     // сервер отдаёт новые сверху — интерфейсу удобнее по возрастанию времени
     messages.reverse();
 
+    let cdn = state.cdn_url.read().await.clone();
     let mut authors: std::collections::HashMap<String, UserView> = std::collections::HashMap::new();
     for user in users {
-        let view = UserView::from(user.clone());
+        let view = UserView::build(user.clone(), cdn.as_deref());
         authors.insert(view.id.clone(), view);
         state.cache.insert_user(user).await;
     }
@@ -939,7 +948,7 @@ async fn channel_history(
         if let Some(user) = &message.user {
             authors
                 .entry(user.id.clone())
-                .or_insert_with(|| UserView::from(user.clone()));
+                .or_insert_with(|| UserView::build(user.clone(), cdn.as_deref()));
         }
         state.cache.insert_message_no_event(message.clone()).await;
     }
@@ -949,11 +958,12 @@ async fn channel_history(
         if !authors.contains_key(&message.author)
             && let Some(user) = state.cache.user(&message.author).await
         {
-            authors.insert(message.author.clone(), UserView::from(user));
+            authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
         }
     }
 
-    let cdn = state.cdn_url.read().await.clone();
+    // полная страница — значит, выше могут быть ещё сообщения
+    let has_more = messages.len() >= limit.unwrap_or(DEFAULT_PAGE) as usize;
     let info = server_info(&state.cache, &channel_id).await;
     Ok(HistoryView {
         messages: messages
@@ -969,7 +979,7 @@ async fn channel_history(
                 )
             })
             .collect(),
-        has_more: true,
+        has_more,
     })
 }
 
@@ -999,7 +1009,7 @@ async fn edit_message(
     let cdn = state.cdn_url.read().await.clone();
     let mut authors = std::collections::HashMap::new();
     if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::from(user));
+        authors.insert(message.author.clone(), UserView::build(user, cdn.as_deref()));
     }
     let info = server_info(&state.cache, &channel_id).await;
     Ok(ChatMessage::build(
@@ -1027,6 +1037,25 @@ async fn delete_message(
             .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
     };
     http.delete_message(&channel_id, &message_id).await?;
+    Ok(())
+}
+
+/// Отметить канал прочитанным до сообщения `message_id`.
+#[tauri::command]
+async fn ack_channel(
+    channel_id: String,
+    message_id: String,
+    state: State<'_, Arc<AppState>>,
+) -> CmdResult<()> {
+    let http = {
+        let guard = state.http.read().await;
+        guard
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
+    };
+    http.ack_message(&channel_id, &message_id).await?;
+    state.cache.mark_read(&channel_id, &message_id).await;
     Ok(())
 }
 
@@ -1061,12 +1090,13 @@ pub struct SessionView {
     pub channels: usize,
 }
 
-fn revolt_send(content: &str) -> v0::DataMessageSend {
+fn revolt_send(content: &str, replies: Vec<v0::ReplyIntent>) -> v0::DataMessageSend {
     v0::DataMessageSend {
         nonce: None,
         content: Some(content.to_string()),
         attachments: None,
-        replies: None,
+        // пустой список не отправляем: сервер проверяет его длину
+        replies: (!replies.is_empty()).then_some(replies),
         embeds: None,
         masquerade: None,
         interactions: None,
@@ -1162,6 +1192,7 @@ pub fn run() {
             send_message,
             edit_message,
             delete_message,
+            ack_channel,
             cache_snapshot,
             data_dir,
         ])
@@ -1190,8 +1221,21 @@ mod tests {
 
     #[test]
     fn send_payload_is_minimal() {
-        let data = revolt_send("привет");
+        let data = revolt_send("привет", Vec::new());
         assert_eq!(data.content.as_deref(), Some("привет"));
         assert!(data.attachments.is_none());
+        assert!(data.replies.is_none(), "пустой список ответов не отправляется");
+        assert!(data.nonce.is_none(), "вместо nonce — заголовок Idempotency-Key");
+    }
+
+    #[test]
+    fn reply_intent_comes_from_interface() {
+        // так аргумент приходит из JS
+        let replies: Vec<v0::ReplyIntent> =
+            serde_json::from_str(r#"[{"id":"01MSG","mention":true}]"#).unwrap();
+        let data = revolt_send("ответ", replies);
+        let body = serde_json::to_value(&data).unwrap();
+        assert_eq!(body["replies"][0]["id"], "01MSG");
+        assert_eq!(body["replies"][0]["mention"], true);
     }
 }
