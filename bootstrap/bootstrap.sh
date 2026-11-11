@@ -19,7 +19,6 @@ DEFAULT_DIR="${HOME}/Arachnid-Client"
 
 # ── изменение этих значений меняет только «что качать», не логику ────────────
 ARACHNID_CLIENT_REPO="sssHpion007/Arachnid-Client-Stoat"
-REVOLT_MODELS_VERSION="0.16.3"
 
 INSTALL_DIR=""
 CHECK_ONLY=0
@@ -148,13 +147,9 @@ extract_json_field() {
 create_layout() {
   info "каталог" "$INSTALL_DIR"
   mkdir -p \
-    "$INSTALL_DIR/cache/autumn" \
-    "$INSTALL_DIR/cache/embeds" \
-    "$INSTALL_DIR/plugins" \
-    "$INSTALL_DIR/themes" \
     "$INSTALL_DIR/logs" \
     "$INSTALL_DIR/vendor"
-  ok "созданы cache/, plugins/, themes/, logs/, vendor/"
+  ok "созданы logs/, vendor/ (профиль webview/ клиент создаст сам)"
 
   # конфиги берём из файлов рядом со скриптом; иначе пишем минимальный вариант
   local here
@@ -166,15 +161,8 @@ create_layout() {
     else
       cat > "$INSTALL_DIR/config.toml" <<'CFG'
 [instance]
-api_url = "https://api.stoat.chat"
-ws_url  = "wss://events.stoat.chat"
-
-[app]
-name = "Arachnid Client"
-
-[plugins]
-enabled = true
-dir = "plugins"
+# адрес веб-клиента Stoat, который открывается в окне
+app_url = "https://stoat.chat/app"
 CFG
     fi
     ok "создан config.toml"
@@ -209,9 +197,6 @@ check_instance() {
       mkdir -p "$INSTALL_DIR/vendor"
       printf '%s\n' "$body" > "$INSTALL_DIR/vendor/api-root.json"
     fi
-    if [ -n "$version" ] && [ "$version" != "$REVOLT_MODELS_VERSION" ]; then
-      warn "API $version, а модели в коде собраны под $REVOLT_MODELS_VERSION — если что-то не парсится, обновите клиент"
-    fi
     return 0
   fi
   warn "API недоступен — установка продолжится, клиент проверит связь при запуске"
@@ -232,31 +217,15 @@ check_token() {
 }
 
 # ───────────────────────────── vendor: файлы для работы ─────────────────────
-# Что и зачем качается:
-#   api-root.json                 — конфигурация инстанса (адреса CDN, gateway, лимиты)
-#   revolt-models-<ver>.crate     — официальные модели API (MIT), ровно та версия,
-#                                   под которую собран клиент: нужна для сверки схем
-#                                   и для сборки ядра из исходников
-#   checksums.txt                 — контрольные суммы скачанного
+# Что лежит в vendor/:
+#   api-root.json   — ответ инстанса на `GET /` (адреса CDN, gateway, лимиты)
+#   checksums.txt   — контрольные суммы скачанного
 fetch_vendor() {
-  info "vendor" "скачиваю рабочие файлы"
-
-  local crate="vendor/revolt-models-${REVOLT_MODELS_VERSION}.crate"
-  if [ -f "$INSTALL_DIR/$crate" ]; then
-    ok "revolt-models ${REVOLT_MODELS_VERSION} уже скачан"
-  else
-    if download "https://static.crates.io/crates/revolt-models/revolt-models-${REVOLT_MODELS_VERSION}.crate" "$INSTALL_DIR/$crate"; then
-      ok "revolt-models ${REVOLT_MODELS_VERSION} ($(du -h "$INSTALL_DIR/$crate" | cut -f1))"
-    else
-      warn "не удалось скачать revolt-models — не критично, клиент работает и без него"
-    fi
-  fi
-
-  # контрольные суммы для того, что скачали
+  info "vendor" "контрольные суммы"
   (
     cd "$INSTALL_DIR" || exit 1
     : > vendor/checksums.txt
-    for f in vendor/*.crate vendor/api-root.json; do
+    for f in vendor/api-root.json; do
       [ -f "$f" ] || continue
       if have sha256sum; then
         sha256sum "$f" >> vendor/checksums.txt
@@ -396,7 +365,6 @@ report_tools() {
   have sha256sum || have shasum && ok "sha256" || warn "нет утилиты контрольных сумм"
   have git && ok "git" || warn "git не найден (нужен только для сборки из исходников)"
   have cargo && ok "cargo $(cargo --version 2>/dev/null | awk '{print $2}')" || warn "Rust не установлен (нужен только для сборки из исходников)"
-  have node && ok "node $(node --version 2>/dev/null)" || warn "Node.js не найден (нужен только для сборки UI)"
 }
 
 print_next_steps() {
@@ -406,9 +374,8 @@ ${B}Готово.${N} Всё лежит в ${B}${INSTALL_DIR}${N} — офици
 
 Что дальше:
   1. Откройте папку:            cd "${INSTALL_DIR}"
-  2. Настройте инстанс:         config.toml  (по умолчанию api.stoat.chat)
+  2. Свой инстанс (если нужен): config.toml, app_url (по умолчанию stoat.chat/app)
   3. Запустите клиент:          ${LAUNCH_HINT}
-  4. Плагины кладите в:         ${INSTALL_DIR}/plugins (подпапка на плагин)
 
 Повторный запуск этого скрипта обновляет файлы и ничего не ломает.
 Удаление — просто удалить папку.

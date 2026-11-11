@@ -34,11 +34,11 @@ jobs:
         run: |
           mkdir -p dist/Arachnid-Client
           cp target/release/arachnid-client.exe dist/Arachnid-Client/
-          mkdir -p dist/Arachnid-Client/cache dist/Arachnid-Client/plugins \
-                   dist/Arachnid-Client/themes dist/Arachnid-Client/logs
-          cp bootstrap/config.toml dist/Arachnid-Client/ || true
-          cp bootstrap/README.txt dist/Arachnid-Client/ || true
-          # интерфейс и эмодзи лежат внутри exe, но копия рядом не мешает
+          mkdir -p dist/Arachnid-Client/logs
+          # config.toml рядом с exe включает portable-режим: вход и настройки
+          # хранятся в этой же папке
+          cp bootstrap/config.toml dist/Arachnid-Client/
+          cp bootstrap/README.txt dist/Arachnid-Client/
           cd dist
           powershell -Command "Compress-Archive -Path Arachnid-Client -DestinationPath 'arachnid-client-windows-x86_64.zip' -Force"
           ls -la

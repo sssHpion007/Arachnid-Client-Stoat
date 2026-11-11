@@ -1,117 +1,25 @@
-//! Tauri-слой клиента Stoat.
+//! Arachnid Client: настольная оболочка для официального веб-клиента Stoat.
 //!
-//! Здесь только то, что связывает интерфейс с ядром [`stoat_core`]:
-//! состояние приложения, команды для webview и хранение токена.
-//! Никакой бизнес-логики протокола — она в ядре и покрыта тестами.
+//! Интерфейс — Stoat for Web без изменений, открытый с адреса инстанса
+//! (по умолчанию https://stoat.chat/app), как это делает официальный Stoat
+//! for Desktop. Оболочка отвечает за то, чего нет у браузера: окно со своей
+//! рамкой, трей, автозапуск, Discord RPC, раздел настроек «ПК» и
+//! портативный каталог данных (см. [`desktop`] и [`instance`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Serialize;
-use stoat_core::cache::Cache;
-use stoat_core::gateway::{self, GatewayConfig, GatewayEvent, GatewayHandle};
-use stoat_core::http::{HttpClient, Token};
-use stoat_core::{ApiRoot, Instance, ReadyField};
-use tauri::{Manager, State};
+use tauri::Manager;
+use tauri::ipc::CapabilityBuilder;
 
-mod bots;
 mod desktop;
-mod markdown;
-mod media;
-mod messages;
-mod permissions;
-mod profile;
-mod security;
-mod server_admin;
-mod settings;
-mod views;
-use tokio::sync::{Mutex, RwLock};
-use views::{ChatMessage, HistoryView, UserView, WorkspaceView};
+mod instance;
 
-/// Состояние приложения, доступное командам.
-pub struct AppState {
-    /// Текущий инстанс (может быть переопределён config.toml)
-    pub instance: RwLock<Instance>,
-    /// REST-клиент; `None`, пока не создан
-    pub http: RwLock<Option<HttpClient>>,
-    /// Кэш состояния
-    pub cache: Cache,
-    /// Активное gateway-соединение
-    pub gateway: Mutex<Option<GatewayHandle>>,
-    /// Каталог установки (рядом с exe или выбранный бутстрапом)
-    pub data_dir: PathBuf,
-    /// Базовый URL файлового сервиса (Autumn) для аватаров и вложений
-    pub cdn_url: RwLock<Option<String>>,
-    /// Прокси January для сторонних файлов во встраиваниях
-    pub proxy_url: RwLock<Option<String>>,
-    /// Порядок серверов из настроек синхронизации (до переподключения
-    /// или до `UserSettingsUpdate`): без него каждое обновление дерева
-    /// серверов ходило бы в сеть
-    pub ordering: RwLock<Option<views::Ordering>>,
-    /// Эмодзи серверов: id сервера → список (меняется редко)
-    pub emojis: RwLock<std::collections::HashMap<String, Vec<views::EmojiView>>>,
-    /// Серверы, полный список участников которых уже получен в этом подключении
-    pub members_synced: RwLock<std::collections::HashSet<String>>,
-    /// Подписки на присутствие участников: id сервера → когда отправлена
-    pub subscriptions: Mutex<std::collections::HashMap<String, std::time::Instant>>,
-    /// Id текущей сессии, если известен (после входа или из запомненного)
-    pub session_id: RwLock<Option<String>>,
-    /// Ссылки на правила инстанса (подвал списка разделов настроек)
-    pub legal: RwLock<stoat_core::LegalLinks>,
-    /// Предельные размеры загружаемых файлов по тегам Autumn
-    pub upload: RwLock<stoat_core::UploadLimits>,
-}
-
-impl AppState {
-    fn new(data_dir: PathBuf) -> Self {
-        Self {
-            instance: RwLock::new(Instance::official()),
-            http: RwLock::new(None),
-            cache: Cache::new(),
-            gateway: Mutex::new(None),
-            data_dir,
-            cdn_url: RwLock::new(None),
-            proxy_url: RwLock::new(None),
-            ordering: RwLock::new(None),
-            emojis: RwLock::new(std::collections::HashMap::new()),
-            members_synced: RwLock::new(std::collections::HashSet::new()),
-            subscriptions: Mutex::new(std::collections::HashMap::new()),
-            session_id: RwLock::new(None),
-            legal: RwLock::new(stoat_core::LegalLinks::default()),
-            upload: RwLock::new(stoat_core::UploadLimits::default()),
-        }
-    }
-}
-
-/// Ответ на команду со сводкой по инстансу.
-#[derive(Debug, Serialize)]
-pub struct InstanceInfo {
-    /// Имя инстанса
-    pub name: String,
-    /// Адрес API
-    pub api_url: String,
-    /// Адрес gateway
-    pub ws_url: String,
-    /// Версия Stoat, если инстанс её сообщил
-    pub version: Option<String>,
-    /// Включён ли голос
-    pub voice: bool,
-    /// Разрешено ли видео в звонках (камера и демонстрация экрана)
-    pub video: bool,
-    /// Адрес файлового сервиса (Autumn)
-    pub autumn_url: Option<String>,
-    /// Условия, конфиденциальность и правила инстанса
-    pub legal: stoat_core::LegalLinks,
-    /// Предельные размеры загружаемых файлов
-    pub upload: stoat_core::UploadLimits,
-    /// Наибольшее разрешение видео `[ширина, высота]`, `[0, 0]` — любое
-    pub video_resolution: [u64; 2],
-}
-
-/// Проблема, которую нужно показать пользователю.
+/// Проблема, которую нужно сообщить странице.
 #[derive(Debug, Serialize)]
 pub struct CommandError {
-    /// Тип ошибки для UI
+    /// Тип ошибки
     pub kind: String,
     /// Текст для человека
     pub message: String,
@@ -126,37 +34,27 @@ impl CommandError {
     }
 }
 
-impl From<stoat_core::Error> for CommandError {
-    fn from(error: stoat_core::Error) -> Self {
-        // код из API (`InvalidCredentials`, `AccountDisabled`, …) важнее
-        // общего вида ошибки: по нему форма выбирает текст для человека
-        if let Some(api_kind) = error.api_kind() {
-            return Self::new(api_kind.to_lowercase(), error.to_string());
-        }
-        let kind = match &error {
-            stoat_core::Error::Unauthorized => "unauthorized",
-            stoat_core::Error::RateLimited(_) => "rate_limited",
-            stoat_core::Error::Network(_) | stoat_core::Error::ConnectionClosed => "network",
-            stoat_core::Error::Api { .. } => "api",
-            stoat_core::Error::Gateway(_) => "gateway",
-            _ => "internal",
-        };
-        Self::new(kind, error.to_string())
+impl From<tauri::Error> for CommandError {
+    fn from(error: tauri::Error) -> Self {
+        Self::new("window", error.to_string())
     }
 }
 
 type CmdResult<T> = Result<T, CommandError>;
 
-/// REST-клиент текущей сессии или ошибка «сначала войдите».
-async fn http_client(state: &AppState) -> CmdResult<HttpClient> {
-    state
-        .http
-        .read()
-        .await
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))
-}
+/// Команды моста, доступные веб-клиенту. Тот же список — в `build.rs`
+/// (по нему Tauri создаёт права `allow-…`).
+const BRIDGE_PERMISSIONS: &[&str] = &[
+    "allow-native-minimise",
+    "allow-native-maximise",
+    "allow-native-close",
+    "allow-desktop-config-set",
+    "allow-desktop-autostart-get",
+    "allow-desktop-autostart-set",
+    "allow-set-tray-labels",
+    // перетаскивание за рамку for-web вне Windows (см. bridge.js)
+    "core:window:allow-start-dragging",
+];
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
@@ -167,7 +65,7 @@ fn log_directory() -> Option<PathBuf> {
     }
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
-        && parent.join("config.toml").exists()
+        && parent.join(instance::CONFIG_FILE).exists()
     {
         return Some(parent.join("logs"));
     }
@@ -192,7 +90,7 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
 
     if let Ok(exe) = std::env::current_exe()
         && let Some(parent) = exe.parent()
-        && parent.join("config.toml").exists()
+        && parent.join(instance::CONFIG_FILE).exists()
         && ensure_layout(parent).is_ok()
     {
         return parent.to_path_buf();
@@ -211,10 +109,8 @@ const LEGACY_IDENTIFIER: &str = "com.tauristoat.client";
 
 /// Перенести данные со старого идентификатора на новый.
 ///
-/// По идентификатору называются каталог данных приложения и профиль WebView
-/// (в нём `localStorage` с сохранённой сессией). Без переноса после
-/// обновления пришлось бы входить заново. Переносим до создания окна,
-/// пока WebView ещё не занял новый каталог.
+/// По идентификатору называется каталог данных приложения (в нём
+/// `desktop.json` с настройками «ПК»). Переносим до создания окна.
 fn migrate_legacy_identifier(identifier: &str) {
     let Some(base) = directories::BaseDirs::new() else {
         return;
@@ -243,1160 +139,11 @@ fn move_dir_if_absent(from: &Path, to: &Path) -> std::io::Result<bool> {
     Ok(true)
 }
 
-/// Создать структуру каталогов, если её нет (первый запуск без бутстрапа).
+/// Создать каталог данных и журналов, если их нет (первый запуск без бутстрапа).
+///
+/// Профиль webview (`webview/`) WebView2 создаёт сам.
 fn ensure_layout(dir: &Path) -> std::io::Result<()> {
-    for sub in ["cache", "plugins", "themes", "logs"] {
-        std::fs::create_dir_all(dir.join(sub))?;
-    }
-    Ok(())
-}
-
-// ───────────────────────────────── команды ──────────────────────────────────
-
-/// Сводка по инстансу: используется экраном подключения.
-#[tauri::command]
-async fn instance_info(state: State<'_, Arc<AppState>>) -> CmdResult<InstanceInfo> {
-    let instance = state.instance.read().await.clone();
-    let mut client = HttpClient::new(instance.api_url.clone());
-    client.set_app_name(instance.app_name.clone());
-
-    match client.get_root().await {
-        Ok(root) => Ok(info_from(&instance, &root)),
-        // без сети показываем то, что знаем
-        Err(error) if !error.is_retryable() => Err(error.into()),
-        Err(_) => Ok(info_from(
-            &instance,
-            &ApiRoot {
-                stoat: None,
-                revolt: None,
-                ws: Some(instance.ws_url.to_string()),
-                app: None,
-                vapid: None,
-                features: serde_json::json!({}),
-            },
-        )),
-    }
-}
-
-fn info_from(instance: &Instance, root: &ApiRoot) -> InstanceInfo {
-    InstanceInfo {
-        name: instance.name.clone(),
-        api_url: instance.api_url.to_string(),
-        ws_url: instance.ws_url.to_string(),
-        version: root.stoat.clone(),
-        voice: root.voice_enabled(),
-        video: root.video_enabled(),
-        autumn_url: root.autumn_url().map(str::to_string),
-        legal: root.legal_links(),
-        upload: root.upload_limits(),
-        video_resolution: root.video_resolution(),
-    }
-}
-
-/// Войти по токену сессии.
-///
-/// Так же восстанавливается запомненная сессия при запуске: форма входа
-/// хранит токен и id сессии, если стоит «Запомнить сессию». Id нужен, чтобы
-/// в настройках отметить текущую сессию среди всех.
-#[tauri::command]
-async fn login_with_token(
-    app: tauri::AppHandle,
-    token: String,
-    session_id: Option<String>,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<UserView> {
-    let instance = state.instance.read().await.clone();
-    let mut client = HttpClient::new(instance.api_url.clone());
-    client.set_app_name(instance.app_name.clone());
-    client.set_token(Some(Token::Session(token)));
-
-    let me = client.fetch_self().await?;
-    state.cache.set_me(me.clone()).await;
-
-    *state.http.write().await = Some(client);
-    *state.session_id.write().await = session_id;
-    show_client(&app);
-    let cdn = state.cdn_url.read().await.clone();
-    Ok(profile::own_view(me, cdn.as_deref()))
-}
-
-/// Результат шага входа, который видит форма.
-#[derive(Debug, Serialize)]
-#[serde(tag = "status")]
-pub enum LoginStep {
-    /// Вход выполнен
-    Success {
-        /// Профиль пользователя
-        user: UserView,
-        /// Токен сессии, чтобы форма могла запомнить вход
-        token: String,
-        /// Id сессии (отмечается как текущая в настройках)
-        session_id: String,
-    },
-    /// Нужен второй фактор
-    Mfa {
-        /// Тикет, который нужно передать на следующем шаге
-        ticket: String,
-        /// Разрешённые способы: Password, Totp, Recovery
-        methods: Vec<String>,
-    },
-    /// Аккаунт отключён
-    Disabled {
-        /// Id пользователя
-        user_id: String,
-    },
-}
-
-/// Вход по почте и паролю.
-#[tauri::command]
-async fn login_password(
-    app: tauri::AppHandle,
-    email: String,
-    password: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<LoginStep> {
-    let instance = state.instance.read().await.clone();
-    let mut client = HttpClient::new(instance.api_url.clone());
-    client.set_app_name(instance.app_name.clone());
-
-    let response = client
-        .login_password(&email, &password, Some(instance.app_name.clone()))
-        .await?;
-
-    finish_login(app, response, client, state).await
-}
-
-/// Второй шаг входа: пароль, TOTP или код восстановления.
-#[tauri::command]
-async fn login_mfa(
-    app: tauri::AppHandle,
-    ticket: String,
-    method: String,
-    value: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<LoginStep> {
-    use revolt_models::v0::MFAResponse;
-
-    let mfa = match method.as_str() {
-        "Password" | "password" => MFAResponse::Password { password: value },
-        "Totp" | "totp" => MFAResponse::Totp { totp_code: value },
-        "Recovery" | "recovery" => MFAResponse::Recovery {
-            recovery_code: value,
-        },
-        other => {
-            return Err(CommandError::new(
-                "mfa",
-                format!("неизвестный способ подтверждения: {other}"),
-            ));
-        }
-    };
-
-    let instance = state.instance.read().await.clone();
-    let mut client = HttpClient::new(instance.api_url.clone());
-    client.set_app_name(instance.app_name.clone());
-
-    let response = client
-        .login_mfa(&ticket, mfa, Some(instance.app_name.clone()))
-        .await?;
-
-    finish_login(app, response, client, state).await
-}
-
-/// Показать экран приложения после успешного входа.
-///
-/// Переключение делает Rust, а не `location.replace` из страницы: навигация
-/// по встроенным страницам (`tauri://localhost`) из скрипта может быть
-/// запрещена политикой безопасности, и форма просто «зависала» бы.
-fn show_client(app: &tauri::AppHandle) {
-    use tauri::Manager as _;
-
-    // Адрес страницы берём из текущего, чтобы не зависеть от схемы
-    // (на Windows это `http://tauri.localhost`, на Linux — `tauri://localhost`).
-    let base = match app.get_webview_window("main").and_then(|w| w.url().ok()) {
-        Some(url) => url,
-        None => {
-            eprintln!("окно main не найдено: экран приложения не открыт");
-            return;
-        }
-    };
-    let page = match base.join("app.html") {
-        Ok(url) => url,
-        Err(error) => {
-            eprintln!("не удалось собрать адрес app.html: {error}");
-            return;
-        }
-    };
-
-    if let Some(window) = app.get_webview_window("main")
-        && let Err(error) = window.navigate(page.clone())
-    {
-        eprintln!("не удалось открыть {page}: {error}");
-    }
-}
-
-/// Общая часть входа: разобрать ответ и, если успех, поднять сессию.
-async fn finish_login(
-    app: tauri::AppHandle,
-    response: revolt_models::v0::ResponseLogin,
-    mut client: HttpClient,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<LoginStep> {
-    use revolt_models::v0::ResponseLogin;
-
-    match response {
-        ResponseLogin::Success(session) => {
-            client.set_token(Some(Token::Session(session.token.clone())));
-            let me = client.fetch_self().await?;
-            state.cache.set_me(me.clone()).await;
-            *state.http.write().await = Some(client);
-            *state.session_id.write().await = Some(session.id.clone());
-
-            show_client(&app);
-
-            let cdn = state.cdn_url.read().await.clone();
-            Ok(LoginStep::Success {
-                user: profile::own_view(me, cdn.as_deref()),
-                token: session.token,
-                session_id: session.id,
-            })
-        }
-        ResponseLogin::MFA {
-            ticket,
-            allowed_methods,
-        } => Ok(LoginStep::Mfa {
-            ticket,
-            methods: allowed_methods
-                .into_iter()
-                .map(|method| format!("{method:?}"))
-                .collect(),
-        }),
-        ResponseLogin::Disabled { user_id } => Ok(LoginStep::Disabled { user_id }),
-    }
-}
-
-/// Отключиться: закрыть gateway и удалить сессию на сервере.
-#[tauri::command]
-async fn logout(state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    if let Some(handle) = state.gateway.lock().await.take() {
-        handle.stop();
-    }
-    if let Some(client) = state.http.write().await.take() {
-        let _ = client.logout().await; // ошибку не показываем: локально вышли в любом случае
-    }
-    state.cache.clear().await;
-    *state.session_id.write().await = None;
-    state.members_synced.write().await.clear();
-    state.subscriptions.lock().await.clear();
-    state.emojis.write().await.clear();
-    *state.ordering.write().await = None;
-    Ok(())
-}
-
-/// Состояние входа: кто мы и что уже в кэше.
-#[tauri::command]
-async fn session_state(state: State<'_, Arc<AppState>>) -> CmdResult<SessionView> {
-    let logged_in = state.http.read().await.is_some();
-    let snapshot = state.cache.snapshot().await;
-    Ok(SessionView {
-        logged_in,
-        me: snapshot.me.map(UserView::from),
-        servers: snapshot.servers.len(),
-        channels: snapshot.channels.len(),
-    })
-}
-
-/// Подключить gateway и начать получать события.
-#[tauri::command]
-async fn connect_gateway(app: tauri::AppHandle, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-
-    let token = match http.token() {
-        Some(Token::Session(token)) | Some(Token::Bot(token)) => token.clone(),
-        None => return Err(CommandError::new("unauthorized", "нет токена сессии")),
-    };
-
-    let instance = state.instance.read().await.clone();
-    let url = instance.gateway_url(&[
-        ReadyField::Users,
-        ReadyField::Servers,
-        ReadyField::Channels,
-        ReadyField::Members,
-        ReadyField::Emojis,
-        ReadyField::ChannelUnreads,
-    ]);
-
-    // закрываем прошлое соединение, если оно было
-    if let Some(handle) = state.gateway.lock().await.take() {
-        handle.stop();
-    }
-
-    let (handle, mut events) = gateway::connect(url, token, GatewayConfig::default()).await?;
-    *state.gateway.lock().await = Some(handle);
-
-    let cache = state.cache.clone();
-    let emitter = app.clone();
-    let app_state = state.inner().clone();
-    tokio::spawn(async move {
-        while let Some(event) = events.recv().await {
-            if let GatewayEvent::Ready(ready) = &event {
-                cache.apply_ready((**ready).clone()).await;
-                // после переподключения списки участников и подписки собираются заново
-                app_state.members_synced.write().await.clear();
-                app_state.subscriptions.lock().await.clear();
-                *app_state.ordering.write().await = None;
-                app_state.emojis.write().await.clear();
-            } else {
-                cache.apply(event.clone()).await;
-            }
-
-            match &event {
-                // порядок серверов поменяли в другом клиенте
-                GatewayEvent::UserSettingsUpdate { data, .. } if data.get("ordering").is_some() => {
-                    *app_state.ordering.write().await = None;
-                }
-                // список эмодзи теперь собирается из кэша заново
-                GatewayEvent::EmojiCreate(_) | GatewayEvent::EmojiDelete { .. } => {
-                    app_state.emojis.write().await.clear();
-                }
-                _ => {}
-            }
-
-            // Новое сообщение отдаём в том же виде, что и историю:
-            // иначе в ленте пропадают имя вебхука, цвет, эмбеды и аватар.
-            if let GatewayEvent::Message(message) = &event {
-                let cdn = app_state.cdn_url.read().await.clone();
-                let view = message_view(&cache, cdn.as_deref(), (**message).clone()).await;
-                if let Ok(payload) = serde_json::to_string(&view)
-                    && emitter.emit("stoat:message", payload).is_err()
-                {
-                    break;
-                }
-                continue;
-            }
-
-            // Изменённое сообщение тоже собираем целиком: иначе после правки
-            // пропадала разметка, эмбеды и имя вебхука. Реакции и закрепление
-            // меняют сообщение так же. Отдельное событие: правка — не новое
-            // сообщение, она не должна помечать канал непрочитанным.
-            let changed = match &event {
-                GatewayEvent::MessageUpdate { id, channel, .. } => Some((id, channel)),
-                GatewayEvent::MessageReact { id, channel_id, .. }
-                | GatewayEvent::MessageUnreact { id, channel_id, .. }
-                | GatewayEvent::MessageRemoveReaction { id, channel_id, .. } => {
-                    Some((id, channel_id))
-                }
-                _ => None,
-            };
-            if let Some((id, channel)) = changed {
-                let merged = cache
-                    .messages(channel)
-                    .await
-                    .into_iter()
-                    .find(|item| &item.id == id);
-                if let Some(message) = merged {
-                    let cdn = app_state.cdn_url.read().await.clone();
-                    let view = message_view(&cache, cdn.as_deref(), message).await;
-                    if let Ok(payload) = serde_json::to_string(&view)
-                        && emitter.emit("stoat:message-update", payload).is_err()
-                    {
-                        break;
-                    }
-                    continue;
-                }
-                // сообщения нет в кэше: интерфейс поправит своё по событию
-            }
-
-            // остальное — как есть; UI решает, что перерисовать
-            if let Ok(payload) = serde_json::to_string(&event)
-                && emitter.emit("stoat:gateway", payload).is_err()
-            {
-                break;
-            }
-        }
-    });
-
-    Ok(())
-}
-
-/// Собрать сообщение для интерфейса, подтянув автора из кэша.
-///
-/// В событиях gateway приходит только id автора, поэтому имя и аватар
-/// берутся из кэша — иначе новые сообщения выглядели бы «безымянными».
-/// Данные сервера, нужные для подписей в чате: роли и ники участников.
-///
-/// В событиях шлюза ни ника, ни ролей нет, поэтому их приходится брать из кэша.
-#[derive(Default)]
-struct ServerInfo {
-    roles: std::collections::HashMap<String, revolt_models::v0::Role>,
-    nicknames: std::collections::HashMap<String, String>,
-    colours: std::collections::HashMap<String, String>,
-}
-
-async fn server_info(cache: &stoat_core::cache::Cache, channel: &str) -> ServerInfo {
-    let Some(server_id) = cache.server_of_channel(channel).await else {
-        return ServerInfo::default();
-    };
-    let Some(server) = cache.server(&server_id).await else {
-        return ServerInfo::default();
-    };
-
-    let members = cache.members(&server_id).await;
-    let mut nicknames = std::collections::HashMap::new();
-    let mut colours = std::collections::HashMap::new();
-    for member in &members {
-        if let Some(nickname) = member
-            .nickname
-            .clone()
-            .filter(|name| !name.trim().is_empty())
-        {
-            nicknames.insert(member.id.user.clone(), nickname);
-        }
-        if let Some(colour) = views::role_colour(&member.roles, &server.roles) {
-            colours.insert(member.id.user.clone(), colour);
-        }
-    }
-
-    ServerInfo {
-        roles: server.roles,
-        nicknames,
-        colours,
-    }
-}
-
-/// Собрать сообщение для интерфейса, подтянув автора, ник и цвет из кэша.
-async fn message_view(
-    cache: &stoat_core::cache::Cache,
-    cdn: Option<&str>,
-    message: revolt_models::v0::Message,
-) -> ChatMessage {
-    let mut authors = std::collections::HashMap::new();
-    if let Some(user) = cache.user(&message.author).await {
-        authors.insert(message.author.clone(), UserView::build(user, cdn));
-    }
-    let info = server_info(cache, &message.channel).await;
-    ChatMessage::build(
-        message,
-        &authors,
-        &info.roles,
-        &info.nicknames,
-        &info.colours,
-        cdn,
-    )
-}
-
-/// Отправить сообщение в канал.
-///
-/// `replies` — ответы на сообщения в том виде, в котором их ждёт API:
-/// `{ id, mention }`, как в браузерном клиенте.
-#[tauri::command]
-async fn send_message(
-    channel_id: String,
-    content: String,
-    replies: Option<Vec<revolt_models::v0::ReplyIntent>>,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<ChatMessage> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-
-    let data = revolt_send(&content, replies.unwrap_or_default());
-    // ключ идемпотентности: повторная отправка не создаст дубликат
-    // (поле `nonce` в теле запроса API считает устаревшим)
-    let key = Some(nonce());
-    let message = http.send_message(&channel_id, data, key).await?;
-    state.cache.insert_message(message.clone()).await;
-
-    let cdn = state.cdn_url.read().await.clone();
-    let mut authors = std::collections::HashMap::new();
-    if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(
-            message.author.clone(),
-            UserView::build(user, cdn.as_deref()),
-        );
-    }
-    let info = server_info(&state.cache, &channel_id).await;
-    Ok(ChatMessage::build(
-        message,
-        &authors,
-        &info.roles,
-        &info.nicknames,
-        &info.colours,
-        cdn.as_deref(),
-    ))
-}
-
-/// Полный снимок состояния для отрисовки интерфейса.
-///
-/// UI не разбирает модели Stoat напрямую: здесь уже готовые к показу
-/// серверы с категориями, каналы, личные сообщения и участники.
-#[tauri::command]
-async fn workspace(state: State<'_, Arc<AppState>>) -> CmdResult<WorkspaceView> {
-    let snapshot = state.cache.snapshot().await;
-
-    let mut cdn = state.cdn_url.read().await.clone();
-    if cdn.is_none() {
-        cdn = fetch_cdn_url(&state).await;
-    }
-
-    // порядок серверов и каналов задан пользователем в браузерной версии:
-    // без него рельс выглядел бы случайным
-    let cached = state.ordering.read().await.clone();
-    let ordering = match cached {
-        Some(ordering) => ordering,
-        None => {
-            let ordering = fetch_ordering(&state).await;
-            *state.ordering.write().await = Some(ordering.clone());
-            ordering
-        }
-    };
-    let mut view = WorkspaceView::build_ordered(snapshot, cdn, &ordering);
-    view.proxy = state.proxy_url.read().await.clone();
-    Ok(view)
-}
-
-/// Прочитать порядок серверов и категорий из настроек синхронизации.
-///
-/// Ошибка здесь не критична: без настроек интерфейс покажет порядок
-/// по умолчанию, поэтому запрос не роняет команду.
-async fn fetch_ordering(state: &State<'_, Arc<AppState>>) -> views::Ordering {
-    let http = {
-        let guard = state.http.read().await;
-        match guard.as_ref() {
-            Some(client) => client.clone(),
-            None => return views::Ordering::default(),
-        }
-    };
-
-    match http.fetch_settings(&["ordering"]).await {
-        Ok(settings) => {
-            let raw = settings
-                .into_iter()
-                .find(|(key, _)| key == "ordering")
-                .and_then(|(_, value)| value);
-            views::Ordering::parse(raw.as_deref())
-        }
-        Err(error) => {
-            tracing::warn!(%error, "не удалось прочитать порядок серверов");
-            views::Ordering::default()
-        }
-    }
-}
-
-/// Скачать файл и превратить его в data-URL.
-async fn download_data_url(
-    client: &reqwest::Client,
-    url: &str,
-) -> std::result::Result<String, String> {
-    // некоторые файлы CDN отдаёт только с заголовком Accept
-    let response = client
-        .get(url)
-        .header(reqwest::header::ACCEPT, "*/*")
-        .send()
-        .await
-        .map_err(|error| format!("не удалось скачать файл: {error}"))?;
-
-    let status = response.status();
-    if !status.is_success() {
-        return Err(format!("файл недоступен: HTTP {}", status.as_u16()));
-    }
-
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_string)
-        .unwrap_or_else(|| media::guess_content_type(url).to_string());
-
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| format!("файл не дочитан: {error}"))?;
-
-    // защита от случайно огромных файлов в памяти интерфейса
-    if bytes.len() > 12 * 1024 * 1024 {
-        return Err("файл больше 12 МБ".into());
-    }
-
-    use base64::Engine as _;
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    Ok(format!("data:{content_type};base64,{encoded}"))
-}
-
-/// Что ядро держит в памяти: кэш состояния и кэш файлов.
-#[derive(Debug, Serialize)]
-struct DiagnosticsView {
-    cache: stoat_core::cache::CacheStats,
-    media: media::MediaStats,
-}
-
-#[tauri::command]
-async fn diagnostics(
-    state: State<'_, Arc<AppState>>,
-    proxy: State<'_, Arc<media::MediaProxy>>,
-) -> CmdResult<DiagnosticsView> {
-    Ok(DiagnosticsView {
-        cache: state.cache.stats().await,
-        media: proxy.stats().await,
-    })
-}
-
-/// Сохранить файл из сообщения в каталог «Загрузки» пользователя.
-///
-/// Webview не умеет скачивать файлы протокола `media:`, поэтому файл
-/// забирает Rust; возвращается полный путь, чтобы показать его в интерфейсе.
-#[tauri::command]
-async fn download_file(
-    url: String,
-    filename: String,
-    proxy: State<'_, Arc<media::MediaProxy>>,
-) -> CmdResult<String> {
-    let dir = directories::UserDirs::new()
-        .and_then(|dirs| dirs.download_dir().map(std::path::Path::to_path_buf))
-        .or_else(|| directories::UserDirs::new().map(|dirs| dirs.home_dir().join("Downloads")))
-        .ok_or_else(|| CommandError::new("download", "не найден каталог загрузок"))?;
-    let path = proxy
-        .download(&url, &filename, dir)
-        .await
-        .map_err(|message| CommandError::new("download", message))?;
-    Ok(path.display().to_string())
-}
-
-/// Адрес сообщения, чтобы можно было скопировать ссылку.
-#[tauri::command]
-async fn message_link(
-    server: Option<String>,
-    channel: String,
-    message: String,
-) -> CmdResult<String> {
-    Ok(views::message_link(server.as_deref(), &channel, &message))
-}
-
-/// Адрес аватара пользователя.
-///
-/// В сообщениях автор часто приходит без файла аватара, поэтому адрес
-/// берём у самого пользователя и запоминаем в кэше.
-#[tauri::command]
-async fn user_avatar(
-    user_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<Option<String>> {
-    let (http, cdn) = {
-        let guard = state.http.read().await;
-        let client = guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?;
-        (client, state.cdn_url.read().await.clone())
-    };
-
-    let user = http.fetch_user(&user_id).await?;
-    state.cache.insert_user(user.clone()).await;
-    Ok(user
-        .avatar
-        .as_ref()
-        .and_then(|file| views::file_url(file, cdn.as_deref())))
-}
-
-/// Сервер «большой», если участников больше этого числа: тогда, как и
-/// браузерный клиент (`largeServer.ts`), не скачиваем тех, кто не в сети.
-const LARGE_SERVER: usize = 1000;
-
-/// Через сколько повторять подписку на присутствие (сервер держит её 15 минут).
-const SUBSCRIPTION_REFRESH: std::time::Duration = std::time::Duration::from_secs(10 * 60);
-
-/// Участники сервера для правой панели.
-///
-/// `Ready` присылает только тех, кто в сети, поэтому при первом открытии
-/// сервера в этом подключении весь список запрашивается отдельно
-/// (`GET /servers/{id}/members`), как `server.syncMembers()` в браузере.
-/// Участника без имени пропускаем — рисовать «неизвестного» незачем.
-#[tauri::command]
-async fn server_members(
-    server_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<Vec<views::MemberView>> {
-    let Some(server) = state.cache.server(&server_id).await else {
-        return Ok(Vec::new());
-    };
-
-    if !state.members_synced.read().await.contains(&server_id) {
-        let http = http_client(&state).await?;
-        let exclude_offline = server.approximate_member_count > LARGE_SERVER;
-        // ошибка сети не страшна: покажем тех, кто уже известен из `Ready`
-        match http.fetch_members(&server_id, exclude_offline).await {
-            Ok(all) => {
-                state
-                    .cache
-                    .insert_members(&server_id, all.members, all.users)
-                    .await;
-                state.members_synced.write().await.insert(server_id.clone());
-            }
-            Err(error) => tracing::warn!(%error, server = %server_id, "участники не получены"),
-        }
-    }
-
-    let members = state.cache.members(&server_id).await;
-    let mut users = std::collections::HashMap::new();
-    for member in &members {
-        if let Some(user) = state.cache.user(&member.id.user).await {
-            users.insert(user.id.clone(), user);
-        }
-    }
-
-    let cdn = state.cdn_url.read().await.clone();
-    Ok(views::members_of(&server, &members, &users, cdn.as_deref()))
-}
-
-/// Участники группы: получатели из кэша (`Ready` присылает их всех).
-#[tauri::command]
-async fn group_members(
-    channel_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<Vec<views::MemberView>> {
-    let recipients = match state.cache.channel(&channel_id).await {
-        Some(revolt_models::v0::Channel::Group { recipients, .. }) => recipients,
-        _ => return Ok(Vec::new()),
-    };
-    let mut users = Vec::with_capacity(recipients.len());
-    for id in &recipients {
-        if let Some(user) = state.cache.user(id).await {
-            users.push(user);
-            continue;
-        }
-        // вошедший после `Ready` ещё не известен — как `client.users.fetch`
-        let http = http_client(&state).await?;
-        match http.fetch_user(id).await {
-            Ok(user) => {
-                state.cache.insert_user(user.clone()).await;
-                users.push(user);
-            }
-            Err(error) => tracing::warn!(%error, user = %id, "участник группы не получен"),
-        }
-    }
-    let cdn = state.cdn_url.read().await.clone();
-    Ok(views::group_members_of(&users, cdn.as_deref()))
-}
-
-/// Подписаться на присутствие участников открытого сервера.
-///
-/// Без подписки шлюз не присылает `UserUpdate` о тех, с кем нет общих
-/// личных переписок, и точки статуса в списке участников «замерзают».
-/// Подписка живёт 15 минут, поэтому повторяется не чаще раза в 10 минут.
-#[tauri::command]
-async fn subscribe_server(server_id: String, state: State<'_, Arc<AppState>>) -> CmdResult<()> {
-    {
-        let mut subscriptions = state.subscriptions.lock().await;
-        let fresh = subscriptions
-            .get(&server_id)
-            .is_some_and(|at| at.elapsed() < SUBSCRIPTION_REFRESH);
-        if fresh {
-            return Ok(());
-        }
-        subscriptions.insert(server_id.clone(), std::time::Instant::now());
-    }
-    if let Some(handle) = state.gateway.lock().await.as_ref() {
-        handle
-            .send(gateway::ClientEvent::Subscribe { server_id })
-            .await?;
-    }
-    Ok(())
-}
-
-/// Эмодзи всех серверов из кэша: `Ready` присылает их сразу, поэтому
-/// панель эмодзи и `:эмодзи:` в сообщениях работают без захода на сервер.
-async fn cached_emojis(
-    state: &AppState,
-) -> std::collections::HashMap<String, Vec<views::EmojiView>> {
-    let cdn = state.cdn_url.read().await.clone();
-    let mut index: std::collections::HashMap<String, Vec<views::EmojiView>> =
-        std::collections::HashMap::new();
-    for emoji in state.cache.emojis().await {
-        if let revolt_models::v0::EmojiParent::Server { id } = &emoji.parent {
-            index
-                .entry(id.clone())
-                .or_default()
-                .push(views::EmojiView::build(&emoji, cdn.as_deref()));
-        }
-    }
-    // порядок как в браузере: по времени добавления (id — ULID)
-    for list in index.values_mut() {
-        list.sort_by(|a, b| a.id.cmp(&b.id));
-    }
-    index
-}
-
-/// Эмодзи всех серверов разом: id сервера → список.
-#[tauri::command]
-async fn emoji_index(
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<std::collections::HashMap<String, Vec<views::EmojiView>>> {
-    Ok(cached_emojis(&state).await)
-}
-
-/// Список эмодзи сервера: и картинки для `:имя:`, и данные для выбора.
-///
-/// Сначала из кэша (`Ready` и события шлюза); если кэш о сервере ничего
-/// не знает — запросом, и результат запоминается до переподключения.
-#[tauri::command]
-async fn server_emojis(
-    server_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<Vec<views::EmojiView>> {
-    if let Some(cached) = state.emojis.read().await.get(&server_id) {
-        return Ok(cached.clone());
-    }
-    if let Some(list) = cached_emojis(&state).await.remove(&server_id) {
-        return Ok(list);
-    }
-
-    let (http, cdn) = {
-        let guard = state.http.read().await;
-        let client = guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?;
-        (client, state.cdn_url.read().await.clone())
-    };
-
-    let list: Vec<views::EmojiView> = http
-        .fetch_emojis(&server_id)
-        .await?
-        .iter()
-        .map(|emoji| views::EmojiView::build(emoji, cdn.as_deref()))
-        .collect();
-
-    state.emojis.write().await.insert(server_id, list.clone());
-    Ok(list)
-}
-
-/// Скачать картинку эмодзи из статики Stoat.
-///
-/// Набор картинок выбирается в «Внешнем виде»; если в нём картинки нет,
-/// пробуем Twemoji и Noto.
-#[tauri::command]
-async fn fetch_emoji(
-    codepoint: String,
-    pack: Option<String>,
-    proxy: State<'_, Arc<media::MediaProxy>>,
-) -> CmdResult<String> {
-    if !codepoint
-        .chars()
-        .all(|symbol| symbol.is_ascii_hexdigit() || symbol == '-')
-    {
-        return Err(CommandError::new("bad_emoji", "некорректный код эмодзи"));
-    }
-
-    let mut packs: Vec<&str> = Vec::new();
-    if let Some(pack) = pack.as_deref() {
-        // в адрес попадают только наборы, которые есть на статике Stoat
-        let known = views::UNICODE_EMOJI_PACKS
-            .iter()
-            .copied()
-            .find(|known| *known == pack)
-            .ok_or_else(|| CommandError::new("bad_emoji", "неизвестный набор эмодзи"))?;
-        packs.push(known);
-    }
-    for fallback in ["twemoji", "noto"] {
-        if !packs.contains(&fallback) {
-            packs.push(fallback);
-        }
-    }
-
-    let mut last = String::from("эмодзи не найдено");
-    for pack in packs {
-        let url = views::emoji_url(pack, &codepoint);
-        match download_data_url(proxy.client(), &url).await {
-            Ok(data) => return Ok(data),
-            Err(error) => last = error,
-        }
-    }
-    Err(CommandError::new("not_found", last))
-}
-
-/// Узнать адрес файлового сервиса у инстанса (нужен для аватаров).
-async fn fetch_cdn_url(state: &State<'_, Arc<AppState>>) -> Option<String> {
-    let instance = state.instance.read().await.clone();
-    let mut client = HttpClient::new(instance.api_url.clone());
-    client.set_app_name(instance.app_name.clone());
-    let root = client.get_root().await.ok()?;
-    let url = root.autumn_url().map(str::to_string);
-    *state.cdn_url.write().await = url.clone();
-    *state.proxy_url.write().await = root.january_url().map(str::to_string);
-    *state.legal.write().await = root.legal_links();
-    *state.upload.write().await = root.upload_limits();
-    url
-}
-
-/// Сколько сообщений отдаёт сервер, если размер страницы не указан.
-const DEFAULT_PAGE: u32 = 50;
-
-/// История канала: сообщения с авторами и файлами, готовые к показу.
-///
-/// `before` — страница старше этого сообщения, `nearby` — окно вокруг
-/// сообщения (переход по ссылке, результату поиска или к первому
-/// непрочитанному, как `fetch({ nearby })` в браузерном клиенте).
-#[tauri::command]
-async fn channel_history(
-    channel_id: String,
-    before: Option<String>,
-    after: Option<String>,
-    nearby: Option<String>,
-    limit: Option<u32>,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<HistoryView> {
-    let http = http_client(&state).await?;
-    let response = http
-        .fetch_messages(
-            &channel_id,
-            stoat_core::http::MessageQuery {
-                before: before.as_deref(),
-                after: after.as_deref(),
-                nearby: nearby.as_deref(),
-                limit,
-                // страница «новее чем» должна начинаться сразу за курсором
-                sort: after.as_ref().map(|_| "Oldest"),
-            },
-        )
-        .await?;
-    let mut view = history_view(&state, &channel_id, response, true).await;
-    // полная страница — значит, дальше могут быть ещё сообщения
-    view.has_more = view.messages.len() >= limit.unwrap_or(DEFAULT_PAGE) as usize;
-    Ok(view)
-}
-
-/// Ответ API со списком сообщений → сообщения, готовые к показу.
-///
-/// Общая часть истории канала и поиска: авторы и участники из ответа
-/// попадают в кэш. История (`chronological`) идёт по возрастанию времени,
-/// результаты поиска остаются в порядке, который выбрал сервер.
-pub(crate) async fn history_view(
-    state: &AppState,
-    channel_id: &str,
-    response: revolt_models::v0::BulkMessageResponse,
-    chronological: bool,
-) -> HistoryView {
-    let (mut messages, users, members) = match response {
-        revolt_models::v0::BulkMessageResponse::JustMessages(messages) => {
-            (messages, Vec::new(), Vec::new())
-        }
-        revolt_models::v0::BulkMessageResponse::MessagesAndUsers {
-            messages,
-            users,
-            members,
-        } => (messages, users, members.unwrap_or_default()),
-    };
-
-    // участники приходят вместе с историей: ники, роли и цвета авторов
-    // видны сразу, не дожидаясь полного списка участников сервера
-    let mut by_server: std::collections::HashMap<String, Vec<revolt_models::v0::Member>> =
-        std::collections::HashMap::new();
-    for member in members {
-        by_server
-            .entry(member.id.server.clone())
-            .or_default()
-            .push(member);
-    }
-    for (server, members) in by_server {
-        state
-            .cache
-            .insert_members(&server, members, Vec::new())
-            .await;
-    }
-
-    // id — ULID, их порядок совпадает с порядком времени
-    if chronological {
-        messages.sort_by(|a, b| Ord::cmp(&a.id, &b.id));
-    }
-
-    let cdn = state.cdn_url.read().await.clone();
-    let mut authors: std::collections::HashMap<String, UserView> = std::collections::HashMap::new();
-    for user in users {
-        let view = UserView::build(user.clone(), cdn.as_deref());
-        authors.insert(view.id.clone(), view);
-        state.cache.insert_user(user).await;
-    }
-    for message in &messages {
-        if let Some(user) = &message.user {
-            authors
-                .entry(user.id.clone())
-                .or_insert_with(|| UserView::build(user.clone(), cdn.as_deref()));
-        }
-        state.cache.insert_message_no_event(message.clone()).await;
-    }
-
-    // имена авторов, которых не прислали в этом ответе, берём из кэша
-    for message in &messages {
-        if !authors.contains_key(&message.author)
-            && let Some(user) = state.cache.user(&message.author).await
-        {
-            authors.insert(
-                message.author.clone(),
-                UserView::build(user, cdn.as_deref()),
-            );
-        }
-    }
-
-    let info = server_info(&state.cache, channel_id).await;
-    HistoryView {
-        messages: messages
-            .into_iter()
-            .map(|message| {
-                ChatMessage::build(
-                    message,
-                    &authors,
-                    &info.roles,
-                    &info.nicknames,
-                    &info.colours,
-                    cdn.as_deref(),
-                )
-            })
-            .collect(),
-        has_more: false,
-    }
-}
-
-/// Изменить текст своего сообщения.
-#[tauri::command]
-async fn edit_message(
-    channel_id: String,
-    message_id: String,
-    content: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<ChatMessage> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-
-    let data = v0::DataEditMessage {
-        content: Some(content),
-        embeds: None,
-    };
-    let message = http.edit_message(&channel_id, &message_id, data).await?;
-    state.cache.insert_message_no_event(message.clone()).await;
-
-    let cdn = state.cdn_url.read().await.clone();
-    let mut authors = std::collections::HashMap::new();
-    if let Some(user) = state.cache.user(&message.author).await {
-        authors.insert(
-            message.author.clone(),
-            UserView::build(user, cdn.as_deref()),
-        );
-    }
-    let info = server_info(&state.cache, &channel_id).await;
-    Ok(ChatMessage::build(
-        message,
-        &authors,
-        &info.roles,
-        &info.nicknames,
-        &info.colours,
-        cdn.as_deref(),
-    ))
-}
-
-/// Удалить своё сообщение.
-#[tauri::command]
-async fn delete_message(
-    channel_id: String,
-    message_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<()> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-    http.delete_message(&channel_id, &message_id).await?;
-    Ok(())
-}
-
-/// Отметить канал прочитанным до сообщения `message_id`.
-#[tauri::command]
-async fn ack_channel(
-    channel_id: String,
-    message_id: String,
-    state: State<'_, Arc<AppState>>,
-) -> CmdResult<()> {
-    let http = {
-        let guard = state.http.read().await;
-        guard
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| CommandError::new("unauthorized", "сначала войдите в аккаунт"))?
-    };
-    http.ack_message(&channel_id, &message_id).await?;
-    state.cache.mark_read(&channel_id, &message_id).await;
-    Ok(())
-}
-
-/// Снимок кэша для первичной отрисовки.
-#[tauri::command]
-async fn cache_snapshot(state: State<'_, Arc<AppState>>) -> CmdResult<serde_json::Value> {
-    let snapshot = state.cache.snapshot().await;
-    serde_json::to_value(snapshot).map_err(|error| CommandError::new("internal", error.to_string()))
-}
-
-/// Где лежат данные: показывается в настройках.
-#[tauri::command]
-async fn data_dir(state: State<'_, Arc<AppState>>) -> CmdResult<String> {
-    Ok(state.data_dir.display().to_string())
-}
-
-// ─────────────────────────────── представления ──────────────────────────────
-
-use revolt_models::v0;
-use tauri::Emitter;
-
-/// Состояние сессии для UI.
-#[derive(Debug, Serialize)]
-pub struct SessionView {
-    /// Выполнен ли вход
-    pub logged_in: bool,
-    /// Кто вошёл
-    pub me: Option<UserView>,
-    /// Сколько серверов в кэше
-    pub servers: usize,
-    /// Сколько каналов в кэше
-    pub channels: usize,
-}
-
-fn revolt_send(content: &str, replies: Vec<v0::ReplyIntent>) -> v0::DataMessageSend {
-    v0::DataMessageSend {
-        nonce: None,
-        content: Some(content.to_string()),
-        attachments: None,
-        // пустой список не отправляем: сервер проверяет его длину
-        replies: (!replies.is_empty()).then_some(replies),
-        embeds: None,
-        masquerade: None,
-        interactions: None,
-        flags: None,
-    }
-}
-
-/// Простой уникальный ключ без внешних зависимостей.
-fn nonce() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or_default();
-    format!("{nanos:x}")
+    std::fs::create_dir_all(dir.join("logs"))
 }
 
 // ─────────────────────────────────── вход ───────────────────────────────────
@@ -1410,7 +157,7 @@ pub fn run() {
     });
 
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "arachnid_client=debug,stoat_core=info".into());
+        .unwrap_or_else(|_| "arachnid_client=debug,arachnid_client_lib=debug".into());
 
     // в Windows-релизе нет консоли, поэтому журнал обязательно пишем в файл
     match file_writer {
@@ -1450,156 +197,51 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             desktop::show_main_window(app);
         }))
-        .plugin(tauri_plugin_store::Builder::new().build())
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .arg(desktop::HIDDEN_ARG)
                 .build(),
         )
         .on_window_event(desktop::on_window_event)
-        .manage(Arc::new(media::MediaProxy::new()))
-        // файлы для webview: картинки, видео и аудио с CDN (см. media.rs)
-        .register_asynchronous_uri_scheme_protocol(media::SCHEME, |ctx, request, responder| {
-            let proxy = ctx
-                .app_handle()
-                .state::<Arc<media::MediaProxy>>()
-                .inner()
-                .clone();
-            tauri::async_runtime::spawn(async move {
-                responder.respond(proxy.serve(request).await);
-            });
-        })
         .setup(|app| {
-            // ошибка инициализации не должна убивать окно без следа
             let data_dir = resolve_data_dir(app.handle());
             tracing::info!(dir = %data_dir.display(), "каталог данных");
 
-            if let Err(error) = ensure_layout(&data_dir) {
-                tracing::warn!(%error, "не удалось подготовить каталоги данных");
-            }
+            let instance = instance::Instance::load(&data_dir);
+            tracing::info!(url = %instance.app_url, "веб-клиент");
 
-            // окно создаётся здесь, а не по tauri.conf.json: рамка,
-            // аппаратное ускорение и запуск в трее берутся из настроек «ПК»
-            let desktop = Arc::new(desktop::Desktop::new(data_dir.clone()));
+            // страница открыта с удалённого адреса: команды моста доступны
+            // только ему и только в главном окне
+            let mut capability = CapabilityBuilder::new("web-client")
+                .remote(instance.capability_pattern())
+                .local(false)
+                .window(desktop::MAIN_WINDOW);
+            for permission in BRIDGE_PERMISSIONS {
+                capability = capability.permission(*permission);
+            }
+            app.add_capability(capability)?;
+
+            // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
+            // аппаратное ускорение и запуск в трее берутся из настроек
+            let desktop = Arc::new(desktop::Desktop::new(data_dir));
             app.manage(desktop.clone());
-            desktop::create_main_window(app.handle(), &desktop)?;
+            desktop::create_main_window(app.handle(), &desktop, &instance)?;
             if let Err(error) = desktop::create_tray(app.handle()) {
                 tracing::warn!(%error, "значок в трее не создан");
             }
             if desktop.config().discord_rpc {
                 desktop::start_discord(&desktop);
             }
-
-            let state = Arc::new(AppState::new(data_dir));
-            app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            instance_info,
-            login_password,
-            login_mfa,
-            login_with_token,
-            logout,
-            session_state,
-            connect_gateway,
-            workspace,
-            fetch_emoji,
-            emoji_index,
-            download_file,
-            diagnostics,
-            server_emojis,
-            server_members,
-            group_members,
-            subscribe_server,
-            profile::user_profile,
-            profile::user_mutual,
-            profile::set_presence,
-            profile::set_status_text,
-            profile::open_dm,
-            profile::set_relationship,
-            profile::known_users,
-            profile::send_friend_request,
-            settings::account_info,
-            settings::account_email,
-            settings::about,
-            settings::change_username,
-            settings::change_password,
-            settings::sessions,
-            settings::rename_session,
-            security::mfa_status,
-            security::mfa_recovery_codes,
-            security::mfa_generate_recovery_codes,
-            security::mfa_totp_secret,
-            security::mfa_enable_totp,
-            security::mfa_disable_totp,
-            security::disable_account,
-            security::delete_account,
-            security::change_email,
-            security::revoke_session,
-            security::revoke_other_sessions,
-            settings::edit_profile,
-            settings::upload_file,
-            server_admin::server_settings,
-            server_admin::edit_server,
-            server_admin::leave_server,
-            server_admin::create_role,
-            server_admin::edit_role,
-            server_admin::delete_role,
-            server_admin::set_permissions,
-            server_admin::server_member_list,
-            server_admin::edit_member,
-            server_admin::kick_member,
-            server_admin::ban_member,
-            server_admin::server_bans,
-            server_admin::unban_member,
-            server_admin::server_invites,
-            server_admin::create_invite,
-            server_admin::delete_invite,
-            server_admin::preview_invite,
-            server_admin::join_invite,
-            server_admin::create_server,
-            server_admin::create_channel,
-            server_admin::edit_channel,
-            server_admin::delete_channel,
-            server_admin::create_emoji,
-            server_admin::delete_emoji,
-            user_avatar,
-            message_link,
-            channel_history,
-            send_message,
-            edit_message,
-            delete_message,
-            ack_channel,
-            messages::react_message,
-            messages::unreact_message,
-            messages::clear_reactions,
-            messages::pin_message,
-            messages::mark_unread,
-            messages::report_content,
-            messages::search_messages,
-            messages::add_group_members,
-            messages::create_group,
-            cache_snapshot,
-            data_dir,
-            desktop::desktop_config,
-            desktop::set_desktop_config,
+            desktop::native_minimise,
+            desktop::native_maximise,
+            desktop::native_close,
+            desktop::desktop_config_set,
+            desktop::desktop_autostart_get,
+            desktop::desktop_autostart_set,
             desktop::set_tray_labels,
-            desktop::restart_app,
-            desktop::notify,
-            settings::changelog,
-            settings::edit_server_identity,
-            bots::owned_bots,
-            bots::bot_info,
-            bots::create_bot,
-            bots::edit_bot,
-            bots::delete_bot,
-            bots::public_bot,
-            bots::invite_bot,
-            bots::bot_discover_status,
-            bots::request_bot_discover,
-            bots::cancel_bot_discover,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");
@@ -1609,9 +251,19 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    /// Уникальное имя временного каталога для теста.
+    fn temp_dir(name: &str) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        std::env::temp_dir().join(format!("arachnid-client-{name}-{nanos:x}"))
+    }
+
     #[test]
     fn legacy_dir_moves_only_once() {
-        let root = std::env::temp_dir().join(format!("arachnid-client-migrate-{}", nonce()));
+        let root = temp_dir("migrate");
         let old = root.join(LEGACY_IDENTIFIER);
         let new = root.join("com.arachnid.client");
         std::fs::create_dir_all(&old).unwrap();
@@ -1630,42 +282,25 @@ mod tests {
 
     #[test]
     fn portable_layout_is_created() {
-        let dir = std::env::temp_dir().join(format!("arachnid-client-test-{}", nonce()));
+        let dir = temp_dir("layout");
         ensure_layout(&dir).unwrap();
-        for sub in ["cache", "plugins", "themes", "logs"] {
-            assert!(dir.join(sub).is_dir(), "нет каталога {sub}");
-        }
+        assert!(dir.join("logs").is_dir());
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn nonce_is_unique_enough() {
-        assert_ne!(nonce(), nonce());
-    }
-
-    #[test]
-    fn send_payload_is_minimal() {
-        let data = revolt_send("привет", Vec::new());
-        assert_eq!(data.content.as_deref(), Some("привет"));
-        assert!(data.attachments.is_none());
-        assert!(
-            data.replies.is_none(),
-            "пустой список ответов не отправляется"
-        );
-        assert!(
-            data.nonce.is_none(),
-            "вместо nonce — заголовок Idempotency-Key"
-        );
-    }
-
-    #[test]
-    fn reply_intent_comes_from_interface() {
-        // так аргумент приходит из JS
-        let replies: Vec<v0::ReplyIntent> =
-            serde_json::from_str(r#"[{"id":"01MSG","mention":true}]"#).unwrap();
-        let data = revolt_send("ответ", replies);
-        let body = serde_json::to_value(&data).unwrap();
-        assert_eq!(body["replies"][0]["id"], "01MSG");
-        assert_eq!(body["replies"][0]["mention"], true);
+    fn bridge_permissions_match_build_script() {
+        // build.rs перечисляет команды, lib.rs — права на них
+        let build = include_str!("../build.rs");
+        for permission in BRIDGE_PERMISSIONS {
+            let Some(command) = permission.strip_prefix("allow-") else {
+                continue;
+            };
+            let command = command.replace('-', "_");
+            assert!(
+                build.contains(&format!("\"{command}\"")),
+                "команды {command} нет в build.rs"
+            );
+        }
     }
 }

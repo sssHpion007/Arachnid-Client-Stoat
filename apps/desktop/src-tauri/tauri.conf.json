@@ -1,11 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Arachnid Client",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "identifier": "com.arachnid.client",
-  "build": {
-    "frontendDist": "../ui"
-  },
+  "build": {},
   "app": {
     "windows": [
       {
@@ -13,18 +11,19 @@
         "create": false,
         "title": "Arachnid Client",
         "width": 1280,
-        "height": 820,
+        "height": 720,
         "minWidth": 300,
         "minHeight": 300,
         "resizable": true,
         "center": true,
-        "url": "login.html"
+        "backgroundColor": "#191919",
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data: blob: media: http://media.localhost https://cdn.stoatusercontent.com https://*.stoat.chat; media-src 'self' media: http://media.localhost https://cdn.stoatusercontent.com; connect-src 'self' ipc: http://ipc.localhost media: http://media.localhost https://api.stoat.chat wss://events.stoat.chat; font-src 'self' data:; frame-src https://stt.gg"
-    },
-    "withGlobalTauri": true
+      "csp": null
+    }
   },
   "bundle": {
     "active": true,
@@ -44,7 +43,7 @@
       "icons/icon.ico"
     ],
     "resources": [],
-    "shortDescription": "Клиент Stoat на Rust",
-    "longDescription": "Клиент Stoat с ядром на Rust и плагинами в песочнице WASM."
+    "shortDescription": "Настольный клиент Stoat",
+    "longDescription": "Официальный веб-клиент Stoat в окне Tauri: своя рамка окна, трей, автозапуск и Discord RPC."
   }
 }
