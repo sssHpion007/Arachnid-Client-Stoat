@@ -428,7 +428,7 @@ pub async fn server_member_list(
                     .and_then(|file| views::file_url(file, cdn)),
                 nickname: member.nickname.clone(),
                 roles: member.roles.clone(),
-                joined_at: serde_json::to_value(&member.joined_at)
+                joined_at: serde_json::to_value(member.joined_at)
                     .ok()
                     .and_then(|value| value.as_str().map(str::to_string)),
             })

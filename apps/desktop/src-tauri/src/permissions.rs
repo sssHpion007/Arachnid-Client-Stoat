@@ -27,7 +27,7 @@ pub fn server(server: &v0::Server, user_id: Option<&str>, member: Option<&v0::Me
         .iter()
         .filter_map(|id| server.roles.get(id))
         .collect();
-    roles.sort_by(|a, b| b.rank.cmp(&a.rank));
+    roles.sort_by_key(|role| std::cmp::Reverse(role.rank));
 
     let mut value = server.default_permissions as u64;
     for role in roles {
