@@ -1047,8 +1047,6 @@ impl EmbedView {
     }
 }
 
-/// Текст текстового эмбеда: в модели это `content`, а не `description`.
-///
 /// Адрес аватара вебхука: в сообщении приходит только id файла.
 pub fn webhook_avatar_url(id: &str, cdn: Option<&str>) -> Option<String> {
     let base = cdn?.trim_end_matches('/');

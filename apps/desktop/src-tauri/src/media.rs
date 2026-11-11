@@ -290,6 +290,90 @@ fn target_url(path: &str) -> Option<String> {
     url.starts_with("https://").then_some(url)
 }
 
+/// Имя файла, безопасное для любой ОС: без каталогов и запрещённых знаков.
+pub fn safe_file_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| {
+            if c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let cleaned = cleaned.trim().trim_matches('.').trim();
+    if cleaned.is_empty() {
+        "file".into()
+    } else {
+        cleaned.into()
+    }
+}
+
+/// Свободное имя в каталоге: `кот.png`, `кот (1).png`, `кот (2).png`…
+pub fn free_path(
+    dir: &std::path::Path,
+    name: &str,
+    exists: impl Fn(&std::path::Path) -> bool,
+) -> std::path::PathBuf {
+    let candidate = dir.join(name);
+    if !exists(&candidate) {
+        return candidate;
+    }
+    let (stem, extension) = match name.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() => (stem, Some(extension)),
+        _ => (name, None),
+    };
+    (1..)
+        .map(|index| match extension {
+            Some(extension) => dir.join(format!("{stem} ({index}).{extension}")),
+            None => dir.join(format!("{stem} ({index})")),
+        })
+        .find(|path| !exists(path))
+        .unwrap_or(candidate)
+}
+
+impl MediaProxy {
+    /// Скачать файл в каталог `dir`; вернуть путь, куда он сохранён.
+    pub async fn download(
+        &self,
+        url: &str,
+        name: &str,
+        dir: std::path::PathBuf,
+    ) -> Result<std::path::PathBuf, String> {
+        if !url.starts_with("https://") {
+            return Err("неподдерживаемый адрес файла".into());
+        }
+        let response = self
+            .client
+            .get(url)
+            .header(header::ACCEPT, "*/*")
+            .send()
+            .await
+            .map_err(|error| format!("не удалось скачать файл: {error}"))?;
+        if !response.status().is_success() {
+            return Err(format!(
+                "файл недоступен: HTTP {}",
+                response.status().as_u16()
+            ));
+        }
+        let body = response
+            .bytes()
+            .await
+            .map_err(|error| format!("файл не дочитан: {error}"))?;
+
+        let name = safe_file_name(name);
+        tauri::async_runtime::spawn_blocking(move || {
+            std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+            let path = free_path(&dir, &name, |path| path.exists());
+            std::fs::write(&path, &body).map_err(|error| error.to_string())?;
+            Ok(path)
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+}
+
 /// Тип содержимого по расширению: CDN не всегда его присылает.
 pub fn guess_content_type(url: &str) -> &'static str {
     let path = url.split('?').next().unwrap_or(url).to_ascii_lowercase();
@@ -315,6 +399,33 @@ pub fn guess_content_type(url: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_names_are_safe() {
+        assert_eq!(safe_file_name("кот.png"), "кот.png");
+        assert_eq!(safe_file_name("../../etc/passwd"), "_.._etc_passwd");
+        assert_eq!(safe_file_name("a:b*c?.txt"), "a_b_c_.txt");
+        assert_eq!(safe_file_name("  ..  "), "file");
+    }
+
+    #[test]
+    fn free_path_adds_counter() {
+        let dir = std::path::Path::new("/tmp/x");
+        let taken = [dir.join("кот.png"), dir.join("кот (1).png")];
+        let exists = |path: &std::path::Path| taken.iter().any(|item| item == path);
+        assert_eq!(free_path(dir, "кот.png", exists), dir.join("кот (2).png"));
+        assert_eq!(free_path(dir, "пёс.png", exists), dir.join("пёс.png"));
+        let only = [dir.join("README")];
+        assert_eq!(
+            free_path(dir, "README", |path| only.iter().any(|item| item == path)),
+            dir.join("README (1)")
+        );
+        let hidden = [dir.join(".env")];
+        assert_eq!(
+            free_path(dir, ".env", |path| hidden.iter().any(|item| item == path)),
+            dir.join(".env (1)")
+        );
+    }
 
     #[test]
     fn parses_ranges() {

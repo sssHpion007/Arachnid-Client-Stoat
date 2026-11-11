@@ -797,6 +797,27 @@ async fn download_data_url(
     Ok(format!("data:{content_type};base64,{encoded}"))
 }
 
+/// Сохранить файл из сообщения в каталог «Загрузки» пользователя.
+///
+/// Webview не умеет скачивать файлы протокола `media:`, поэтому файл
+/// забирает Rust; возвращается полный путь, чтобы показать его в интерфейсе.
+#[tauri::command]
+async fn download_file(
+    url: String,
+    filename: String,
+    proxy: State<'_, Arc<media::MediaProxy>>,
+) -> CmdResult<String> {
+    let dir = directories::UserDirs::new()
+        .and_then(|dirs| dirs.download_dir().map(std::path::Path::to_path_buf))
+        .or_else(|| directories::UserDirs::new().map(|dirs| dirs.home_dir().join("Downloads")))
+        .ok_or_else(|| CommandError::new("download", "не найден каталог загрузок"))?;
+    let path = proxy
+        .download(&url, &filename, dir)
+        .await
+        .map_err(|message| CommandError::new("download", message))?;
+    Ok(path.display().to_string())
+}
+
 /// Адрес сообщения, чтобы можно было скопировать ссылку.
 #[tauri::command]
 async fn message_link(
@@ -1347,6 +1368,7 @@ pub fn run() {
             workspace,
             fetch_emoji,
             emoji_index,
+            download_file,
             server_emojis,
             server_members,
             subscribe_server,
