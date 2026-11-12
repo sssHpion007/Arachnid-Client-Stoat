@@ -12,8 +12,10 @@
 //    без отметки клиента — как у тех, кто уже пользовался клиентом;
 // 2. такие настройки получили Twemoji, остальное в них не тронуто; затем
 //    набор выбирается вручную;
-// 3. выбранный вручную набор остаётся; шторка выбора набора получает кнопки,
-//    Mutant Remix скачивается и удаляется кнопками шторки.
+// 3. выбранный вручную набор остаётся; окно выбора эмодзи получает разделы,
+//    и его прокрутка не заставляет клиент искать окно по всему документу;
+//    шторка выбора набора получает кнопки, Mutant Remix скачивается и
+//    удаляется кнопками шторки.
 (async () => {
   "use strict";
 
@@ -99,6 +101,59 @@
     }
   }
   const settings = () => localforage.getItem("settings");
+
+  /**
+   * Окно выбора эмодзи, как его строит EmojiPicker for-web: поле поиска, за
+   * ним ряд из колонки серверов и сетки. Списки — @minht11/solid-virtual-
+   * container: ячейки по 40 px со сдвигом transform, отрисованы только
+   * видимые. В сетке — строка заголовка «Default» и 1785 стандартных эмодзи.
+   */
+  function emojiPicker() {
+    const h = (tag, style, ...children) => {
+      const element = document.createElement(tag);
+      if (style) element.style.cssText = style;
+      element.append(...children);
+      return element;
+    };
+    const columns = 9;
+    const rows = 1 + Math.ceil(1785 / columns);
+    const input = h("input");
+    input.placeholder = "Search for emojis...";
+    const railList = h("div", "position:relative;height:0");
+    railList.className = "virtual-container-e2e";
+    const rail = h("div", "display:flex;flex-direction:column;width:40px;overflow-y:scroll;scrollbar-width:none", railList);
+    const gridList = h("div", `position:relative;flex-shrink:0;height:${rows * 40}px`);
+    gridList.className = "virtual-container-e2e";
+    const grid = h("div", "height:300px;overflow-y:scroll;scrollbar-width:none", gridList);
+    const column = h("div", "display:flex;flex-direction:column;width:360px", grid, h("div", "min-height:36px"));
+    const base = h(
+      "div",
+      "position:fixed;left:0;top:0;width:400px;height:400px;display:flex;flex-direction:column",
+      h("div", null, input),
+      h("div", "display:flex;flex-grow:1;min-height:0", rail, column),
+    );
+    const codes = ["1f600", "1f602", "1f60d", "1f618", "1f923", "1f44d", "1f525", "1f389"];
+    let turn = 0;
+    /** Перерисовка, как при прокрутке: Show keyed for-web пересоздаёт картинки */
+    function render() {
+      turn++;
+      const first = Math.floor(grid.scrollTop / 40);
+      const cells = [];
+      for (let row = first; row < Math.min(rows, first + 18); row++) {
+        for (let column = 0; column < columns; column++) {
+          const img = h("img", "width:100%;height:100%");
+          img.className = "emoji";
+          img.alt = String.fromCodePoint(0x1f600 + ((row + column + turn) % 40));
+          img.src = emoji("twemoji", codes[(row * columns + column + turn) % codes.length]);
+          const cell = h("div", `position:absolute;width:40px;height:40px;transform:translate(${column * 40}px, ${row * 40}px)`, img);
+          cells.push(cell);
+        }
+      }
+      gridList.replaceChildren(...cells);
+    }
+    render();
+    return { base, input, rail, grid, render };
+  }
   const packState = async (id) => (await invoke("emoji_packs")).packs.find((pack) => pack.id === id);
 
   try {
@@ -181,6 +236,57 @@
         chosen?.["appearance:unicode_emoji"] === "fluent-3d",
         chosen,
       );
+
+      // окно выбора эмодзи
+      const picker = emojiPicker();
+      document.getElementById("floating").append(picker.base);
+      const railButtons = () => picker.rail.querySelectorAll(".arachnid-emoji-rail-button");
+      const enhanced = await waitFor(() => railButtons().length > 0, 5000, 50);
+      await check("окно эмодзи: разделы в колонке", enhanced && railButtons().length === 9, railButtons().length);
+
+      // Поиск окна (по подсказке поля) не должен идти при каждой перерисовке
+      // списка: так клиент раньше обходил весь документ на каждый кадр
+      // прокрутки.
+      let searches = 0;
+      const counted = (original) =>
+        function (selector) {
+          if (String(selector).includes("mdui-text-field")) searches++;
+          return original.call(this, selector);
+        };
+      const documentQuery = Document.prototype.querySelectorAll;
+      const elementQuery = Element.prototype.querySelectorAll;
+      Document.prototype.querySelectorAll = counted(documentQuery);
+      Element.prototype.querySelectorAll = counted(elementQuery);
+      const started = performance.now();
+      for (let i = 0; i < 120; i++) {
+        picker.grid.scrollTop = i * 60;
+        picker.render();
+        await frame();
+      }
+      const elapsed = performance.now() - started;
+      Document.prototype.querySelectorAll = documentQuery;
+      Element.prototype.querySelectorAll = elementQuery;
+      await check("окно эмодзи: прокрутка без поиска окна по документу", searches === 0, {
+        searches,
+        frame: +(elapsed / 120).toFixed(1),
+      });
+      await check("окно эмодзи: дополнено один раз", railButtons().length === 9, railButtons().length);
+
+      const flags = picker.rail.querySelector('.arachnid-emoji-rail-button[title="Flags"], .arachnid-emoji-rail-button[title="Флаги"]');
+      flags.click();
+      await frame();
+      picker.render();
+      await waitFor(() => flags.hasAttribute("data-active"), 2000, 50);
+      await check("окно эмодзи: переход к флагам и подсветка раздела", flags.hasAttribute("data-active"), picker.grid.scrollTop);
+
+      // закрыть и открыть снова — новое окно тоже получает разделы
+      picker.base.remove();
+      await frame();
+      const again = emojiPicker();
+      document.getElementById("floating").append(again.base);
+      const reopened = await waitFor(() => again.rail.querySelector(".arachnid-emoji-rail-button"), 5000, 50);
+      await check("окно эмодзи: открытое заново тоже дополнено", Boolean(reopened));
+      again.base.remove();
 
       // шторка выбора набора, как её строит FloatingSelect for-web
       const packs = ["fluent-3d", "fluent-color", "fluent-flat", "mutant", "noto", "twemoji"];

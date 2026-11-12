@@ -273,6 +273,7 @@
     return null;
   }
 
+  /** Дополнить окно; возвращает, что сделать, когда оно закроется */
   function enhance(picker) {
     const { input, rail, railList, grid, gridList, preview } = picker;
     input.dataset.arachnidEmoji = "";
@@ -352,13 +353,15 @@
       return null;
     }
 
+    /** Картинки «Часто используемых» — тем же набором, что и сетка */
     function syncPack() {
       const pack = currentPack();
-      if (!pack || !frequentBlock) return;
+      if (!pack || !frequentBlock) return false;
       for (const image of frequentBlock.querySelectorAll("img.emoji")) {
         const own = packOf(image.src);
         if (own && own !== pack) image.src = image.src.replace(`/emoji/${own}/`, `/emoji/${pack}/`);
       }
+      return true;
     }
 
     /** Ячейка for-web с этим эмодзи среди отрисованных */
@@ -510,29 +513,46 @@
     railList.after(categoryBlock);
 
     // ─────────────────────── подсветка раздела ───────────────────────
+    // Размеры сетки читаются не при каждой прокрутке: чтение заставляет
+    // браузер сразу пересчитать раскладку, которую список for-web только что
+    // поменял. Меняются они лишь вместе с размерами сетки и списка (ширина
+    // окна, поиск, «Часто используемые»), за которыми следит ResizeObserver.
+    let layout = null;
+    const measure = () =>
+      (layout ??= { offset: listOffset(), leading: leadingRows(), columns: columns() });
+
     function activeSection() {
       if (filtering()) return null;
-      const offset = listOffset();
+      const { offset, leading, columns: count } = measure();
       if (frequentBlock && grid.scrollTop < offset) return "frequent";
-      const row = Math.floor((grid.scrollTop - offset + 1) / CELL) - leadingRows();
+      const row = Math.floor((grid.scrollTop - offset + 1) / CELL) - leading;
       if (row < 0) return null;
       // раздел, который начинается в верхней видимой строке, уже считается открытым
-      const last = (row + 1) * columns() - 1;
+      const last = (row + 1) * count - 1;
       let active = null;
       for (const category of CATEGORIES) if (category.start <= last) active = category.id;
       return active;
     }
 
     let pending = false;
+    let shown;
     function highlight() {
       if (pending) return;
       pending = true;
       requestAnimationFrame(() => {
         pending = false;
         const active = activeSection();
+        if (active === shown) return;
+        shown = active;
         for (const [id, button] of buttons) button.toggleAttribute("data-active", id === active);
       });
     }
+
+    const resize = new ResizeObserver(() => {
+      layout = null;
+      highlight();
+    });
+    for (const element of [grid, gridList, frequentBlock]) if (element) resize.observe(element);
 
     grid.addEventListener("scroll", highlight, { passive: true });
     input.addEventListener("input", () => {
@@ -540,31 +560,106 @@
       highlight();
     });
 
-    // картинки «Часто используемых» — тем же набором, что и сетка
-    new MutationObserver(() => {
-      syncPack();
-      highlight();
-    }).observe(gridList, { childList: true });
+    // Набор виден по первой отрисованной картинке сетки, и пока окно открыто,
+    // он не меняется: наблюдение нужно только до неё.
+    let packWatch = null;
+    if (frequentBlock && !syncPack()) {
+      packWatch = new MutationObserver(() => {
+        if (!syncPack()) return;
+        packWatch.disconnect();
+        packWatch = null;
+      });
+      packWatch.observe(gridList, { childList: true, subtree: true });
+    }
     highlight();
+
+    // окно закрыто
+    return () => {
+      resize.disconnect();
+      packWatch?.disconnect();
+    };
   }
 
   // ─────────────────────────── наблюдение ───────────────────────────
   // Поле поиска for-web — mdui-text-field (TextField.tsx). Solid задаёт ему
   // подсказку свойством, а атрибутом она становится позже, при отрисовке
   // самого mdui, поэтому проверяется свойство.
-  function scan() {
-    const fields = document.querySelectorAll(
-      "mdui-text-field:not([data-arachnid-emoji]), input:not([data-arachnid-emoji])",
-    );
-    for (const field of fields) {
-      if (field.placeholder !== SEARCH_PLACEHOLDER) continue;
-      const picker = parts(field);
-      if (picker) enhance(picker);
+  //
+  // Документ for-web меняется постоянно: сообщения, набор текста, а пока
+  // окно открыто — его же список при каждой прокрутке, иногда по нескольку
+  // раз за кадр. Поэтому записи наблюдателя только просматриваются: окно
+  // ищется там, где в документ добавлено поле ввода, и не чаще раза в кадр.
+  // Раньше на каждое изменение обходился весь документ, и прокрутка окна
+  // тормозила — тем сильнее, чем больше открытый канал.
+  const FIELDS = "mdui-text-field, input";
+  /** Улучшенные окна: поле поиска → что сделать, когда окно закроется */
+  const pickers = new Map();
+  /** Поля поиска, у которых окно ещё не собрано */
+  const waiting = new Set();
+  /** Добавленные блоки с полями ввода — до ближайшего кадра */
+  let added = [];
+
+  function consider(field) {
+    if (field.dataset.arachnidEmoji !== undefined) return;
+    if (field.placeholder !== SEARCH_PLACEHOLDER) return;
+    const picker = parts(field);
+    if (picker) {
+      waiting.delete(field);
+      pickers.set(field, enhance(picker));
+    } else {
+      waiting.add(field);
     }
   }
 
+  function scan() {
+    for (const [field, dispose] of pickers) {
+      if (field.isConnected) continue;
+      dispose();
+      pickers.delete(field);
+    }
+    for (const field of waiting) {
+      if (field.isConnected) consider(field);
+      else waiting.delete(field);
+    }
+    const roots = added;
+    added = [];
+    for (const root of roots) {
+      if (!root.isConnected) continue;
+      if (root.matches(FIELDS)) consider(root);
+      for (const field of root.querySelectorAll(FIELDS)) consider(field);
+    }
+  }
+
+  let queued = false;
+  function queueScan() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      scan();
+    });
+  }
+
+  const hasField = (node) =>
+    node.nodeType === Node.ELEMENT_NODE &&
+    (node.matches(FIELDS) || node.querySelector(FIELDS) !== null);
+
+  function observe(records) {
+    let wanted = waiting.size > 0;
+    for (const record of records) {
+      if (pickers.size > 0 && record.removedNodes.length > 0) wanted = true;
+      for (const node of record.addedNodes) {
+        if (!hasField(node)) continue;
+        added.push(node);
+        wanted = true;
+      }
+    }
+    if (wanted) queueScan();
+  }
+
   function start() {
-    new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
+    new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
+    added.push(document.body);
     scan();
   }
 
