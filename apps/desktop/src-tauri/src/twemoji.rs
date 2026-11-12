@@ -223,6 +223,11 @@ pub fn serve(_window: &tauri::WebviewWindow) {}
 mod tests {
     use super::*;
 
+    /// Кодовые точки из адреса картинки набора `pack`, как его строит for-web.
+    fn stem_in(pack: &str, file: &str) -> Option<String> {
+        stem_of(&format!("https://static.stoat.chat/emoji/{pack}/{file}"))
+    }
+
     #[test]
     fn pack_has_every_twemoji() {
         let entries = index();
@@ -232,7 +237,7 @@ mod tests {
 
     #[test]
     fn web_client_addresses_are_found() {
-        let stem = stem_of("https://static.stoat.chat/emoji/twemoji/1f600.svg?v=1").unwrap();
+        let stem = stem_in("twemoji", "1f600.svg?v=1").unwrap();
         assert_eq!(stem, "1f600");
         let image = svg(&stem).unwrap();
         assert!(image.starts_with(b"<svg"));
@@ -250,9 +255,10 @@ mod tests {
 
     #[test]
     fn other_addresses_go_to_network() {
-        assert_eq!(stem_of("https://static.stoat.chat/emoji/fluent-3d/1f600.svg?v=1"), None);
-        assert_eq!(stem_of("https://static.stoat.chat/emoji/twemoji/../x.svg"), None);
-        assert_eq!(stem_of("https://static.stoat.chat/emoji/twemoji/.svg"), None);
+        assert_eq!(stem_in("fluent-3d", "1f600.svg?v=1"), None);
+        assert_eq!(stem_in("twemoji", "../x.svg"), None);
+        assert_eq!(stem_in("twemoji", ".svg"), None);
+        assert_eq!(stem_in("twemoji", "1f600.png"), None);
         assert_eq!(svg("ffffff"), None);
     }
 }
