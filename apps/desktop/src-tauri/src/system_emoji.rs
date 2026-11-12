@@ -423,7 +423,10 @@ impl<'a> Painter<'a> {
             Brush::Solid {
                 palette_index,
                 alpha,
-            } => Some(Shader::SolidColor(self.color(*palette_index, *alpha).skia())),
+            } => {
+                let color = self.color(*palette_index, *alpha);
+                Some(Shader::SolidColor(color.skia()))
+            }
             Brush::LinearGradient {
                 p0,
                 p1,
@@ -670,8 +673,7 @@ const MAX_PERIODS: f32 = 512.0;
 /// Skia), угол не сворачивается: при Pad точка под углом 300° в градиенте
 /// −90…90° — последнего цвета.
 fn sweep_stops(start: f32, end: f32, stops: &[Stop], extend: Extend) -> Option<Vec<Stop>> {
-    let (first, last) = (stops.first()?.color, stops.last()?.color);
-    if !start.is_finite() || !end.is_finite() {
+    if stops.is_empty() || !start.is_finite() || !end.is_finite() {
         return None;
     }
     // обратный ход — те же цвета от конца к началу
@@ -688,6 +690,7 @@ fn sweep_stops(start: f32, end: f32, stops: &[Stop], extend: Extend) -> Option<V
             .collect();
         (end, start, reversed)
     };
+    let (first, last) = (stops.first()?.color, stops.last()?.color);
     let span = end - start;
     let repeated = matches!(extend, Extend::Repeat | Extend::Reflect);
 
@@ -1002,7 +1005,10 @@ mod tests {
         let channel = |value: f32| (value * 255.0).round() as u8;
         stops
             .iter()
-            .map(|stop| (stop.offset, channel(stop.color.0[0]), channel(stop.color.0[2])))
+            .map(|stop| {
+                let [red, _, blue, _] = stop.color.0;
+                (stop.offset, channel(red), channel(blue))
+            })
             .collect()
     }
 
@@ -1039,7 +1045,8 @@ mod tests {
             painter.pop_transform();
         });
         let [red, green, blue, alpha] = at(&pixmap, 20, 20);
-        assert!((126..=129).contains(&alpha) && red == alpha, "{red} {alpha}");
+        let translucent = (126..=129).contains(&alpha);
+        assert!(translucent && red == alpha, "{red} {alpha}");
         assert_eq!((green, blue), (0, 0));
         // ось y вверх: над квадратом пусто
         assert_eq!(at(&pixmap, 20, 60)[3], 0);
@@ -1125,10 +1132,12 @@ mod tests {
         let line = red_to_blue();
         // Pad: после конца градиента — последний цвет
         let pad = sweep_stops(0.0, 180.0, &line, Extend::Pad).unwrap();
-        assert_eq!(described(&pad), [(0.0, 255, 0), (0.5, 0, 255), (1.0, 0, 255)]);
+        let expected = [(0.0, 255, 0), (0.5, 0, 255), (1.0, 0, 255)];
+        assert_eq!(described(&pad), expected);
         // обратный ход: 180 → 0
         let back = sweep_stops(180.0, 0.0, &line, Extend::Pad).unwrap();
-        assert_eq!(described(&back), [(0.0, 0, 255), (0.5, 255, 0), (1.0, 255, 0)]);
+        let expected = [(0.0, 0, 255), (0.5, 255, 0), (1.0, 255, 0)];
+        assert_eq!(described(&back), expected);
         // Repeat: четыре периода с резкими границами
         let repeat = sweep_stops(0.0, 90.0, &line, Extend::Repeat).unwrap();
         let expected = [
@@ -1144,7 +1153,8 @@ mod tests {
         assert_eq!(described(&repeat), expected);
         // Reflect: туда и обратно без резких границ
         let reflect = sweep_stops(0.0, 180.0, &line, Extend::Reflect).unwrap();
-        assert_eq!(described(&reflect), [(0.0, 255, 0), (0.5, 0, 255), (1.0, 255, 0)]);
+        let expected = [(0.0, 255, 0), (0.5, 0, 255), (1.0, 255, 0)];
+        assert_eq!(described(&reflect), expected);
         // начало не с нуля: −90…90, 300° — последний цвет
         let shifted = sweep_stops(-90.0, 90.0, &line, Extend::Pad).unwrap();
         let shifted = described(&shifted);

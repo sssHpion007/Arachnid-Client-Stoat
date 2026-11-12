@@ -327,11 +327,13 @@ mod tests {
             b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
         let mut out = String::new();
         for chunk in data.chunks(3) {
-            let bytes = [chunk[0], *chunk.get(1).unwrap_or(&0), *chunk.get(2).unwrap_or(&0)];
-            let n = u32::from_be_bytes([0, bytes[0], bytes[1], bytes[2]]);
+            let mut bytes = [0; 4];
+            bytes[1..=chunk.len()].copy_from_slice(chunk);
+            let n = u32::from_be_bytes(bytes);
             for i in 0..4 {
                 if i <= chunk.len() {
-                    out.push(char::from(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize]));
+                    let index = (n >> (18 - 6 * i)) & 63;
+                    out.push(char::from(ALPHABET[index as usize]));
                 } else {
                     out.push('=');
                 }
@@ -348,7 +350,8 @@ mod tests {
         let pixmap = tiny_skia::Pixmap::decode_png(&png).unwrap();
         assert_eq!((pixmap.width(), pixmap.height()), (96, 96));
         let center = pixmap.pixel(48, 48).unwrap();
-        assert_eq!((center.red(), center.green(), center.blue()), (0xff, 0xcc, 0x4d));
+        let rgb = (center.red(), center.green(), center.blue());
+        assert_eq!(rgb, (0xff, 0xcc, 0x4d));
         assert_eq!(pixmap.pixel(1, 1).unwrap().alpha(), 0);
         assert_eq!(from_svg(b"not svg", 96), None);
     }

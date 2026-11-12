@@ -27,16 +27,40 @@ awk '
   }
 ' "$log"
 
-# упавшие тесты: "thread '…' panicked at file:line:col:" и следующая строка
+# упавшие тесты: "thread '…' panicked at file:line:col:" и строки после неё
+# до пустой или "note:" (у assert_eq — значения left и right)
 awk '
-  /panicked at / {
-    where = $0; sub(/.*panicked at /, "", where); sub(/:$/, "", where)
-    split(where, at, ":"); getline detail
-    printf "::error file=%s,line=%s::%s — %s\n", at[1], at[2], $0, detail
+  function flush() {
+    if (file != "") printf "::error file=%s,line=%s::%s\n", file, line, msg
+    file = ""
   }
+  /panicked at / {
+    flush()
+    where = $0; sub(/.*panicked at /, "", where); sub(/:$/, "", where)
+    split(where, at, ":"); file = at[1]; line = at[2]
+    msg = $0; gsub(/%/, "%25", msg); gsub(/\r/, "", msg)
+    next
+  }
+  file != "" && (/^$/ || /^\r$/ || /^note: / || /^test / || length(msg) > 3500) { flush(); next }
+  file != "" { text = $0; gsub(/%/, "%25", text); gsub(/\r/, "", text); msg = msg "%0A" text }
+  END { flush() }
 ' "$log"
 
-# cargo fmt --check: "Diff in /path/file.rs:12:"
-grep -E '^Diff in ' "$log" | sed -E 's#^Diff in (.*):([0-9]+):?$#::error file=\1,line=\2::rustfmt: файл не отформатирован#' || true
+# cargo fmt --check: "Diff in /path/file.rs:12:" и сама разница до следующей
+awk '
+  function flush() {
+    if (file != "") printf "::error file=%s,line=%s::rustfmt: файл не отформатирован%s\n", file, line, diff
+    file = ""
+  }
+  /^Diff in / {
+    flush()
+    where = $0; sub(/^Diff in /, "", where); sub(/:$/, "", where)
+    line = where; sub(/.*:/, "", line); file = where; sub(/:[0-9]+$/, "", file)
+    diff = ""
+    next
+  }
+  file != "" && length(diff) < 3500 { text = $0; gsub(/%/, "%25", text); gsub(/\r/, "", text); diff = diff "%0A" text }
+  END { flush() }
+' "$log"
 
 exit "$status"
