@@ -97,11 +97,15 @@
   /** Значок пункта «ПК» в боковой панели */
   const DESKTOP_ICON = "desktop_windows";
   /**
-   * Значок «extension» из @material-design-icons/svg (outlined), как у
-   * закомментированного пункта plugins в for-web.
+   * Значок «extension» из Material Symbols (@material-symbols/svg-400,
+   * outlined) — набор, которым for-web рисует и значок «ПК». У него
+   * визуальный центр посередине; у старого extension из
+   * @material-design-icons тело пазла сидит ниже соседних значков.
    */
-  const EXTENSION_PATH =
-    "M10.5 4.5c.28 0 .5.22.5.5v2h6v6h2c.28 0 .5.22.5.5s-.22.5-.5.5h-2v6h-2.12c-.68-1.75-2.39-3-4.38-3s-3.7 1.25-4.38 3H4v-2.12c1.75-.68 3-2.39 3-4.38 0-1.99-1.24-3.7-2.99-4.38L4 7h6V5c0-.28.22-.5.5-.5m0-2A2.5 2.5 0 0 0 8 5H4c-1.1 0-1.99.9-1.99 2v3.8h.29c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-.3c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7v.3H17c1.1 0 2-.9 2-2v-4a2.5 2.5 0 0 0 0-5V7c0-1.1-.9-2-2-2h-4a2.5 2.5 0 0 0-2.5-2.5z";
+  const EXTENSION_ICON = {
+    viewBox: "0 -960 960 960",
+    path: "M356-120H180q-24 0-42-18t-18-42v-176q44-5 75.5-34.5T227-463q0-43-31.5-72.5T120-570v-176q0-24 18-42t42-18h177q11-40 39.5-67t68.5-27q40 0 68.5 27t39.5 67h173q24 0 42 18t18 42v173q40 11 65.5 41.5T897-461q0 40-25.5 67T806-356v176q0 24-18 42t-42 18H570q-5-48-35.5-77.5T463-227q-41 0-71.5 29.5T356-120Zm-176-60h130q25-61 69.89-84t83-23Q501-287 546-264t70 84h130v-235h45q20 0 33-13t13-33q0-20-13-33t-33-13h-45v-239H511v-48q0-20-13-33t-33-13q-20 0-33 13t-13 33v48H180v130q48.15 17.82 77.58 59.69Q287-514.45 287-462.78 287-412 257.5-370T180-310v130Zm285-281Z",
+  };
 
   // ─────────────────────────────── элементы ───────────────────────────────
 
@@ -577,8 +581,6 @@
         "div",
         { class: "arachnid-buttons" },
         button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
-        button(text.openThemes, () => openFolder("themes"), undefined, "palette"),
-        button(text.quickCss, () => openFolder("quickCss"), undefined, "css"),
       ),
     );
   }
@@ -732,8 +734,8 @@
     let label;
     if (svg) {
       svg.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg", "path"));
-      svg.firstChild.setAttribute("d", EXTENSION_PATH);
-      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.firstChild.setAttribute("d", EXTENSION_ICON.path);
+      svg.setAttribute("viewBox", EXTENSION_ICON.viewBox);
       label = svg.nextElementSibling;
     } else {
       // значок шрифтом Material Symbols
@@ -836,6 +838,13 @@
       : text.themesHint;
 
     appearance.picker.replaceChildren(
+      // те же кнопки, что «Папка плагинов» в разделе «Плагины»
+      h(
+        "div",
+        { class: "arachnid-buttons" },
+        button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
+        button(text.quickCss, () => openFolder("quickCss"), undefined, "css"),
+      ),
       select({
         label: text.theme,
         value: active?.file ?? "",
@@ -846,12 +855,6 @@
         onChange: (file) => void change("extensions_set_theme", { file: file || null }),
       }),
       details ? h("span", { class: "arachnid-label", style: { whiteSpace: "pre-line" } }, details) : null,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.openThemes, () => openFolder("themes"), "text", "folder_open"),
-        button(text.quickCss, () => openFolder("quickCss"), "text", "css"),
-      ),
     );
 
     appearance.block.toggleAttribute("data-arachnid-hidden", !active);

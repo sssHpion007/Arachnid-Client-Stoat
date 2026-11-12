@@ -75,8 +75,10 @@ dependencies = [
  "toml 1.2.1+spec-1.1.0",
  "tracing",
  "tracing-subscriber",
+ "tray-icon",
  "url",
  "webview2-com",
+ "windows",
  "windows-core 0.61.2",
 ]
 

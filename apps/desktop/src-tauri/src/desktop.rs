@@ -27,7 +27,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
-use crate::{CmdResult, CommandError, extensions};
+use crate::{CmdResult, CommandError, extensions, icon};
 
 /// Метка главного окна (как в `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
@@ -434,6 +434,7 @@ pub fn create_main_window(
     }
 
     let window = builder.build()?;
+    icon::apply_window(&window);
 
     // положение — в физических пикселях, как и сохранено
     if state.width >= 300 && state.height >= 300 && on_screen(&window, state) {
@@ -509,6 +510,8 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 }
             }
         }
+        // на мониторе с другим масштабом нужны кадры значка другого размера
+        WindowEvent::ScaleFactorChanged { .. } => icon::apply_window(&webview),
         WindowEvent::Focused(true) => MemorySaver::foreground(app),
         WindowEvent::Focused(false) => app.state::<Arc<MemorySaver>>().unfocused(),
         _ => {}
@@ -566,6 +569,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     let tray = builder.build(app)?;
+    icon::apply_tray(&tray);
     if let Ok(mut slot) = app.state::<Arc<Desktop>>().tray.lock() {
         *slot = Some(tray);
     }

@@ -41,6 +41,14 @@ regex = "1"
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
 windows-core = "0.61"
+# чёткие значки окна и трея из ресурса exe (те же версии, что у Tauri)
+tray-icon = { version = "0.24", default-features = false }
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_LibraryLoader",
+  "Win32_UI_HiDpi",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [[bin]]
 name = "arachnid-client"

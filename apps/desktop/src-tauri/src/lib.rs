@@ -19,6 +19,7 @@ use tauri::ipc::CapabilityBuilder;
 
 mod desktop;
 mod extensions;
+mod icon;
 mod instance;
 mod memory;
 mod usercss;
