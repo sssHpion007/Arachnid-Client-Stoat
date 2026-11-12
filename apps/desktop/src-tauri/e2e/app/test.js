@@ -418,7 +418,8 @@
           return state.installed ? state : null;
         },
         180000,
-        100,
+        // GitHub отдаёт набор за доли секунды — опрашивать чаще, чтобы застать ход
+        20,
       );
       await check("Mutant Remix скачан", installed?.installed, installed);
       await check("ход скачивания виден (received/total)", progressSeen);
