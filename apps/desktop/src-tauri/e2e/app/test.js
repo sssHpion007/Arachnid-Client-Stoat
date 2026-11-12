@@ -363,6 +363,23 @@
       const afterDelete = await fetched(emoji("mutant", "1f600"));
       await check("после удаления картинки идут с сервера", afterDelete.source === null, afterDelete);
       await check("кнопки не выбирали набор", selected === 0, selected);
+      // ВРЕМЕННО: образцы картинок из шрифта для просмотра
+      if (system.includes("fluent-color")) {
+        const samples = [
+          ["fluent-color", "1f600"], ["fluent-color", "1f469-200d-1f4bb"], ["fluent-color", "1f44b-1f3fd"],
+          ["fluent-color", "23-fe0f-20e3"], ["fluent-color", "2764-fe0f"], ["fluent-color", "1f525"],
+          ["fluent-color", "1f308"], ["fluent-color", "1f389"], ["fluent-color", "1f30d"], ["fluent-color", "1f914"],
+          ["fluent-color", "1f60d"], ["fluent-color", "1f680"], ["fluent-flat", "1f600"], ["fluent-flat", "1f525"],
+          ["fluent-flat", "1f389"], ["fluent-flat", "1f469-200d-1f4bb"],
+        ];
+        for (const [pack, stem] of samples) {
+          const body = await (await fetch(emoji(pack, stem), { cache: "no-store" })).blob();
+          const packed = await new Response(body.stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+          let binary = "";
+          for (const byte of new Uint8Array(packed)) binary += String.fromCharCode(byte);
+          await send("/log", `SVG ${pack} ${stem} ${body.size} ${btoa(binary)}`);
+        }
+      }
       return finish();
     }
   } catch (error) {
