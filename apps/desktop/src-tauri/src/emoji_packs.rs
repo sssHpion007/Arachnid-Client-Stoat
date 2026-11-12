@@ -10,8 +10,13 @@
 //! появляются с большой задержкой.
 //!
 //! Поэтому картинки отдаёт сам клиент: обработчик `WebResourceRequested`
-//! WebView2 для `https://static.stoat.chat/emoji/*` отвечает из файла набора,
-//! если набор есть у клиента, а иначе пропускает запрос в сеть.
+//! WebView2 для `https://static.stoat.chat/emoji/<набор>/*` отвечает
+//! картинкой из файла набора, если набор есть у клиента, а иначе сам берёт
+//! её с сервера. Странице картинка уходит растром PNG, а не SVG: так цена
+//! каждой задачи страницы не растёт с числом показанных эмодзи (подробно —
+//! в `emoji_raster.rs`). Рисование идёт в фоновых потоках, ответ странице
+//! откладывается (deferral WebView2) до готовой картинки; нарисованные
+//! картинки остаются в памяти.
 //!
 //! * Twemoji — набор по умолчанию — встроен в exe (`emoji/twemoji.bin`).
 //! * Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix и Noto скачиваются в
@@ -47,6 +52,7 @@ use std::sync::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use crate::emoji_raster::{self, Cache, Image};
 use crate::system_emoji::{self, SystemEmoji};
 use crate::{CmdResult, CommandError, extensions};
 
@@ -83,6 +89,10 @@ const PREFIX: &str = "https://static.stoat.chat/emoji/";
 
 /// Селектор варианта эмодзи: формы с ним и без него — одна картинка.
 const VARIATION_SELECTOR: &str = "fe0f";
+
+/// Сколько байт нарисованных картинок держать в памяти. PNG эмодзи — от
+/// 3 КБ (Twemoji, 96 px) до 60 КБ (Fluent 3D): это тысячи картинок.
+const IMAGES_BUDGET: usize = 32 * 1024 * 1024;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -241,10 +251,55 @@ fn key_of(stem: &str) -> String {
         .join("-")
 }
 
-/// Набор и кодовые точки из адреса картинки for-web.
+/// Ключ нарисованной картинки в памяти.
 #[cfg_attr(not(windows), allow(dead_code))]
-fn parse_address(uri: &str) -> Option<(&str, String)> {
+fn image_key(pack: &str, stem: &str, side: u32) -> String {
+    format!("{pack}/{stem}@{side}")
+}
+
+/// Картинка с сервера (набора нет у клиента или в нём нет этого эмодзи,
+/// как флагов в системном шрифте) — тоже растром.
+#[cfg(windows)]
+fn from_network(uri: &str, side: u32) -> Result<Image, Unavailable> {
+    use crate::http::{Error, StopReason};
+
+    /// Картинки наборов меньше (самые крупные — Fluent 3D, ~100 КБ).
+    const LIMIT: usize = 4 * 1024 * 1024;
+
+    let url = url::Url::parse(uri).map_err(|_| Unavailable::Failed)?;
+    let mut body = Vec::new();
+    let on_data = |chunk: &[u8]| {
+        if body.len() + chunk.len() > LIMIT {
+            return Err(StopReason::TooLarge);
+        }
+        body.extend_from_slice(chunk);
+        Ok(())
+    };
+    match crate::http::get(&url, |_| {}, on_data) {
+        Ok(()) => {}
+        Err(Error::Status(404)) => return Err(Unavailable::Missing),
+        Err(error) => {
+            tracing::debug!(?error, uri, "картинка эмодзи с сервера не получена");
+            return Err(Unavailable::Failed);
+        }
+    }
+    let Some(png) = emoji_raster::from_svg(&body, side) else {
+        return Err(Unavailable::Failed);
+    };
+    Ok(Image::new(png, "network"))
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+fn from_network(_uri: &str, _side: u32) -> Result<Image, Unavailable> {
+    Err(Unavailable::Failed)
+}
+
+/// Набор и кодовые точки из адреса картинки for-web; только наборы for-web.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn parse_address(uri: &str) -> Option<(&'static str, String)> {
     let (pack, file) = uri.strip_prefix(PREFIX)?.split_once('/')?;
+    let pack = PACKS.into_iter().find(|id| *id == pack)?;
     let file = file.split(['?', '#']).next()?;
     let stem = file.strip_suffix(".svg")?;
     let hex = |byte: u8| byte.is_ascii_hexdigit() || byte == b'-';
@@ -351,6 +406,18 @@ pub struct EmojiPacks {
     jobs: Mutex<HashMap<&'static str, Job>>,
     failures: Mutex<HashMap<&'static str, Failure>>,
     manifest: Mutex<Remote>,
+    /// Нарисованные картинки по набору, кодовым точкам и стороне
+    images: Mutex<Cache>,
+}
+
+/// Почему картинки нет.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+enum Unavailable {
+    /// Такого эмодзи в наборе нет (у сервера тоже) — 404
+    Missing,
+    /// Сеть или сервер не ответили, картинка не рисуется — 502
+    Failed,
 }
 
 /// Состояние для страницы настроек.
@@ -415,6 +482,7 @@ impl EmojiPacks {
             jobs: Mutex::default(),
             failures: Mutex::default(),
             manifest: Mutex::default(),
+            images: Mutex::new(Cache::new(IMAGES_BUDGET)),
         }
     }
 
@@ -441,23 +509,51 @@ impl EmojiPacks {
         system_emoji::covers(id) && self.system().is_some_and(|system| system.provides(id))
     }
 
-    /// Картинка эмодзи из набора клиента и откуда она: `builtin`,
-    /// `downloaded` или `system`; None — пусть грузит сеть.
+    /// Уже нарисованная картинка (из памяти, без рисования).
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn svg(&self, pack: &str, stem: &str) -> Option<(Vec<u8>, &'static str)> {
-        if let Some(image) = self.pack(pack).and_then(|local| local.svg(stem)) {
+    fn cached(&self, pack: &str, stem: &str, side: u32) -> Option<Image> {
+        lock(&self.images).get(&image_key(pack, stem, side))
+    }
+
+    /// Картинка эмодзи стороной `side` пикселей: из памяти, набора клиента
+    /// или с сервера по адресу `uri`, о котором спросила страница.
+    /// Вызывается вне главного потока.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn image(&self, pack: &str, stem: &str, uri: &str, side: u32) -> Result<Image, Unavailable> {
+        let key = image_key(pack, stem, side);
+        if let Some(image) = lock(&self.images).get(&key) {
+            return Ok(image);
+        }
+        let image = match self.local(pack, stem, side) {
+            Some(image) => image,
+            None => from_network(uri, side)?,
+        };
+        lock(&self.images).insert(key, image.clone());
+        Ok(image)
+    }
+
+    /// Картинка из набора клиента: `builtin`, `downloaded` или `system`.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn local(&self, pack: &str, stem: &str, side: u32) -> Option<Image> {
+        let svg = self.pack(pack).and_then(|local| local.svg(stem));
+        if let Some(png) = svg.and_then(|svg| emoji_raster::from_svg(&svg, side)) {
             let source = if pack == BUILTIN {
                 "builtin"
             } else {
                 "downloaded"
             };
-            return Some((image, source));
+            return Some(Image::new(png, source));
         }
         if !self.in_system(pack) {
             return None;
         }
-        let image = self.system()?.svg(pack, stem)?;
-        Some((image, "system"))
+        let png = self.system()?.png(pack, stem, side)?;
+        Some(Image::new(png, "system"))
+    }
+
+    /// Забыть нарисованные картинки набора: он появился или удалён.
+    fn forget_images(&self, id: &str) {
+        lock(&self.images).forget(&format!("{id}/"));
     }
 
     fn overview(&self) -> Overview {
@@ -693,6 +789,7 @@ impl EmojiPacks {
         std::fs::rename(part, &path).map_err(Failure::io)?;
         let pack = Pack::open(&path).map_err(Failure::io)?;
         write(&self.installed).insert(id, Arc::new(pack));
+        self.forget_images(id);
         Ok(())
     }
 
@@ -709,6 +806,7 @@ impl EmojiPacks {
         // файл открыт с FILE_SHARE_DELETE: удаляется, даже если картинку
         // из него сейчас читают
         write(&self.installed).remove(id);
+        self.forget_images(id);
         match std::fs::remove_file(file_path(&self.dir, id)) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
             _ => Ok(()),
@@ -814,23 +912,52 @@ pub fn emoji_pack_delete(packs: State<'_, Arc<EmojiPacks>>, id: String) -> CmdRe
 
 #[cfg(windows)]
 mod platform {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
-    use tauri::WebviewWindow;
     use tauri::webview::PlatformWebview;
+    use tauri::{AppHandle, Manager, WebviewWindow};
     use webview2_com::Microsoft::Web::WebView2::Win32 as wv;
     use webview2_com::{WebResourceRequestedEventHandler, take_pwstr};
+    use windows::Win32::System::Com::IStream;
     use windows::Win32::UI::Shell::SHCreateMemStream;
-    use windows_core::{HSTRING, Interface, PWSTR, w};
+    use windows_core::{HSTRING, Interface, PCWSTR, PWSTR, w};
 
-    use super::{EmojiPacks, PREFIX, parse_address};
+    use super::{EmojiPacks, PREFIX, Unavailable, parse_address};
+    use crate::emoji_raster::{self, Image, Workers};
+
+    /// Запрос, ответ на который ждёт картинку из фонового потока.
+    struct Pending {
+        args: wv::ICoreWebView2WebResourceRequestedEventArgs,
+        deferral: wv::ICoreWebView2Deferral,
+        env: wv::ICoreWebView2Environment,
+    }
+
+    thread_local! {
+        /// Ждущие запросы; объекты WebView2 живут только в главном потоке
+        static PENDING: RefCell<HashMap<u64, Pending>> = RefCell::new(HashMap::new());
+    }
+
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+    /// Чем отвечать на запросы картинок окна.
+    struct Delivery {
+        packs: Arc<EmojiPacks>,
+        app: AppHandle,
+        workers: Workers,
+        /// Сторона картинки в пикселях
+        side: u32,
+    }
 
     /// Картинки неизменны (адрес с версией `?v=1`), как и у static.stoat.chat.
     /// `Server-Timing` говорит, что картинку отдал клиент (видно в DevTools и
     /// в `PerformanceResourceTiming.serverTiming`).
     fn headers(source: &str) -> HSTRING {
         HSTRING::from(format!(
-            "Content-Type: image/svg+xml\r\n\
+            "Content-Type: image/png\r\n\
              Cache-Control: public, max-age=31536000, immutable\r\n\
              Access-Control-Allow-Origin: *\r\n\
              Access-Control-Expose-Headers: Server-Timing\r\n\
@@ -840,8 +967,15 @@ mod platform {
     }
 
     pub fn serve(window: &WebviewWindow, packs: Arc<EmojiPacks>) {
+        let delivery = Delivery {
+            packs,
+            app: window.app_handle().clone(),
+            workers: Workers::new("emoji-image"),
+            side: side(window),
+        };
+        tracing::info!(side = delivery.side, "картинки эмодзи: PNG");
         let result = window.with_webview(move |webview| {
-            if let Err(error) = setup(&webview, packs) {
+            if let Err(error) = setup(&webview, delivery) {
                 tracing::warn!(%error, "наборы эмодзи клиента не подключены");
             }
         });
@@ -850,7 +984,19 @@ mod platform {
         }
     }
 
-    fn setup(webview: &PlatformWebview, packs: Arc<EmojiPacks>) -> windows_core::Result<()> {
+    /// Сторона картинки — под самый крупный масштаб среди экранов: окно
+    /// можно перенести на любой из них.
+    fn side(window: &WebviewWindow) -> u32 {
+        let current = window.scale_factor().unwrap_or(1.0);
+        let monitors = window.available_monitors().unwrap_or_default();
+        let scale = monitors
+            .iter()
+            .map(|monitor| monitor.scale_factor())
+            .fold(current, f64::max);
+        emoji_raster::side(scale)
+    }
+
+    fn setup(webview: &PlatformWebview, delivery: Delivery) -> windows_core::Result<()> {
         let env = webview.environment();
         // SAFETY: with_webview вызывает нас в главном потоке, контроллер жив,
         // пока существует окно
@@ -859,7 +1005,7 @@ mod platform {
 
         let handler = WebResourceRequestedEventHandler::create(Box::new(move |_, args| {
             if let Some(args) = args {
-                respond(&packs, &env, &args)?;
+                respond(&delivery, &env, &args)?;
             }
             Ok(())
         }));
@@ -884,9 +1030,11 @@ mod platform {
         }
     }
 
-    /// Ответить картинкой набора; без неё запрос уходит в сеть как обычно.
+    /// Ответить картинкой: сразу, если она уже нарисована, иначе — когда её
+    /// нарисует фоновый поток. Адреса не наборов for-web идут в сеть как
+    /// обычно.
     fn respond(
-        packs: &EmojiPacks,
+        delivery: &Delivery,
         env: &wv::ICoreWebView2Environment,
         args: &wv::ICoreWebView2WebResourceRequestedEventArgs,
     ) -> windows_core::Result<()> {
@@ -898,25 +1046,84 @@ mod platform {
         let Some((pack, stem)) = parse_address(&uri) else {
             return Ok(());
         };
-        if let Some((image, source)) = packs.svg(pack, &stem) {
-            let response = response(env, &image, source)?;
+        let side = delivery.side;
+        if let Some(image) = delivery.packs.cached(pack, &stem, side) {
+            let response = image_response(env, &image)?;
             // SAFETY: ответ передаётся WebView2 во время обработчика
-            unsafe { args.SetResponse(&response)? };
+            return unsafe { args.SetResponse(&response) };
         }
+
+        // SAFETY: COM-вызов в главном потоке; deferral держит запрос, пока
+        // не вызван Complete
+        let deferral = unsafe { args.GetDeferral() }?;
+        let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        let pending = Pending {
+            args: args.clone(),
+            deferral,
+            env: env.clone(),
+        };
+        PENDING.with_borrow_mut(|map| map.insert(id, pending));
+
+        let packs = Arc::clone(&delivery.packs);
+        let app = delivery.app.clone();
+        delivery.workers.run(move || {
+            let drawn = catch_unwind(AssertUnwindSafe(|| packs.image(pack, &stem, &uri, side)));
+            let result = drawn.unwrap_or(Err(Unavailable::Failed));
+            let posted = app.run_on_main_thread(move || complete(id, result));
+            if let Err(error) = posted {
+                tracing::debug!(%error, "ответ с картинкой эмодзи не передан окну");
+            }
+        });
         Ok(())
     }
 
-    fn response(
+    /// Ответить на отложенный запрос (главный поток).
+    fn complete(id: u64, result: Result<Image, Unavailable>) {
+        let Some(pending) = PENDING.with_borrow_mut(|map| map.remove(&id)) else {
+            return;
+        };
+        let response = match &result {
+            Ok(image) => image_response(&pending.env, image),
+            Err(reason) => error_response(&pending.env, *reason),
+        };
+        let answered = response.and_then(|response| {
+            // SAFETY: аргументы события живы, пока не вызван Complete
+            unsafe { pending.args.SetResponse(&response) }
+        });
+        if let Err(error) = &answered {
+            tracing::debug!(%error, "ответ с картинкой эмодзи не принят");
+        }
+        // SAFETY: Complete вызывается один раз, в главном потоке
+        if let Err(error) = unsafe { pending.deferral.Complete() } {
+            tracing::debug!(%error, "запрос картинки эмодзи не завершён");
+        }
+    }
+
+    fn image_response(
         env: &wv::ICoreWebView2Environment,
-        image: &[u8],
-        source: &str,
+        image: &Image,
     ) -> windows_core::Result<wv::ICoreWebView2WebResourceResponse> {
-        let headers = headers(source);
+        let headers = headers(image.source);
         // SAFETY: поток создаётся из копии данных
         unsafe {
-            let stream = SHCreateMemStream(Some(image));
+            let stream = SHCreateMemStream(Some(&image.png[..]));
             env.CreateWebResourceResponse(stream.as_ref(), 200, w!("OK"), &headers)
         }
+    }
+
+    /// Картинки нет: 404, если её нет и на сервере, иначе 502. Не кэшируется
+    /// — следующий запрос попробует снова.
+    fn error_response(
+        env: &wv::ICoreWebView2Environment,
+        reason: Unavailable,
+    ) -> windows_core::Result<wv::ICoreWebView2WebResourceResponse> {
+        let (status, phrase): (i32, PCWSTR) = match reason {
+            Unavailable::Missing => (404, w!("Not Found")),
+            Unavailable::Failed => (502, w!("Bad Gateway")),
+        };
+        let headers = w!("Cache-Control: no-store\r\nAccess-Control-Allow-Origin: *");
+        // SAFETY: COM-вызов в главном потоке, тела у ответа нет
+        unsafe { env.CreateWebResourceResponse(None::<&IStream>, status, phrase, headers) }
     }
 }
 
@@ -956,6 +1163,20 @@ mod tests {
         overview.packs.iter().find(|pack| pack.id == id).unwrap()
     }
 
+    /// Сторона картинок в проверках.
+    const SIDE: u32 = 48;
+
+    fn is_png(image: &Image) -> bool {
+        image.png.starts_with(b"\x89PNG")
+    }
+
+    /// Картинка набора клиента: PNG и кто её отдал.
+    fn local(packs: &EmojiPacks, pack: &str, stem: &str) -> Option<(Vec<u8>, &'static str)> {
+        let image = packs.local(pack, stem, SIDE)?;
+        assert!(is_png(&image), "{pack}/{stem}");
+        Some((image.png.to_vec(), image.source))
+    }
+
     #[test]
     fn builtin_pack_has_every_twemoji() {
         let pack = Pack::builtin().unwrap();
@@ -969,11 +1190,10 @@ mod tests {
         let uri = address("twemoji", "1f600.svg?v=1");
         let (pack, stem) = parse_address(&uri).unwrap();
         assert_eq!((pack, stem.as_str()), ("twemoji", "1f600"));
-        let (image, source) = packs.svg(pack, &stem).unwrap();
-        assert!(image.starts_with(b"<svg"));
+        let (_, source) = local(&packs, pack, &stem).unwrap();
         assert_eq!(source, "builtin");
 
-        let svg = |stem: &str| packs.svg("twemoji", stem).map(|(image, _)| image);
+        let svg = |stem: &str| local(&packs, "twemoji", stem).map(|(image, _)| image);
         // ❤️ for-web запрашивает с fe0f, у Twemoji файл без него — та же картинка
         assert_eq!(svg("2764-fe0f"), svg("2764"));
         assert!(svg("2764").is_some());
@@ -995,13 +1215,30 @@ mod tests {
         assert_eq!(parse_address(foreign), None);
         let uri = address("fluent-3d", "1f600.svg?v=1");
         assert_eq!(parse_address(&uri).map(|(pack, _)| pack), Some("fluent-3d"));
+        // не набор for-web — не наше
+        assert_eq!(parse_address(&address("other", "1f600.svg")), None);
     }
 
     #[test]
     fn missing_pack_goes_to_network() {
         let packs = EmojiPacks::new(temp_dir("missing"));
-        assert_eq!(packs.svg("noto", "1f600"), None);
-        assert_eq!(packs.svg("unknown", "1f600"), None);
+        assert_eq!(local(&packs, "noto", "1f600"), None);
+        assert_eq!(local(&packs, "unknown", "1f600"), None);
+    }
+
+    #[test]
+    fn drawn_images_are_kept() {
+        let packs = EmojiPacks::new(temp_dir("kept"));
+        assert!(packs.cached("twemoji", "1f600", SIDE).is_none());
+        let uri = address("twemoji", "1f600.svg?v=1");
+        let image = packs.image("twemoji", "1f600", &uri, SIDE).unwrap();
+        assert!(is_png(&image) && image.source == "builtin");
+        let pixmap = resvg::tiny_skia::Pixmap::decode_png(&image.png).unwrap();
+        assert_eq!((pixmap.width(), pixmap.height()), (SIDE, SIDE));
+        let kept = packs.cached("twemoji", "1f600", SIDE).unwrap();
+        assert!(Arc::ptr_eq(&kept.png, &image.png));
+        // другая сторона — другая картинка
+        assert!(packs.cached("twemoji", "1f600", SIDE * 2).is_none());
     }
 
     #[test]
@@ -1012,10 +1249,11 @@ mod tests {
         put(&dir, "fluent-3d.bin.part", b"half");
         let packs = EmojiPacks::new(dir.clone());
 
-        let (image, source) = packs.svg("noto", "1f600").unwrap();
-        assert!(image.starts_with(b"<svg"));
+        let (_, source) = local(&packs, "noto", "1f600").unwrap();
         assert_eq!(source, "downloaded");
-        assert_eq!(packs.svg("mutant", "1f600"), None);
+        assert_eq!(local(&packs, "mutant", "1f600"), None);
+        let uri = address("noto", "1f600.svg?v=1");
+        assert!(packs.image("noto", "1f600", &uri, SIDE).is_ok());
         assert!(!dir.join("fluent-3d.bin.part").exists());
 
         let overview = packs.overview();
@@ -1026,7 +1264,9 @@ mod tests {
         assert!(twemoji.builtin && twemoji.installed);
 
         packs.delete("noto").unwrap();
-        assert_eq!(packs.svg("noto", "1f600"), None);
+        assert_eq!(local(&packs, "noto", "1f600"), None);
+        // нарисованное из удалённого набора забыто
+        assert!(packs.cached("noto", "1f600", SIDE).is_none());
         assert!(!dir.join("noto.bin").exists());
         // удалить уже удалённое — не ошибка
         packs.delete("noto").unwrap();
@@ -1045,11 +1285,10 @@ mod tests {
         assert!(!state(&overview, "fluent-3d").system);
         assert!(!state(&overview, "twemoji").system);
         if state(&overview, "fluent-color").system {
-            let (image, source) = packs.svg("fluent-color", "1f600").unwrap();
-            assert!(image.starts_with(b"<svg"));
+            let (_, source) = local(&packs, "fluent-color", "1f600").unwrap();
             assert_eq!(source, "system");
             // флагов в шрифте нет: они идут с сервера
-            assert_eq!(packs.svg("fluent-color", "1f1f7-1f1fa"), None);
+            assert_eq!(local(&packs, "fluent-color", "1f1f7-1f1fa"), None);
         }
     }
 

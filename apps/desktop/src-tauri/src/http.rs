@@ -5,8 +5,12 @@
 //! настроек Windows (`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`), так что загрузка
 //! идёт тем же путём, что и у браузера. Переадресации (GitHub отдаёт файлы
 //! релиза с другого адреса) WinHTTP выполняет сам.
+//!
+//! Сессия WinHTTP одна на процесс: соединения с сервером (и рукопожатия TLS)
+//! переиспользуются между запросами — картинки эмодзи с сервера идут сотнями.
 
 use std::ffi::c_void;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use url::Url;
 use windows::Win32::Foundation::GetLastError;
@@ -77,6 +81,37 @@ impl Drop for Handle {
     }
 }
 
+/// Сессия WinHTTP.
+struct Session(Handle);
+
+// SAFETY: дескрипторы WinHTTP можно использовать из любых потоков; сессия
+// только открывает соединения и закрывается после последнего запроса (Arc)
+unsafe impl Send for Session {}
+unsafe impl Sync for Session {}
+
+/// Общая сессия; открывается при первом запросе (снова — если не открылась).
+fn session() -> Result<Arc<Session>, Error> {
+    static SESSION: Mutex<Option<Arc<Session>>> = Mutex::new(None);
+    let mut shared = SESSION.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(session) = shared.as_ref() {
+        return Ok(Arc::clone(session));
+    }
+    // SAFETY: строка агента статическая, дескриптор закрывает Handle
+    let session = unsafe {
+        let handle = Handle::new(wh::WinHttpOpen(
+            w!("Arachnid Client"),
+            wh::WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            0,
+        ))?;
+        wh::WinHttpSetTimeouts(handle.0, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS)?;
+        Arc::new(Session(handle))
+    };
+    *shared = Some(Arc::clone(&session));
+    Ok(session)
+}
+
 /// Скачать `url`. `on_length` получает размер из Content-Length (если он
 /// есть) до первых данных, `on_data` — данные по кускам.
 pub fn get(
@@ -98,18 +133,11 @@ pub fn get(
         wh::WINHTTP_OPEN_REQUEST_FLAGS(0)
     };
 
+    let session = session()?;
     // SAFETY: строки живут до конца функции, дескрипторы закрывает Handle
-    // (запрос — раньше соединения, соединение — раньше сессии)
+    // (запрос — раньше соединения, сессию держит Arc)
     unsafe {
-        let session = Handle::new(wh::WinHttpOpen(
-            w!("Arachnid Client"),
-            wh::WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-            PCWSTR::null(),
-            PCWSTR::null(),
-            0,
-        ))?;
-        wh::WinHttpSetTimeouts(session.0, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS)?;
-        let connection = Handle::new(wh::WinHttpConnect(session.0, &host, port, 0))?;
+        let connection = Handle::new(wh::WinHttpConnect(session.0.0, &host, port, 0))?;
         let request = Handle::new(wh::WinHttpOpenRequest(
             connection.0,
             w!("GET"),

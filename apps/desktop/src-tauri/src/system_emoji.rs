@@ -16,18 +16,16 @@
 //!   keycap — лигатуры GSUB шрифта. Если шрифт рисует последовательность
 //!   не одним глифом (флагов в Segoe UI Emoji нет), картинки из шрифта нет и
 //!   она берётся там же, где без шрифта.
-//! * Слои глифа (read-fonts) — в SVG: контуры — пути, заливки — цвета палитры
-//!   и градиенты, режимы наложения — `mix-blend-mode` и маски. Угловой
-//!   градиент в SVG есть только как CSS `conic-gradient` (в `foreignObject`).
+//! * Слои глифа (read-fonts) рисуются сразу в растр (tiny-skia): контуры —
+//!   пути, заливки — цвета палитры и градиенты (линейный, радиальный,
+//!   угловой), режимы наложения COLR — режимы tiny-skia, обрезки — маски.
+//!   Странице уходит PNG (почему не SVG — в `emoji_raster.rs`).
 //!
 //! Шрифт отображается в память, а не читается в неё: страницы файла общие с
 //! другими программами, которые им пишут, и читаются по мере надобности.
 
 // В Linux и macOS шрифта нет: картинки там идут с сервера (emoji_packs.rs)
 #![cfg_attr(not(windows), allow(dead_code))]
-
-use std::collections::HashMap;
-use std::fmt::{self, Write};
 
 use harfrust::{Buffer, BufferFlags, Direction, Script, ShapeOptions, ShapePlan, ShaperFont};
 use read_fonts::model::Font;
@@ -36,6 +34,11 @@ use read_fonts::model::glyph::color::{
 };
 use read_fonts::model::glyph::outline::{DrawMemory, DrawOptions, PathSink};
 use read_fonts::types::{BoundingBox, GlyphId, Matrix, Point};
+use resvg::tiny_skia::{
+    BlendMode, Color as SkiaColor, FillRule, GradientStop, LinearGradient, Mask, Paint, Path,
+    PathBuilder, Pixmap, PixmapPaint, Point as SkiaPoint, RadialGradient, Rect, Shader, SpreadMode,
+    SweepGradient, Transform,
+};
 
 /// Наборы for-web, которые рисует системный шрифт, и версия COLR их слоёв.
 const SETS: [(&str, ColorVersion); 2] = [
@@ -120,22 +123,27 @@ impl SystemEmoji {
         Some(*version)
     }
 
-    /// SVG эмодзи набора `pack` по кодовым точкам из адреса картинки.
-    pub fn svg(&self, pack: &str, stem: &str) -> Option<Vec<u8>> {
+    /// PNG эмодзи набора `pack` по кодовым точкам из адреса картинки,
+    /// сторона — `side` пикселей.
+    pub fn png(&self, pack: &str, stem: &str, side: u32) -> Option<Vec<u8>> {
+        self.pixmap(pack, stem, side)?.encode_png().ok()
+    }
+
+    fn pixmap(&self, pack: &str, stem: &str, side: u32) -> Option<Pixmap> {
         let version = self.version(pack)?;
         let glyph = self.glyph(stem)?;
         let color = self.font.color_glyphs().get_with_version(glyph, version)?;
         let colors = self.font.palettes().get(0)?.colors();
         let outlines = self.font.outline_glyphs();
-        let path = |glyph: GlyphId| {
-            let outline = outlines.get(glyph)?;
-            let mut data = PathData::default();
-            outline
-                .draw(&DrawOptions::new(), DrawMemory::Scratch, &mut data)
+        let outline = |glyph: GlyphId| {
+            let drawn = outlines.get(glyph)?;
+            let mut sink = Outline::default();
+            drawn
+                .draw(&DrawOptions::new(), DrawMemory::Scratch, &mut sink)
                 .ok()?;
-            Some(data.0)
+            sink.0.finish()
         };
-        render(&color, colors, &path).map(String::into_bytes)
+        render(&color, colors, &outline, side)
     }
 
     /// Глиф эмодзи: последовательность так, как её прислал for-web, или без
@@ -205,60 +213,31 @@ fn codepoints(stem: &str) -> Option<Vec<char>> {
         .collect()
 }
 
-// ─────────────────────────────── SVG ───────────────────────────────
+// ─────────────────────────────── рисование ───────────────────────────────
 
-/// Число для SVG: не больше `.1` знаков после запятой, без лишних нулей.
-struct Num(f32, usize);
-
-impl fmt::Display for Num {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if !self.0.is_finite() {
-            return f.write_str("0");
-        }
-        let full = format!("{:.*}", self.1, self.0);
-        let short = if full.contains('.') {
-            full.trim_end_matches('0').trim_end_matches('.')
-        } else {
-            full.as_str()
-        };
-        f.write_str(if short == "-0" { "0" } else { short })
-    }
-}
-
-/// Координата в единицах шрифта (их тысячи на em).
-fn n(value: f32) -> Num {
-    Num(value, 2)
-}
-
-/// Коэффициент матрицы, смещение градиента, прозрачность.
-fn k(value: f32) -> Num {
-    Num(value, 5)
-}
-
-/// Контур глифа как атрибут `d` пути.
+/// Контур глифа в единицах шрифта.
 #[derive(Default)]
-struct PathData(String);
+struct Outline(PathBuilder);
 
-impl PathSink for PathData {
+impl PathSink for Outline {
     fn move_to(&mut self, x: f32, y: f32) {
-        let _ = write!(self.0, "M{} {}", n(x), n(y));
+        self.0.move_to(x, y);
     }
 
     fn line_to(&mut self, x: f32, y: f32) {
-        let _ = write!(self.0, "L{} {}", n(x), n(y));
+        self.0.line_to(x, y);
     }
 
     fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
-        let _ = write!(self.0, "Q{} {} {} {}", n(cx0), n(cy0), n(x), n(y));
+        self.0.quad_to(cx0, cy0, x, y);
     }
 
     fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
-        let (a, b, c, d, e, f) = (n(cx0), n(cy0), n(cx1), n(cy1), n(x), n(y));
-        let _ = write!(self.0, "C{a} {b} {c} {d} {e} {f}");
+        self.0.cubic_to(cx0, cy0, cx1, cy1, x, y);
     }
 
     fn close(&mut self) {
-        self.0.push('Z');
+        self.0.close();
     }
 }
 
@@ -275,24 +254,10 @@ impl Rgba {
         Rgba(out)
     }
 
-    fn channel(self, index: usize) -> u8 {
-        // значения 0…255 после округления
-        (self.0[index].clamp(0.0, 1.0) * 255.0).round() as u8
-    }
-
-    fn hex(self) -> String {
-        let (r, g, b) = (self.channel(0), self.channel(1), self.channel(2));
-        format!("#{r:02x}{g:02x}{b:02x}")
-    }
-
-    fn alpha(self) -> f32 {
-        self.0[3].clamp(0.0, 1.0)
-    }
-
-    /// Цвет для CSS (угловой градиент).
-    fn css(self) -> String {
-        let (r, g, b) = (self.channel(0), self.channel(1), self.channel(2));
-        format!("rgb({r} {g} {b} / {})", k(self.alpha()))
+    fn skia(self) -> SkiaColor {
+        let [r, g, b, a] = self.0.map(|value| value.clamp(0.0, 1.0));
+        let color = SkiaColor::from_rgba(r, g, b, a);
+        color.unwrap_or(SkiaColor::TRANSPARENT)
     }
 }
 
@@ -323,154 +288,105 @@ fn color_at(stops: &[Stop], t: f32) -> Rgba {
     previous.color
 }
 
-/// Глиф эмодзи в SVG. `path` — контур глифа шрифта.
+fn gradient_stops(stops: &[Stop]) -> Vec<GradientStop> {
+    stops
+        .iter()
+        .map(|stop| GradientStop::new(stop.offset, stop.color.skia()))
+        .collect()
+}
+
+/// Глиф эмодзи в квадратной картинке со стороной `side` пикселей.
+/// `outline` — контур глифа шрифта.
 fn render(
     glyph: &ColorGlyph<'_>,
     colors: &[Color],
-    path: &dyn Fn(GlyphId) -> Option<String>,
-) -> Option<String> {
+    outline: &dyn Fn(GlyphId) -> Option<Path>,
+    side: u32,
+) -> Option<Pixmap> {
     let extents = glyph.extents().ok()?;
     if extents.width <= 0.0 || extents.height <= 0.0 {
         return None;
     }
     // квадрат вокруг рисунка: эмодзи наборов for-web квадратные
-    let side = extents.width.max(extents.height);
+    let size = extents.width.max(extents.height);
     let center_x = extents.x_bearing + extents.width / 2.0;
     let center_y = extents.y_bearing - extents.height / 2.0;
     let view = BoundingBox {
-        x_min: center_x - side / 2.0,
-        y_min: center_y - side / 2.0,
-        x_max: center_x + side / 2.0,
-        y_max: center_y + side / 2.0,
+        x_min: center_x - size / 2.0,
+        y_min: center_y - size / 2.0,
+        x_max: center_x + size / 2.0,
+        y_max: center_y + size / 2.0,
     };
-    let mut painter = Painter::new(view, colors, path);
+    let mut painter = Painter::new(view, side, colors, outline)?;
     glyph.paint(&mut painter).ok()?;
     painter.finish()
 }
 
-/// Слой наложения: содержимое и как оно ложится на то, что под ним.
+/// Контуры глифов TrueType заполняются по ненулевому правилу.
+const WINDING: FillRule = FillRule::Winding;
+
+/// Слой наложения: что в нём нарисовано и как он ляжет на слой ниже.
 struct Layer {
-    mode: CompositeMode,
-    body: String,
-    /// В слое есть `mix-blend-mode`: смешивать только внутри него
-    isolate: bool,
+    pixmap: Pixmap,
+    mode: BlendMode,
 }
 
-impl Layer {
-    fn new(mode: CompositeMode) -> Self {
-        Self {
-            mode,
-            body: String::new(),
-            isolate: false,
-        }
-    }
-}
-
-/// Пишет операции рисования глифа COLR в SVG.
+/// Рисует операции глифа COLR в растр (tiny-skia).
 ///
-/// Координаты — единицы шрифта (ось y вверх); весь рисунок отражается по y
-/// одной группой. Градиенты, обрезки и маски — в `<defs>` с
-/// `userSpaceOnUse`, то есть в координатах ссылающегося на них элемента:
-/// тех, что действуют в точке рисования.
+/// Координаты операций — единицы шрифта с осью y вверх; первая матрица
+/// переводит их в пиксели картинки с осью y вниз. Обрезки — маски
+/// размером с картинку, слои наложения — отдельные растры, которые при
+/// закрытии ложатся на слой ниже в режиме слоя.
 struct Painter<'a> {
-    /// Рамка картинки (viewBox) в единицах шрифта
-    view: BoundingBox<f32>,
+    side: u32,
     colors: &'a [Color],
-    path: &'a dyn Fn(GlyphId) -> Option<String>,
-    defs: String,
+    outline: &'a dyn Fn(GlyphId) -> Option<Path>,
     layers: Vec<Layer>,
     /// Текущая матрица для каждой открытой группы преобразования
-    transforms: Vec<Matrix<f32>>,
-    /// Обрезка по контуру глифа: номер `<clipPath>`
-    clips: HashMap<GlyphId, usize>,
-    /// Фильтр, делающий содержимое чёрным (для инвертированных масок)
-    black: bool,
-    ids: usize,
+    transforms: Vec<Transform>,
+    /// Обрезка для каждой открытой обрезки; None — без обрезки
+    clips: Vec<Option<Mask>>,
 }
 
 impl<'a> Painter<'a> {
+    /// `view` — рамка картинки в единицах шрифта.
     fn new(
         view: BoundingBox<f32>,
+        side: u32,
         colors: &'a [Color],
-        path: &'a dyn Fn(GlyphId) -> Option<String>,
-    ) -> Self {
-        Self {
-            view,
-            colors,
-            path,
-            defs: String::new(),
-            layers: vec![Layer::new(CompositeMode::SrcOver)],
-            transforms: vec![Matrix::IDENTITY],
-            clips: HashMap::new(),
-            black: false,
-            ids: 0,
-        }
-    }
-
-    fn finish(mut self) -> Option<String> {
-        if self.layers.len() != 1 || self.transforms.len() != 1 {
+        outline: &'a dyn Fn(GlyphId) -> Option<Path>,
+    ) -> Option<Self> {
+        let scale = side as f32 / (view.x_max - view.x_min);
+        if !scale.is_finite() {
             return None;
         }
-        let body = self.layers.pop()?.body;
-        let view = self.view;
-        let width = view.x_max - view.x_min;
-        Some(format!(
-            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"32\" height=\"32\" \
-             viewBox=\"{} {} {} {}\"><defs>{}</defs><g transform=\"scale(1 -1)\">{body}</g></svg>",
-            n(view.x_min),
-            n(-view.y_max),
-            n(width),
-            n(width),
-            self.defs
-        ))
+        let x = -view.x_min * scale;
+        let y = view.y_max * scale;
+        let base = Transform::from_row(scale, 0.0, 0.0, -scale, x, y);
+        let pixmap = Pixmap::new(side, side)?;
+        Some(Self {
+            side,
+            colors,
+            outline,
+            layers: vec![Layer {
+                pixmap,
+                mode: BlendMode::SourceOver,
+            }],
+            transforms: vec![base],
+            clips: vec![None],
+        })
     }
 
-    fn id(&mut self) -> usize {
-        self.ids += 1;
-        self.ids
-    }
-
-    fn top(&mut self) -> &mut Layer {
-        if self.layers.is_empty() {
-            self.layers.push(Layer::new(CompositeMode::SrcOver));
+    fn finish(mut self) -> Option<Pixmap> {
+        let balanced = self.layers.len() == 1 && self.transforms.len() == 1;
+        if !balanced || self.clips.len() != 1 {
+            return None;
         }
-        let last = self.layers.len() - 1;
-        &mut self.layers[last]
+        Some(self.layers.pop()?.pixmap)
     }
 
-    fn body(&mut self) -> &mut String {
-        &mut self.top().body
-    }
-
-    fn current(&self) -> Matrix<f32> {
-        self.transforms.last().copied().unwrap_or(Matrix::IDENTITY)
-    }
-
-    /// Рамка картинки в текущих координатах: столько закрашивает заливка
-    /// без обрезки. None — текущая матрица вырождена, видно не будет ничего.
-    fn cover(&self) -> Option<BoundingBox<f32>> {
-        let inverse = invert(self.current())?;
-        let view = self.view;
-        let corners = [
-            (view.x_min, view.y_min),
-            (view.x_max, view.y_min),
-            (view.x_min, view.y_max),
-            (view.x_max, view.y_max),
-        ];
-        let mut cover = BoundingBox {
-            x_min: f32::INFINITY,
-            y_min: f32::INFINITY,
-            x_max: f32::NEG_INFINITY,
-            y_max: f32::NEG_INFINITY,
-        };
-        for (x, y) in corners {
-            let (x, y) = inverse.transform(x, y);
-            cover.x_min = cover.x_min.min(x);
-            cover.y_min = cover.y_min.min(y);
-            cover.x_max = cover.x_max.max(x);
-            cover.y_max = cover.y_max.max(y);
-        }
-        Some(cover)
+    fn current(&self) -> Transform {
+        self.transforms.last().copied().unwrap_or_default()
     }
 
     fn color(&self, index: u16, alpha: f32) -> Rgba {
@@ -487,46 +403,36 @@ impl<'a> Painter<'a> {
         ])
     }
 
+    /// Точки цветовой линии по возрастанию.
     fn stops(&self, stops: &[ColorStop]) -> Vec<Stop> {
-        stops
+        let mut line: Vec<Stop> = stops
             .iter()
             .map(|stop| Stop {
                 offset: stop.offset,
                 color: self.color(stop.palette_index, stop.alpha),
             })
-            .collect()
+            .collect();
+        line.sort_by(|a, b| a.offset.total_cmp(&b.offset));
+        line
     }
 
-    /// Атрибуты заливки кистью (`fill=…`); None — угловой градиент, его
-    /// рисует `sweep`.
-    fn paint(&mut self, brush: &Brush<'_>, transform: Option<Matrix<f32>>) -> Option<String> {
+    /// Шейдер кисти; `transform` — из координат кисти в координаты, в
+    /// которых рисуется заливка. None — кисть ничего не рисует.
+    fn shader(&self, brush: &Brush<'_>, transform: Transform) -> Option<Shader<'static>> {
         match brush {
             Brush::Solid {
                 palette_index,
                 alpha,
-            } => Some(solid(self.color(*palette_index, *alpha))),
+            } => Some(Shader::SolidColor(self.color(*palette_index, *alpha).skia())),
             Brush::LinearGradient {
                 p0,
                 p1,
                 color_stops,
                 extend,
             } => {
-                let stops = self.stops(color_stops);
-                let id = self.id();
-                let _ = write!(
-                    self.defs,
-                    "<linearGradient id=\"g{id}\" gradientUnits=\"userSpaceOnUse\" \
-                     x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\"{}{}>",
-                    n(p0.x),
-                    n(p0.y),
-                    n(p1.x),
-                    n(p1.y),
-                    spread(*extend),
-                    gradient_transform(transform)
-                );
-                write_stops(&mut self.defs, &stops);
-                self.defs.push_str("</linearGradient>");
-                Some(format!("fill=\"url(#g{id})\""))
+                let stops = gradient_stops(&self.stops(color_stops));
+                let (start, end) = (point(*p0), point(*p1));
+                LinearGradient::new(start, end, stops, spread(*extend), transform)
             }
             Brush::RadialGradient {
                 c0,
@@ -543,247 +449,111 @@ impl<'a> Painter<'a> {
                     r1: *r1,
                     stops: self.stops(color_stops),
                 };
-                let Some(radial) = radial.truncated() else {
-                    return Some("fill=\"none\"".into());
-                };
-                let id = self.id();
-                let _ = write!(
-                    self.defs,
-                    "<radialGradient id=\"g{id}\" gradientUnits=\"userSpaceOnUse\" \
-                     cx=\"{}\" cy=\"{}\" r=\"{}\" fx=\"{}\" fy=\"{}\" fr=\"{}\"{}{}>",
-                    n(radial.c1.x),
-                    n(radial.c1.y),
-                    n(radial.r1),
-                    n(radial.c0.x),
-                    n(radial.c0.y),
-                    n(radial.r0),
+                let radial = radial.truncated()?;
+                RadialGradient::new(
+                    point(radial.c0),
+                    radial.r0,
+                    point(radial.c1),
+                    radial.r1,
+                    gradient_stops(&radial.stops),
                     spread(*extend),
-                    gradient_transform(transform)
-                );
-                write_stops(&mut self.defs, &radial.stops);
-                self.defs.push_str("</radialGradient>");
-                Some(format!("fill=\"url(#g{id})\""))
+                    transform,
+                )
             }
-            Brush::SweepGradient { .. } => None,
+            Brush::SweepGradient {
+                c0,
+                start_angle,
+                end_angle,
+                color_stops,
+                extend,
+            } => {
+                let stops = self.stops(color_stops);
+                let circle = sweep_stops(*start_angle, *end_angle, &stops, *extend)?;
+                let stops = gradient_stops(&circle);
+                // Угол кисти a — точка (cos a, −sin a) в единицах шрифта (по
+                // часовой стрелке при оси y вниз). tiny-skia берёт угол как
+                // atan2(y, x) в координатах шейдера: в них ось y отражена.
+                let flipped = transform.pre_scale(1.0, -1.0);
+                let center = SkiaPoint::from_xy(c0.x, -c0.y);
+                SweepGradient::new(center, 0.0, 360.0, stops, SpreadMode::Pad, flipped)
+            }
         }
     }
 
-    /// Угловой градиент на всю рамку: CSS `conic-gradient` в `foreignObject`.
-    ///
-    /// Углы кисти — по часовой стрелке от оси x при оси y вниз, то есть
-    /// точка под углом a — (cos a, −sin a) в единицах шрифта. В CSS угол
-    /// отсчитывается по часовой от «верха» блока, а «верх» блока здесь —
-    /// направление −y единиц шрифта: угол a кисти — угол CSS 90° − a. Он
-    /// убывает с ростом a, поэтому точки идут в обратном порядке, а отсчёт
-    /// начинается с 90° (−270°), чтобы весь круг 0…360° кисти лёг в 0…360° CSS.
-    fn sweep(&mut self, center: Point<f32>, start: f32, end: f32, stops: &[Stop], extend: Extend) {
-        let Some(cover) = self.cover() else {
-            return;
+    /// Открыть обрезку по контуру `path` в текущих координатах (None —
+    /// пустой контур, он обрезает всё).
+    fn push_clip(&mut self, path: Option<&Path>) {
+        let transform = self.current();
+        let mask = match (self.clips.last(), path) {
+            (Some(Some(current)), Some(path)) => {
+                let mut mask = current.clone();
+                mask.intersect_path(path, WINDING, true, transform);
+                Some(mask)
+            }
+            (_, Some(path)) => {
+                let mut mask = Mask::new(self.side, self.side);
+                if let Some(mask) = mask.as_mut() {
+                    mask.fill_path(path, WINDING, true, transform);
+                }
+                mask
+            }
+            (_, None) => Mask::new(self.side, self.side),
         };
-        let span = end - start;
-        let mut line: Vec<(f32, Rgba)> = stops
-            .iter()
-            .map(|stop| (start + stop.offset * span, stop.color))
-            .collect();
-        if extend == Extend::Reflect {
-            // отражённый период за прямым, повтор — через два периода
-            let back: Vec<_> = stops
-                .iter()
-                .rev()
-                .map(|stop| (start + (2.0 - stop.offset) * span, stop.color))
-                .collect();
-            line.extend(back);
-        }
-        let function = match extend {
-            Extend::Repeat | Extend::Reflect => "repeating-conic-gradient",
-            _ => "conic-gradient",
-        };
-        let colors: Vec<String> = line
-            .iter()
-            .rev()
-            .map(|(angle, color)| format!("{} {}deg", color.css(), k(360.0 - angle)))
-            .collect();
-        let (x, y) = (cover.x_min, cover.y_min);
-        let (width, height) = (cover.x_max - cover.x_min, cover.y_max - cover.y_min);
-        let (at_x, at_y) = (n(center.x - x), n(center.y - y));
-        let colors = colors.join(",");
-        let _ = write!(
-            self.body(),
-            "<foreignObject x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\">\
-             <div xmlns=\"http://www.w3.org/1999/xhtml\" style=\"width:100%;height:100%;\
-             background:{function}(from 90deg at {at_x}px {at_y}px,{colors})\"/></foreignObject>",
-            n(x),
-            n(y),
-            n(width),
-            n(height)
-        );
-    }
-
-    /// `content`, видимое по непрозрачности `mask` (или там, где `mask`
-    /// прозрачна, если `invert`).
-    fn masked(&mut self, content: &str, mask: &str, invert: bool) -> String {
-        let Some(cover) = self.cover() else {
-            return String::new();
-        };
-        let id = self.id();
-        let region = format!(
-            "maskUnits=\"userSpaceOnUse\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"",
-            n(cover.x_min),
-            n(cover.y_min),
-            n(cover.x_max - cover.x_min),
-            n(cover.y_max - cover.y_min)
-        );
-        if invert {
-            if !self.black {
-                self.black = true;
-                self.defs.push_str(
-                    "<filter id=\"black\" color-interpolation-filters=\"sRGB\">\
-                     <feColorMatrix values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0\"/></filter>",
-                );
-            }
-            // яркость: белое везде, кроме непрозрачного в `mask`
-            let _ = write!(
-                self.defs,
-                "<mask id=\"m{id}\" {region}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" \
-                 fill=\"#fff\"/><g filter=\"url(#black)\">{mask}</g></mask>",
-                n(cover.x_min),
-                n(cover.y_min),
-                n(cover.x_max - cover.x_min),
-                n(cover.y_max - cover.y_min)
-            );
-        } else {
-            let _ = write!(
-                self.defs,
-                "<mask id=\"m{id}\" {region} style=\"mask-type:alpha\">{mask}</mask>"
-            );
-        }
-        format!("<g mask=\"url(#m{id})\">{content}</g>")
-    }
-
-    /// Наложение слоя `source` на `backdrop` (всё, что под ним в слое ниже).
-    /// Второе значение — понадобилось смешивание.
-    fn composite(
-        &mut self,
-        backdrop: String,
-        source: String,
-        mode: CompositeMode,
-    ) -> (String, bool) {
-        if let Some(name) = blend_mode(mode) {
-            let blended = format!("{backdrop}<g style=\"mix-blend-mode:{name}\">{source}</g>");
-            return (blended, true);
-        }
-        match mode {
-            CompositeMode::Clear => (String::new(), false),
-            CompositeMode::Src => (source, false),
-            CompositeMode::Dest => (backdrop, false),
-            CompositeMode::DestOver => (source + &backdrop, false),
-            CompositeMode::SrcIn => (self.masked(&source, &backdrop, false), false),
-            CompositeMode::DestIn => (self.masked(&backdrop, &source, false), false),
-            CompositeMode::SrcOut => (self.masked(&source, &backdrop, true), false),
-            CompositeMode::DestOut => (self.masked(&backdrop, &source, true), false),
-            CompositeMode::SrcAtop => {
-                let inside = self.masked(&source, &backdrop, false);
-                (backdrop + &inside, false)
-            }
-            CompositeMode::DestAtop => {
-                let inside = self.masked(&backdrop, &source, false);
-                (source + &inside, false)
-            }
-            CompositeMode::Xor => {
-                let first = self.masked(&source, &backdrop, true);
-                let second = self.masked(&backdrop, &source, true);
-                let added = format!("<g style=\"mix-blend-mode:plus-lighter\">{second}</g>");
-                (first + &added, true)
-            }
-            // SrcOver и неизвестные режимы
-            _ => (backdrop + &source, false),
-        }
+        self.clips.push(mask);
     }
 }
 
 impl PaintSink for Painter<'_> {
     fn push_transform(&mut self, transform: Matrix<f32>) {
-        let next = self.current() * transform;
+        let next = self.current().pre_concat(skia_transform(transform));
         self.transforms.push(next);
-        let t = transform;
-        let (a, b, c, d) = (k(t.xx), k(t.yx), k(t.xy), k(t.yy));
-        let (e, f) = (n(t.dx), n(t.dy));
-        let _ = write!(
-            self.body(),
-            "<g transform=\"matrix({a} {b} {c} {d} {e} {f})\">"
-        );
     }
 
     fn pop_transform(&mut self) {
         if self.transforms.len() > 1 {
             self.transforms.pop();
         }
-        self.body().push_str("</g>");
     }
 
     fn push_clip_glyph(&mut self, glyph: GlyphId) {
-        let id = match self.clips.get(&glyph) {
-            Some(id) => *id,
-            None => {
-                let id = self.id();
-                // глиф без контура обрезает всё
-                let d = (self.path)(glyph).unwrap_or_default();
-                let _ = write!(
-                    self.defs,
-                    "<clipPath id=\"c{id}\"><path d=\"{d}\"/></clipPath>"
-                );
-                self.clips.insert(glyph, id);
-                id
-            }
-        };
-        let _ = write!(self.body(), "<g clip-path=\"url(#c{id})\">");
+        let path = (self.outline)(glyph);
+        self.push_clip(path.as_ref());
     }
 
     fn push_clip_box(&mut self, clip_box: BoundingBox<f32>) {
-        let id = self.id();
-        let _ = write!(
-            self.defs,
-            "<clipPath id=\"c{id}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" \
-             height=\"{}\"/></clipPath>",
-            n(clip_box.x_min),
-            n(clip_box.y_min),
-            n(clip_box.x_max - clip_box.x_min),
-            n(clip_box.y_max - clip_box.y_min)
-        );
-        let _ = write!(self.body(), "<g clip-path=\"url(#c{id})\">");
+        let BoundingBox {
+            x_min,
+            y_min,
+            x_max,
+            y_max,
+        } = clip_box;
+        let rect = Rect::from_ltrb(x_min, y_min, x_max, y_max);
+        let path = rect.map(PathBuilder::from_rect);
+        self.push_clip(path.as_ref());
     }
 
     fn pop_clip(&mut self) {
-        self.body().push_str("</g>");
+        if self.clips.len() > 1 {
+            self.clips.pop();
+        }
     }
 
     fn fill(&mut self, brush: Brush<'_>) {
-        if let Brush::SweepGradient {
-            c0,
-            start_angle,
-            end_angle,
-            color_stops,
-            extend,
-        } = &brush
-        {
-            let stops = self.stops(color_stops);
-            self.sweep(*c0, *start_angle, *end_angle, &stops, *extend);
+        let Some(shader) = self.shader(&brush, self.current()) else {
             return;
+        };
+        let side = self.side as f32;
+        let Some(area) = Rect::from_xywh(0.0, 0.0, side, side) else {
+            return;
+        };
+        let paint = Paint {
+            shader,
+            ..Paint::default()
+        };
+        let mask = self.clips.last().and_then(Option::as_ref);
+        if let Some(Layer { pixmap, .. }) = self.layers.last_mut() {
+            pixmap.fill_rect(area, &paint, Transform::identity(), mask);
         }
-        let Some(cover) = self.cover() else {
-            return;
-        };
-        let Some(paint) = self.paint(&brush, None) else {
-            return;
-        };
-        let _ = write!(
-            self.body(),
-            "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" {paint}/>",
-            n(cover.x_min),
-            n(cover.y_min),
-            n(cover.x_max - cover.x_min),
-            n(cover.y_max - cover.y_min)
-        );
     }
 
     fn fill_glyph(
@@ -792,30 +562,30 @@ impl PaintSink for Painter<'_> {
         brush_transform: Option<Matrix<f32>>,
         brush: Brush<'_>,
     ) {
-        if matches!(brush, Brush::SweepGradient { .. }) {
-            // угловой градиент — не атрибут fill: обрезка и заливка рамки
-            self.push_clip_glyph(glyph);
-            if let Some(transform) = brush_transform {
-                self.push_transform(transform);
-                self.fill(brush);
-                self.pop_transform();
-            } else {
-                self.fill(brush);
-            }
-            self.pop_clip();
+        let Some(path) = (self.outline)(glyph) else {
             return;
+        };
+        let local = brush_transform.map_or_else(Transform::identity, skia_transform);
+        let Some(shader) = self.shader(&brush, local) else {
+            return;
+        };
+        let paint = Paint {
+            shader,
+            ..Paint::default()
+        };
+        let transform = self.current();
+        let mask = self.clips.last().and_then(Option::as_ref);
+        if let Some(Layer { pixmap, .. }) = self.layers.last_mut() {
+            pixmap.fill_path(&path, &paint, WINDING, transform, mask);
         }
-        let Some(d) = (self.path)(glyph) else {
-            return;
-        };
-        let Some(paint) = self.paint(&brush, brush_transform) else {
-            return;
-        };
-        let _ = write!(self.body(), "<path d=\"{d}\" {paint}/>");
     }
 
     fn push_layer(&mut self, composite_mode: CompositeMode) {
-        self.layers.push(Layer::new(composite_mode));
+        // сторона картинки не нулевая: растр создаётся всегда
+        if let Some(pixmap) = Pixmap::new(self.side, self.side) {
+            let mode = blend_mode(composite_mode);
+            self.layers.push(Layer { pixmap, mode });
+        }
     }
 
     fn pop_layer_with_mode(&mut self, _composite_mode: CompositeMode) {
@@ -825,88 +595,163 @@ impl PaintSink for Painter<'_> {
         let Some(layer) = self.layers.pop() else {
             return;
         };
-        let source = if layer.isolate {
-            format!("<g style=\"isolation:isolate\">{}</g>", layer.body)
-        } else {
-            layer.body
+        let paint = PixmapPaint {
+            blend_mode: layer.mode,
+            ..PixmapPaint::default()
         };
-        let backdrop = std::mem::take(&mut self.top().body);
-        let (body, blended) = self.composite(backdrop, source, layer.mode);
-        let top = self.top();
-        top.body = body;
-        top.isolate |= blended;
-    }
-}
-
-/// Режим наложения, который в CSS — `mix-blend-mode`.
-fn blend_mode(mode: CompositeMode) -> Option<&'static str> {
-    Some(match mode {
-        CompositeMode::Plus => "plus-lighter",
-        CompositeMode::Screen => "screen",
-        CompositeMode::Overlay => "overlay",
-        CompositeMode::Darken => "darken",
-        CompositeMode::Lighten => "lighten",
-        CompositeMode::ColorDodge => "color-dodge",
-        CompositeMode::ColorBurn => "color-burn",
-        CompositeMode::HardLight => "hard-light",
-        CompositeMode::SoftLight => "soft-light",
-        CompositeMode::Difference => "difference",
-        CompositeMode::Exclusion => "exclusion",
-        CompositeMode::Multiply => "multiply",
-        CompositeMode::HslHue => "hue",
-        CompositeMode::HslSaturation => "saturation",
-        CompositeMode::HslColor => "color",
-        CompositeMode::HslLuminosity => "luminosity",
-        _ => return None,
-    })
-}
-
-/// Заливка одним цветом.
-fn solid(color: Rgba) -> String {
-    let alpha = color.alpha();
-    if alpha >= 1.0 {
-        format!("fill=\"{}\"", color.hex())
-    } else {
-        format!("fill=\"{}\" fill-opacity=\"{}\"", color.hex(), k(alpha))
-    }
-}
-
-fn spread(extend: Extend) -> &'static str {
-    match extend {
-        Extend::Repeat => " spreadMethod=\"repeat\"",
-        Extend::Reflect => " spreadMethod=\"reflect\"",
-        _ => "",
-    }
-}
-
-fn gradient_transform(transform: Option<Matrix<f32>>) -> String {
-    match transform {
-        Some(t) => format!(
-            " gradientTransform=\"matrix({} {} {} {} {} {})\"",
-            k(t.xx),
-            k(t.yx),
-            k(t.xy),
-            k(t.yy),
-            n(t.dx),
-            n(t.dy)
-        ),
-        None => String::new(),
-    }
-}
-
-fn write_stops(out: &mut String, stops: &[Stop]) {
-    for stop in stops {
-        let alpha = stop.color.alpha();
-        let _ = write!(
-            out,
-            "<stop offset=\"{}\" stop-color=\"{}\"",
-            k(stop.offset),
-            stop.color.hex()
-        );
-        if alpha < 1.0 {
-            let _ = write!(out, " stop-opacity=\"{}\"", k(alpha));
+        if let Some(Layer { pixmap: below, .. }) = self.layers.last_mut() {
+            let source = layer.pixmap.as_ref();
+            let identity = Transform::identity();
+            below.draw_pixmap(0, 0, source, &paint, identity, None);
         }
-        out.push_str("/>");
+    }
+}
+
+/// Режим наложения слоя COLR в tiny-skia (там есть все).
+fn blend_mode(mode: CompositeMode) -> BlendMode {
+    match mode {
+        CompositeMode::Clear => BlendMode::Clear,
+        CompositeMode::Src => BlendMode::Source,
+        CompositeMode::Dest => BlendMode::Destination,
+        CompositeMode::DestOver => BlendMode::DestinationOver,
+        CompositeMode::SrcIn => BlendMode::SourceIn,
+        CompositeMode::DestIn => BlendMode::DestinationIn,
+        CompositeMode::SrcOut => BlendMode::SourceOut,
+        CompositeMode::DestOut => BlendMode::DestinationOut,
+        CompositeMode::SrcAtop => BlendMode::SourceAtop,
+        CompositeMode::DestAtop => BlendMode::DestinationAtop,
+        CompositeMode::Xor => BlendMode::Xor,
+        CompositeMode::Plus => BlendMode::Plus,
+        CompositeMode::Screen => BlendMode::Screen,
+        CompositeMode::Overlay => BlendMode::Overlay,
+        CompositeMode::Darken => BlendMode::Darken,
+        CompositeMode::Lighten => BlendMode::Lighten,
+        CompositeMode::ColorDodge => BlendMode::ColorDodge,
+        CompositeMode::ColorBurn => BlendMode::ColorBurn,
+        CompositeMode::HardLight => BlendMode::HardLight,
+        CompositeMode::SoftLight => BlendMode::SoftLight,
+        CompositeMode::Difference => BlendMode::Difference,
+        CompositeMode::Exclusion => BlendMode::Exclusion,
+        CompositeMode::Multiply => BlendMode::Multiply,
+        CompositeMode::HslHue => BlendMode::Hue,
+        CompositeMode::HslSaturation => BlendMode::Saturation,
+        CompositeMode::HslColor => BlendMode::Color,
+        CompositeMode::HslLuminosity => BlendMode::Luminosity,
+        // SrcOver и неизвестные режимы
+        _ => BlendMode::SourceOver,
+    }
+}
+
+fn skia_transform(m: Matrix<f32>) -> Transform {
+    Transform::from_row(m.xx, m.yx, m.xy, m.yy, m.dx, m.dy)
+}
+
+fn point(p: Point<f32>) -> SkiaPoint {
+    SkiaPoint::from_xy(p.x, p.y)
+}
+
+fn spread(extend: Extend) -> SpreadMode {
+    match extend {
+        Extend::Repeat => SpreadMode::Repeat,
+        Extend::Reflect => SpreadMode::Reflect,
+        _ => SpreadMode::Pad,
+    }
+}
+
+/// Сколько периодов повтора углового градиента разворачивать на круг.
+const MAX_PERIODS: f32 = 512.0;
+
+/// Точки углового градиента на всём круге 0…360°.
+///
+/// tiny-skia рисует угловой градиент с углами не 0…360° неверно (масштаб
+/// цветовой линии не применяется, если начало — 0° или период — ровно круг),
+/// поэтому градиент всегда рисуется от 0° до 360°, а продолжение крайних
+/// цветов, повтор и отражение разворачиваются в точки здесь. Как в COLR (и
+/// Skia), угол не сворачивается: при Pad точка под углом 300° в градиенте
+/// −90…90° — последнего цвета.
+fn sweep_stops(start: f32, end: f32, stops: &[Stop], extend: Extend) -> Option<Vec<Stop>> {
+    let (first, last) = (stops.first()?.color, stops.last()?.color);
+    if !start.is_finite() || !end.is_finite() {
+        return None;
+    }
+    // обратный ход — те же цвета от конца к началу
+    let (start, end, stops) = if start <= end {
+        (start, end, stops.to_vec())
+    } else {
+        let reversed: Vec<Stop> = stops
+            .iter()
+            .rev()
+            .map(|stop| Stop {
+                offset: 1.0 - stop.offset,
+                color: stop.color,
+            })
+            .collect();
+        (end, start, reversed)
+    };
+    let span = end - start;
+    let repeated = matches!(extend, Extend::Repeat | Extend::Reflect);
+
+    // (угол, цвет) по возрастанию угла, с запасом за пределами круга
+    let mut line: Vec<(f32, Rgba)> = Vec::new();
+    if repeated && span > f32::EPSILON && 360.0 / span <= MAX_PERIODS {
+        let from = (-start / span).floor() as i64 - 1;
+        let to = ((360.0 - start) / span).ceil() as i64 + 1;
+        for period in from..=to {
+            let base = start + period as f32 * span;
+            if extend == Extend::Reflect && period.rem_euclid(2) == 1 {
+                for stop in stops.iter().rev() {
+                    line.push((base + (1.0 - stop.offset) * span, stop.color));
+                }
+            } else {
+                for stop in &stops {
+                    line.push((base + stop.offset * span, stop.color));
+                }
+            }
+        }
+    } else {
+        line.push((start.min(0.0) - 1.0, first));
+        for stop in &stops {
+            line.push((start + stop.offset * span, stop.color));
+        }
+        line.push((end.max(360.0) + 1.0, last));
+    }
+
+    let mut circle = vec![(0.0, line_color(&line, 0.0, true))];
+    for &(angle, color) in &line {
+        if angle > 0.0 && angle < 360.0 {
+            circle.push((angle, color));
+        }
+    }
+    circle.push((360.0, line_color(&line, 360.0, false)));
+    // на стыке отражённых периодов точка повторяется
+    circle.dedup();
+    let stops = circle
+        .into_iter()
+        .map(|(angle, color)| Stop {
+            offset: angle / 360.0,
+            color,
+        })
+        .collect();
+    Some(stops)
+}
+
+/// Цвет линии (угол, цвет) под углом `angle`. На резкой границе (две точки с
+/// одним углом) — цвет сразу после неё (`after`) или сразу перед ней.
+fn line_color(line: &[(f32, Rgba)], angle: f32, after: bool) -> Rgba {
+    for pair in line.windows(2) {
+        let [(a0, c0), (a1, c1)] = [pair[0], pair[1]];
+        let inside = if after {
+            a0 <= angle && angle < a1
+        } else {
+            a0 < angle && angle <= a1
+        };
+        if inside {
+            return c0.mix(c1, (angle - a0) / (a1 - a0));
+        }
+    }
+    match line.first() {
+        Some((a0, c0)) if angle <= *a0 => *c0,
+        _ => line.last().map_or(Rgba([0.0; 4]), |(_, color)| *color),
     }
 }
 
@@ -972,22 +817,6 @@ impl Radial {
             })
         }
     }
-}
-
-/// Обратная матрица; None — вырожденная.
-fn invert(m: Matrix<f32>) -> Option<Matrix<f32>> {
-    let det = m.xx * m.yy - m.xy * m.yx;
-    if !det.is_normal() {
-        return None;
-    }
-    Some(Matrix {
-        xx: m.yy / det,
-        yx: -m.yx / det,
-        xy: -m.xy / det,
-        yy: m.xx / det,
-        dx: (m.xy * m.dy - m.yy * m.dx) / det,
-        dy: (m.yx * m.dx - m.xx * m.dy) / det,
-    })
 }
 
 // ─────────────────────────────── шрифт ───────────────────────────────
@@ -1120,13 +949,16 @@ mod tests {
         alpha: 255,
     };
 
-    /// Контур глифа в проверках: треугольник шириной в номер глифа.
-    fn triangle(glyph: GlyphId) -> Option<String> {
-        Some(format!("M0 0L{} 0L0 10Z", glyph.to_u32()))
+    /// Контур глифа в проверках: квадрат со стороной в номер глифа от (0, 0).
+    fn square(glyph: GlyphId) -> Option<Path> {
+        let side = glyph.to_u32() as f32;
+        let rect = Rect::from_xywh(0.0, 0.0, side, side)?;
+        Some(PathBuilder::from_rect(rect))
     }
 
-    /// SVG того, что нарисовано в рамке 0…100 с палитрой из красного.
-    fn painted(paint: impl FnOnce(&mut Painter<'_>)) -> String {
+    /// Нарисованное в рамке 0…100 единиц шрифта, картинка 100×100 пикселей,
+    /// палитра из красного.
+    fn painted(paint: impl FnOnce(&mut Painter<'_>)) -> Pixmap {
         let view = BoundingBox {
             x_min: 0.0,
             y_min: 0.0,
@@ -1134,9 +966,15 @@ mod tests {
             y_max: 100.0,
         };
         let colors = [RED];
-        let mut painter = Painter::new(view, &colors, &triangle);
+        let mut painter = Painter::new(view, 100, &colors, &square).unwrap();
         paint(&mut painter);
         painter.finish().unwrap()
+    }
+
+    /// Цвет пикселя по координатам шрифта (ось y вверх).
+    fn at(pixmap: &Pixmap, x: u32, y: u32) -> [u8; 4] {
+        let pixel = pixmap.pixel(x, 99 - y).unwrap();
+        [pixel.red(), pixel.green(), pixel.blue(), pixel.alpha()]
     }
 
     fn solid_brush(palette_index: u16, alpha: f32) -> Brush<'static> {
@@ -1146,17 +984,26 @@ mod tests {
         }
     }
 
-    fn balanced(svg: &str) -> bool {
-        svg.matches("<g").count() == svg.matches("</g>").count()
+    fn red_to_blue() -> Vec<Stop> {
+        vec![
+            Stop {
+                offset: 0.0,
+                color: Rgba([1.0, 0.0, 0.0, 1.0]),
+            },
+            Stop {
+                offset: 1.0,
+                color: Rgba([0.0, 0.0, 1.0, 1.0]),
+            },
+        ]
     }
 
-    #[test]
-    fn numbers_are_short() {
-        assert_eq!(n(1.0).to_string(), "1");
-        assert_eq!(n(-0.001).to_string(), "0");
-        assert_eq!(n(12.345).to_string(), "12.35");
-        assert_eq!(k(0.012_345_67).to_string(), "0.01235");
-        assert_eq!(n(f32::NAN).to_string(), "0");
+    /// Положение и цвет (красный, синий 0…255) точек градиента.
+    fn described(stops: &[Stop]) -> Vec<(f32, u8, u8)> {
+        let channel = |value: f32| (value * 255.0).round() as u8;
+        stops
+            .iter()
+            .map(|stop| (stop.offset, channel(stop.color.0[0]), channel(stop.color.0[2])))
+            .collect()
     }
 
     #[test]
@@ -1171,40 +1018,77 @@ mod tests {
     }
 
     #[test]
-    fn layers_become_svg() {
-        let scale = Matrix {
-            xx: 2.0,
+    fn glyphs_clips_and_transforms() {
+        let half = Matrix {
+            xx: 0.5,
             yx: 0.0,
             xy: 0.0,
-            yy: 2.0,
-            dx: 10.0,
+            yy: 0.5,
+            dx: 50.0,
             dy: 0.0,
         };
-        let svg = painted(|painter| {
-            painter.fill_glyph(GlyphId::new(7), None, solid_brush(0, 0.5));
-            painter.push_transform(scale);
-            painter.push_clip_glyph(GlyphId::new(3));
+        let pixmap = painted(|painter| {
+            // красный квадрат 0…40 с непрозрачностью 0.5
+            painter.fill_glyph(GlyphId::new(40), None, solid_brush(0, 0.5));
+            // чёрный (цвет текста) в квадрате 0…40, сжатом вдвое и сдвинутом
+            // на 50: 50…70 по x, 0…20 по y
+            painter.push_transform(half);
+            painter.push_clip_glyph(GlyphId::new(40));
             painter.fill(solid_brush(FOREGROUND, 1.0));
             painter.pop_clip();
             painter.pop_transform();
         });
-        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\""));
-        assert!(svg.contains("viewBox=\"0 -100 100 100\""));
-        let half_red = "fill=\"#ff0000\" fill-opacity=\"0.5\"";
-        assert!(svg.contains(&format!("<path d=\"M0 0L7 0L0 10Z\" {half_red}/>")));
-        assert!(svg.contains("<clipPath id=\"c1\"><path d=\"M0 0L3 0L0 10Z\"/></clipPath>"));
-        assert!(svg.contains("<g transform=\"matrix(2 0 0 2 10 0)\"><g clip-path=\"url(#c1)\">"));
-        // заливка без обрезки — рамка картинки в координатах группы
-        let cover = "<rect x=\"-5\" y=\"0\" width=\"50\" height=\"50\"";
-        assert!(
-            svg.contains(&format!("{cover} fill=\"#000000\"/>")),
-            "{svg}"
-        );
-        assert!(balanced(&svg));
+        let [red, green, blue, alpha] = at(&pixmap, 20, 20);
+        assert!((126..=129).contains(&alpha) && red == alpha, "{red} {alpha}");
+        assert_eq!((green, blue), (0, 0));
+        // ось y вверх: над квадратом пусто
+        assert_eq!(at(&pixmap, 20, 60)[3], 0);
+        assert_eq!(at(&pixmap, 60, 10), [0, 0, 0, 255]);
+        assert_eq!(at(&pixmap, 60, 30)[3], 0);
+        assert_eq!(at(&pixmap, 80, 10)[3], 0);
     }
 
     #[test]
-    fn gradients_and_blending() {
+    fn layers_are_composited() {
+        let pixmap = painted(|painter| {
+            painter.push_layer(CompositeMode::SrcOver);
+            painter.fill_glyph(GlyphId::new(80), None, solid_brush(0, 1.0));
+            // вырезать квадрат 0…40 из того, что под слоем
+            painter.push_layer(CompositeMode::DestOut);
+            painter.fill_glyph(GlyphId::new(40), None, solid_brush(0, 1.0));
+            painter.pop_layer_with_mode(CompositeMode::DestOut);
+            painter.pop_layer_with_mode(CompositeMode::SrcOver);
+        });
+        assert_eq!(at(&pixmap, 20, 20)[3], 0);
+        assert_eq!(at(&pixmap, 60, 60), [255, 0, 0, 255]);
+        assert_eq!(at(&pixmap, 90, 90)[3], 0);
+
+        let multiplied = painted(|painter| {
+            painter.push_layer(CompositeMode::SrcOver);
+            painter.fill(solid_brush(0, 1.0));
+            painter.push_layer(CompositeMode::Multiply);
+            painter.fill(solid_brush(FOREGROUND, 1.0));
+            painter.pop_layer_with_mode(CompositeMode::Multiply);
+            painter.pop_layer_with_mode(CompositeMode::SrcOver);
+        });
+        assert_eq!(at(&multiplied, 50, 50), [0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn unbalanced_operations_draw_nothing() {
+        let view = BoundingBox {
+            x_min: 0.0,
+            y_min: 0.0,
+            x_max: 10.0,
+            y_max: 10.0,
+        };
+        let mut painter = Painter::new(view, 10, &[], &square).unwrap();
+        painter.push_layer(CompositeMode::SrcOver);
+        assert!(painter.finish().is_none());
+    }
+
+    #[test]
+    fn sweep_goes_clockwise_from_the_right() {
         let stops = [
             ColorStop {
                 offset: 0.0,
@@ -1214,77 +1098,71 @@ mod tests {
             ColorStop {
                 offset: 1.0,
                 palette_index: FOREGROUND,
-                alpha: 0.25,
+                alpha: 1.0,
             },
         ];
-        let linear = Brush::LinearGradient {
-            p0: Point { x: 0.0, y: 0.0 },
-            p1: Point { x: 100.0, y: 0.0 },
-            color_stops: &stops,
-            extend: Extend::Reflect,
-        };
-        let sweep = Brush::SweepGradient {
-            c0: Point { x: 50.0, y: 50.0 },
-            start_angle: 0.0,
-            end_angle: 360.0,
-            color_stops: &stops,
-            extend: Extend::Pad,
-        };
-        let svg = painted(|painter| {
-            painter.push_layer(CompositeMode::SrcOver);
-            painter.fill(linear);
-            painter.push_layer(CompositeMode::Multiply);
-            painter.fill(sweep);
-            painter.pop_layer_with_mode(CompositeMode::Multiply);
-            painter.pop_layer_with_mode(CompositeMode::SrcOver);
+        let pixmap = painted(|painter| {
+            painter.fill(Brush::SweepGradient {
+                c0: Point { x: 50.0, y: 50.0 },
+                start_angle: 0.0,
+                end_angle: 360.0,
+                color_stops: &stops,
+                extend: Extend::Pad,
+            });
         });
-        assert!(svg.contains("spreadMethod=\"reflect\""));
-        let stop = "<stop offset=\"1\" stop-color=\"#000000\" stop-opacity=\"0.25\"/>";
-        assert!(svg.contains(stop), "{svg}");
-        assert!(svg.contains("<g style=\"isolation:isolate\">"));
-        assert!(svg.contains("<g style=\"mix-blend-mode:multiply\"><foreignObject"));
-        // 0° кисти — справа (90° CSS), 360° — там же: полный круг
-        let conic = "conic-gradient(from 90deg at 50px 50px,\
-                     rgb(0 0 0 / 0.25) 0deg,rgb(255 0 0 / 1) 360deg)";
-        assert!(svg.contains(conic), "{svg}");
-        assert!(balanced(&svg));
+        // угол кисти a — точка (cos a, −sin a): 20° — справа ниже центра,
+        // почти начало линии (красный); 340° — справа выше, почти чёрный
+        let early = at(&pixmap, 88, 36);
+        let late = at(&pixmap, 88, 64);
+        assert!(early[0] > 200 && late[0] < 55, "{early:?} {late:?}");
+        // 180° — слева, середина
+        let middle = at(&pixmap, 10, 50)[0];
+        assert!((100..156).contains(&middle), "{middle}");
     }
 
     #[test]
-    fn porter_duff_modes_use_masks() {
-        let svg = painted(|painter| {
-            painter.push_layer(CompositeMode::SrcOver);
-            painter.fill_glyph(GlyphId::new(1), None, solid_brush(0, 1.0));
-            painter.push_layer(CompositeMode::DestOut);
-            painter.fill_glyph(GlyphId::new(2), None, solid_brush(0, 1.0));
-            painter.pop_layer_with_mode(CompositeMode::DestOut);
-            painter.pop_layer_with_mode(CompositeMode::SrcOver);
-        });
-        assert!(svg.contains("<filter id=\"black\""));
-        let masked = "<g mask=\"url(#m1)\"><path d=\"M0 0L1 0L0 10Z\"";
-        assert!(svg.contains(masked), "{svg}");
-        assert!(balanced(&svg));
+    fn sweep_extends_over_the_circle() {
+        let line = red_to_blue();
+        // Pad: после конца градиента — последний цвет
+        let pad = sweep_stops(0.0, 180.0, &line, Extend::Pad).unwrap();
+        assert_eq!(described(&pad), [(0.0, 255, 0), (0.5, 0, 255), (1.0, 0, 255)]);
+        // обратный ход: 180 → 0
+        let back = sweep_stops(180.0, 0.0, &line, Extend::Pad).unwrap();
+        assert_eq!(described(&back), [(0.0, 0, 255), (0.5, 255, 0), (1.0, 255, 0)]);
+        // Repeat: четыре периода с резкими границами
+        let repeat = sweep_stops(0.0, 90.0, &line, Extend::Repeat).unwrap();
+        let expected = [
+            (0.0, 255, 0),
+            (0.25, 0, 255),
+            (0.25, 255, 0),
+            (0.5, 0, 255),
+            (0.5, 255, 0),
+            (0.75, 0, 255),
+            (0.75, 255, 0),
+            (1.0, 0, 255),
+        ];
+        assert_eq!(described(&repeat), expected);
+        // Reflect: туда и обратно без резких границ
+        let reflect = sweep_stops(0.0, 180.0, &line, Extend::Reflect).unwrap();
+        assert_eq!(described(&reflect), [(0.0, 255, 0), (0.5, 0, 255), (1.0, 255, 0)]);
+        // начало не с нуля: −90…90, 300° — последний цвет
+        let shifted = sweep_stops(-90.0, 90.0, &line, Extend::Pad).unwrap();
+        let shifted = described(&shifted);
+        assert_eq!(shifted[0].0, 0.0);
+        assert!(shifted[0].1 > 120 && shifted[0].1 < 135, "{shifted:?}");
+        assert_eq!(*shifted.last().unwrap(), (1.0, 0, 255));
+        assert!(sweep_stops(0.0, 90.0, &[], Extend::Pad).is_none());
     }
 
     #[test]
     fn negative_radius_is_cut() {
-        let red = Rgba([1.0, 0.0, 0.0, 1.0]);
-        let blue = Rgba([0.0, 0.0, 1.0, 1.0]);
+        let [red, blue] = [Rgba([1.0, 0.0, 0.0, 1.0]), Rgba([0.0, 0.0, 1.0, 1.0])];
         let radial = |r0: f32, r1: f32| Radial {
             c0: Point { x: 0.0, y: 0.0 },
             r0,
             c1: Point { x: 10.0, y: 0.0 },
             r1,
-            stops: vec![
-                Stop {
-                    offset: 0.0,
-                    color: red,
-                },
-                Stop {
-                    offset: 1.0,
-                    color: blue,
-                },
-            ],
+            stops: red_to_blue(),
         };
         let cut = radial(-10.0, 10.0).truncated().unwrap();
         assert_eq!((cut.c0.x, cut.r0, cut.r1), (5.0, 0.0, 10.0));
@@ -1293,27 +1171,9 @@ mod tests {
         assert!(radial(-1.0, -2.0).truncated().is_none());
     }
 
-    #[test]
-    fn inverse_matrix() {
-        let m = Matrix {
-            xx: 2.0,
-            yx: 1.0,
-            xy: 0.5,
-            yy: 3.0,
-            dx: 7.0,
-            dy: -4.0,
-        };
-        let inverse = invert(m).unwrap();
-        let (x, y) = m.transform(3.0, 5.0);
-        let (back_x, back_y) = inverse.transform(x, y);
-        assert!((back_x - 3.0).abs() < 1e-4 && (back_y - 5.0).abs() < 1e-4);
-        assert!(invert(m.map(|_| 0.0)).is_none());
-    }
-
-    /// Эмодзи набора из системного шрифта как текст.
-    fn drawn(system: &SystemEmoji, pack: &str, stem: &str) -> Option<String> {
-        let image = system.svg(pack, stem)?;
-        Some(String::from_utf8(image).unwrap())
+    /// Эмодзи набора из системного шрифта; картинка 64×64.
+    fn drawn(system: &SystemEmoji, pack: &str, stem: &str) -> Option<Pixmap> {
+        system.pixmap(pack, stem, 64)
     }
 
     /// Настоящий Segoe UI Emoji, если он есть на машине проверки.
@@ -1326,18 +1186,26 @@ mod tests {
         let packs: Vec<_> = system.packs().collect();
         for pack in packs {
             let grin = drawn(&system, pack, "1f600").unwrap();
-            assert!(grin.starts_with("<svg") && grin.contains("<path"), "{grin}");
-            assert!(balanced(&grin));
+            assert_eq!((grin.width(), grin.height()), (64, 64));
+            // лицо жёлтое: лоб (треть высоты сверху) — жёлтый и непрозрачный
+            let forehead = grin.pixel(32, 14).unwrap();
+            let yellow = forehead.red() > 180 && forehead.green() > 120 && forehead.blue() < 110;
+            assert!(yellow && forehead.alpha() == 255, "{pack}: {forehead:?}");
+            // углы картинки вне круга лица — прозрачные
+            assert_eq!(grin.pixel(0, 0).unwrap().alpha(), 0, "{pack}");
+
+            let png = system.png(pack, "1f600", 64).unwrap();
+            assert!(png.starts_with(b"\x89PNG"));
             // ZWJ: 👩‍💻, оттенок кожи: 👋🏽, keycap: #️⃣, с fe0f и без
-            let coder = drawn(&system, pack, "1f469-200d-1f4bb");
-            assert!(coder.is_some());
-            assert_ne!(coder, drawn(&system, pack, "1f469"));
+            let coder = drawn(&system, pack, "1f469-200d-1f4bb").unwrap();
+            let woman = drawn(&system, pack, "1f469").unwrap();
+            assert_ne!(coder.data(), woman.data());
             assert!(drawn(&system, pack, "1f44b-1f3fd").is_some());
             assert!(drawn(&system, pack, "23-fe0f-20e3").is_some());
             assert!(drawn(&system, pack, "2764-fe0f").is_some());
             assert!(drawn(&system, pack, "2764").is_some());
             // флагов стран в шрифте нет: два буквенных глифа — не картинка
-            assert_eq!(drawn(&system, pack, "1f1f7-1f1fa"), None);
+            assert!(drawn(&system, pack, "1f1f7-1f1fa").is_none());
         }
         assert!(!system.provides("fluent-3d"));
     }

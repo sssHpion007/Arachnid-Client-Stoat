@@ -42,6 +42,10 @@ brotli-decompressor = "5"
 # глиф — harfrust (на том же read-fonts)
 read-fonts = "0.47"
 harfrust = "0.16"
+# картинки эмодзи отдаются странице растром (src/emoji_raster.rs): SVG наборов
+# рисует resvg, слои системного шрифта — tiny-skia из того же resvg. Без
+# текста, системных шрифтов и растровых форматов кроме PNG
+resvg = { version = "0.50", default-features = false }
 
 # экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
 # версии, что у Tauri и wry)

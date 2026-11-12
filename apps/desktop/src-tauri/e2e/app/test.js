@@ -58,11 +58,15 @@
   async function fetched(url) {
     try {
       const response = await fetch(url, { mode: "cors", cache: "no-store" });
-      const body = await response.text();
+      const body = new Uint8Array(await response.arrayBuffer());
+      const signature = [0x89, 0x50, 0x4e, 0x47];
       return {
         status: response.status,
         source: source(response.headers.get("server-timing")),
-        svg: body.trimStart().startsWith("<svg"),
+        // картинки эмодзи клиент отдаёт растром (emoji_raster.rs)
+        png:
+          response.headers.get("content-type") === "image/png" &&
+          signature.every((byte, index) => body[index] === byte),
       };
     } catch (error) {
       return { error: String(error), source: null };
@@ -168,7 +172,7 @@
       await check("эмодзи первой страницы отдал клиент (Twemoji)", first.source === "builtin", first);
 
       const page = await fetched(emoji("twemoji", "1f602"));
-      await check("запрос страницы отдал клиент", page.source === "builtin" && page.svg, page);
+      await check("запрос страницы отдал клиент", page.source === "builtin" && page.png, page);
 
       const fresh = await settings();
       await check(
@@ -207,7 +211,7 @@
       await check("запрос самого service worker отдал клиент", worker.source === "builtin", worker);
 
       const heart = await fetched(emoji("twemoji", "2764-fe0f"));
-      await check("форма с fe0f (❤️) из встроенного набора", heart.source === "builtin" && heart.svg, heart);
+      await check("форма с fe0f (❤️) из встроенного набора", heart.source === "builtin" && heart.png, heart);
 
       await localforage.setItem("settings", {
         "appearance:unicode_emoji": "fluent-3d",
@@ -323,9 +327,9 @@
         const noButton = !row("fluent-color")?.querySelector("button");
         await check("шторка: Fluent Color «В системе», без кнопки скачивания", shown && noButton, row("fluent-color")?.textContent);
         const drawn = await fetched(emoji("fluent-color", "1f469-200d-1f4bb"));
-        await check("картинку системного набора нарисовал клиент", drawn.source === "system" && drawn.svg, drawn);
+        await check("картинку системного набора нарисовал клиент", drawn.source === "system" && drawn.png, drawn);
         const flag = await fetched(emoji("fluent-color", "1f1f7-1f1fa"));
-        await check("флаг системного набора — с сервера", flag.source === null, flag);
+        await check("флаг системного набора — с сервера, растром", flag.source === "network" && flag.png, flag);
       } else {
         await check("в шрифте Windows нет эмодзи Fluent — системные проверки пропущены", true, system);
       }
@@ -353,7 +357,7 @@
       await check("шторка: «Скачан»", /Downloaded|Скачан/.test(row("mutant")?.textContent ?? ""), row("mutant")?.textContent);
 
       const downloaded = await fetched(emoji("mutant", "1f600"));
-      await check("картинку скачанного набора отдал клиент", downloaded.source === "downloaded" && downloaded.svg, downloaded);
+      await check("картинку скачанного набора отдал клиент", downloaded.source === "downloaded" && downloaded.png, downloaded);
       const workerDownloaded = await workerFetch(emoji("mutant", "1f602"));
       await check("и на запрос service worker", workerDownloaded.source === "downloaded", workerDownloaded);
 
@@ -361,10 +365,17 @@
       const removed = await waitFor(async () => !(await packState("mutant")).installed, 10000);
       await check("Mutant Remix удалён кнопкой шторки", removed);
       const afterDelete = await fetched(emoji("mutant", "1f600"));
-      await check("после удаления картинки идут с сервера", afterDelete.source === null, afterDelete);
+      await check(
+        "после удаления картинки идут с сервера, растром",
+        afterDelete.source === "network" && afterDelete.png,
+        afterDelete,
+      );
       await check("кнопки не выбирали набор", selected === 0, selected);
 
-      // ВРЕМЕННО: цена задачи главного потока после многих картинок эмодзи
+      // Цена задачи главного потока не растёт с числом показанных эмодзи.
+      // С картинками SVG каждая — отдельный документ со своим планировщиком,
+      // и Blink обходит их все после каждой задачи: после ~1100 эмодзи пустая
+      // задача стоила 6,5 мс вместо 0,01. Растровые картинки этого не делают.
       const hop = async (count) => {
         const channel = new MessageChannel();
         const start = performance.now();
@@ -394,7 +405,10 @@
             (stem) =>
               new Promise((resolve) => {
                 const img = new Image(32, 32);
+                let settled = false;
                 const done = (ok) => {
+                  if (settled) return;
+                  settled = true;
                   if (ok) loaded++;
                   img.remove();
                   resolve();
@@ -410,7 +424,9 @@
         hops[loaded] = await hop(300);
       }
       holder.remove();
-      await check("ВРЕМЕННО: мс на задачу после картинок эмодзи", true, hops);
+      const after = hops[loaded];
+      await check("показано больше 1000 эмодзи", loaded > 1000, loaded);
+      await check("задача страницы не дорожает после 1000 эмодзи", after < 1, hops);
       return finish();
     }
   } catch (error) {

@@ -19,6 +19,7 @@ use tauri::ipc::CapabilityBuilder;
 
 mod desktop;
 mod emoji_packs;
+mod emoji_raster;
 mod extensions;
 #[cfg(windows)]
 mod http;
