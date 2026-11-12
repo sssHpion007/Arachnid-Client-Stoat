@@ -515,20 +515,32 @@ impl EmojiPacks {
         lock(&self.images).get(&image_key(pack, stem, side))
     }
 
-    /// Картинка эмодзи стороной `side` пикселей: из памяти, набора клиента
-    /// или с сервера по адресу `uri`, о котором спросила страница.
-    /// Вызывается вне главного потока.
+    /// Картинка эмодзи стороной `side` пикселей из памяти или набора клиента
+    /// (нарисованная остаётся в памяти); None — у клиента её нет, она
+    /// берётся с сервера (`from_server`). Вызывается вне главного потока.
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn image(&self, pack: &str, stem: &str, uri: &str, side: u32) -> Result<Image, Unavailable> {
+    fn drawn(&self, pack: &str, stem: &str, side: u32) -> Option<Image> {
         let key = image_key(pack, stem, side);
         if let Some(image) = lock(&self.images).get(&key) {
-            return Ok(image);
+            return Some(image);
         }
-        let image = match self.local(pack, stem, side) {
-            Some(image) => image,
-            None => from_network(uri, side)?,
-        };
+        let image = self.local(pack, stem, side)?;
         lock(&self.images).insert(key, image.clone());
+        Some(image)
+    }
+
+    /// Картинка с сервера по адресу `uri`, о котором спросила страница;
+    /// тоже остаётся в памяти. Вызывается вне главного потока.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn from_server(
+        &self,
+        pack: &str,
+        stem: &str,
+        uri: &str,
+        side: u32,
+    ) -> Result<Image, Unavailable> {
+        let image = from_network(uri, side)?;
+        lock(&self.images).insert(image_key(pack, stem, side), image.clone());
         Ok(image)
     }
 
@@ -943,11 +955,18 @@ mod platform {
 
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
+    /// Сколько картинок брать с сервера одновременно: столько же соединений
+    /// с одним сервером открывает Chromium.
+    const NETWORK_THREADS: usize = 6;
+
     /// Чем отвечать на запросы картинок окна.
     struct Delivery {
         packs: Arc<EmojiPacks>,
         app: AppHandle,
-        workers: Workers,
+        /// Рисование картинок наборов клиента
+        drawing: Workers,
+        /// Картинки с сервера: ожидание сети не держит рисование
+        network: Arc<Workers>,
         /// Сторона картинки в пикселях
         side: u32,
     }
@@ -970,7 +989,8 @@ mod platform {
         let delivery = Delivery {
             packs,
             app: window.app_handle().clone(),
-            workers: Workers::new("emoji-image"),
+            drawing: Workers::for_drawing("emoji-image"),
+            network: Arc::new(Workers::new("emoji-network", NETWORK_THREADS)),
             side: side(window),
         };
         tracing::info!(side = delivery.side, "картинки эмодзи: PNG");
@@ -1066,15 +1086,28 @@ mod platform {
 
         let packs = Arc::clone(&delivery.packs);
         let app = delivery.app.clone();
-        delivery.workers.run(move || {
-            let drawn = catch_unwind(AssertUnwindSafe(|| packs.image(pack, &stem, &uri, side)));
-            let result = drawn.unwrap_or(Err(Unavailable::Failed));
-            let posted = app.run_on_main_thread(move || complete(id, result));
-            if let Err(error) = posted {
-                tracing::debug!(%error, "ответ с картинкой эмодзи не передан окну");
+        let network = Arc::clone(&delivery.network);
+        delivery.drawing.run(move || {
+            let drawn = catch_unwind(AssertUnwindSafe(|| packs.drawn(pack, &stem, side)));
+            match drawn {
+                Ok(Some(image)) => answer(&app, id, Ok(image)),
+                Ok(None) => network.run(move || {
+                    let server = || packs.from_server(pack, &stem, &uri, side);
+                    let fetched = catch_unwind(AssertUnwindSafe(server));
+                    answer(&app, id, fetched.unwrap_or(Err(Unavailable::Failed)));
+                }),
+                Err(_) => answer(&app, id, Err(Unavailable::Failed)),
             }
         });
         Ok(())
+    }
+
+    /// Передать готовый ответ в главный поток.
+    fn answer(app: &AppHandle, id: u64, result: Result<Image, Unavailable>) {
+        let posted = app.run_on_main_thread(move || complete(id, result));
+        if let Err(error) = posted {
+            tracing::debug!(%error, "ответ с картинкой эмодзи не передан окну");
+        }
     }
 
     /// Ответить на отложенный запрос (главный поток).
@@ -1230,8 +1263,7 @@ mod tests {
     fn drawn_images_are_kept() {
         let packs = EmojiPacks::new(temp_dir("kept"));
         assert!(packs.cached("twemoji", "1f600", SIDE).is_none());
-        let uri = address("twemoji", "1f600.svg?v=1");
-        let image = packs.image("twemoji", "1f600", &uri, SIDE).unwrap();
+        let image = packs.drawn("twemoji", "1f600", SIDE).unwrap();
         assert!(is_png(&image) && image.source == "builtin");
         let pixmap = resvg::tiny_skia::Pixmap::decode_png(&image.png).unwrap();
         assert_eq!((pixmap.width(), pixmap.height()), (SIDE, SIDE));
@@ -1252,8 +1284,7 @@ mod tests {
         let (_, source) = local(&packs, "noto", "1f600").unwrap();
         assert_eq!(source, "downloaded");
         assert_eq!(local(&packs, "mutant", "1f600"), None);
-        let uri = address("noto", "1f600.svg?v=1");
-        assert!(packs.image("noto", "1f600", &uri, SIDE).is_ok());
+        assert!(packs.drawn("noto", "1f600", SIDE).is_some());
         assert!(!dir.join("fluent-3d.bin.part").exists());
 
         let overview = packs.overview();

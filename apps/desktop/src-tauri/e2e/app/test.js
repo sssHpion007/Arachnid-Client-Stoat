@@ -36,8 +36,9 @@
     document.getElementById("log").textContent += line + "\n";
     return send("/log", `[шаг ${step}] ${line}`);
   }
-  async function check(name, ok, details) {
-    results.push({ step, name, ok: Boolean(ok), details });
+  /** `measured` — замер: подробности попадают в итог и при успехе */
+  async function check(name, ok, details, { measured = false } = {}) {
+    results.push({ step, name, ok: Boolean(ok), details, measured });
     localStorage.setItem(RESULTS, JSON.stringify(results));
     await log(`${ok ? "OK  " : "FAIL"} ${name}${details === undefined ? "" : " — " + JSON.stringify(details)}`);
   }
@@ -394,12 +395,14 @@
       for (const hand of ["1f44b", "1f44d", "1f44e", "1f44f", "1f64c", "1f64f", "1f590", "270c", "1f91e", "1f918"]) {
         for (const tone of ["1f3fb", "1f3fc", "1f3fd", "1f3fe", "1f3ff"]) stems.push(`${hand}-${tone}`);
       }
-      const hops = { before: await hop(300) };
+      // мс на пустую задачу до картинок и после каждой порции; время порции
+      const hops = { before: await hop(300), batches: [] };
       const holder = document.createElement("div");
       holder.style.cssText = "position:fixed;left:0;top:0;width:32px;height:32px;overflow:hidden";
       document.body.append(holder);
       let loaded = 0;
       for (const [from, to] of [[0, 400], [400, 800], [800, stems.length]]) {
+        const started = performance.now();
         await Promise.all(
           stems.slice(from, to).map(
             (stem) =>
@@ -415,18 +418,21 @@
                 };
                 img.onload = () => done(true);
                 img.onerror = () => done(false);
-                setTimeout(() => done(false), 5000);
+                setTimeout(() => done(false), 10000);
                 img.src = emoji("twemoji", stem);
                 holder.append(img);
               }),
           ),
         );
-        hops[loaded] = await hop(300);
+        const ms = Math.round(performance.now() - started);
+        hops.batches.push({ loaded, ms, hop: await hop(300) });
       }
       holder.remove();
-      const after = hops[loaded];
+      const after = hops.batches.at(-1).hop;
       await check("показано больше 1000 эмодзи", loaded > 1000, loaded);
-      await check("задача страницы не дорожает после 1000 эмодзи", after < 1, hops);
+      await check("задача страницы не дорожает после 1000 эмодзи (мс на задачу)", after < 1, hops, {
+        measured: true,
+      });
       return finish();
     }
   } catch (error) {

@@ -20,6 +20,9 @@
 //!
 //! Рисование идёт в фоновых потоках (`Workers`), готовые картинки — в памяти
 //! (`Cache`): прокрутка туда и обратно не рисует их заново.
+//!
+//! Картинки, которых нет у клиента, берутся с сервера в отдельных потоках:
+//! ожидание сети не задерживает рисование того, что уже есть.
 
 // Картинки наборов подменяются только в Windows (emoji_packs.rs)
 #![cfg_attr(not(windows), allow(dead_code))]
@@ -204,19 +207,22 @@ type Task = Box<dyn FnOnce() + Send>;
 /// Очередь задач и сигнал о новой задаче.
 type Queue = (Mutex<Vec<Task>>, Condvar);
 
-/// Потоки, которые рисуют картинки. Последняя задача берётся первой: при
-/// быстрой прокрутке сначала рисуется то, что видно сейчас.
+/// Фоновые потоки для картинок. Последняя задача берётся первой: при
+/// быстрой прокрутке сначала готовится то, что видно сейчас.
 pub struct Workers {
     queue: Arc<Queue>,
     threads: usize,
 }
 
 impl Workers {
-    /// Столько потоков, сколько ядер, кроме одного (для страницы), но не
-    /// больше четырёх.
-    pub fn new(name: &str) -> Self {
+    /// Для рисования: столько потоков, сколько ядер, кроме одного (для
+    /// страницы), но не больше четырёх.
+    pub fn for_drawing(name: &str) -> Self {
         let cores = std::thread::available_parallelism().map_or(2, usize::from);
-        let wanted = cores.saturating_sub(1).clamp(1, 4);
+        Self::new(name, cores.saturating_sub(1).clamp(1, 4))
+    }
+
+    pub fn new(name: &str, wanted: usize) -> Self {
         let queue: Arc<Queue> = Arc::default();
         let mut threads = 0;
         for index in 0..wanted {
@@ -305,7 +311,7 @@ mod tests {
 
     #[test]
     fn workers_run_every_task() {
-        let workers = Workers::new("test-emoji");
+        let workers = Workers::for_drawing("test-emoji");
         let (sender, receiver) = std::sync::mpsc::channel();
         for index in 0..20 {
             let sender = sender.clone();
