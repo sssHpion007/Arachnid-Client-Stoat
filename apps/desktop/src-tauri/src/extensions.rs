@@ -70,7 +70,7 @@ const MENU_ACTION: &str = "ext-action:";
 const MAX_MENU_ENTRIES: usize = 64;
 
 /// Заготовка `quickcss.css`, если его ещё нет.
-const QUICK_CSS_TEMPLATE: &str = "/* QuickCSS: свой CSS для веб-клиента Stoat.\n   Действует всегда и обновляется сразу после сохранения файла. */\n";
+const QUICK_CSS_TEMPLATE: &str = "/* QuickCSS: свой CSS для веб-клиента Stoat.\n   Действует всегда, поверх темы. Изменения применяются сразу. */\n";
 
 /// Вид расширения.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -520,6 +520,34 @@ impl Extensions {
         }
     }
 
+    /// Текст `quickcss.css` для редактора в настройках; если файла ещё нет —
+    /// заготовка (файл появится при первом сохранении).
+    fn quick_css(&self) -> CmdResult<String> {
+        let path = self.dir.join(QUICK_CSS);
+        if !path.exists() {
+            return Ok(QUICK_CSS_TEMPLATE.to_owned());
+        }
+        // пустой текст в редакторе стёр бы файл при сохранении: лучше ошибка
+        let Some(css) = read_limited(&path) else {
+            return Err(CommandError::new(
+                "quickCss",
+                "quickcss.css не читается или больше 8 МБ — откройте его в редакторе",
+            ));
+        };
+        Ok(css)
+    }
+
+    /// Сохранить `quickcss.css` из редактора в настройках.
+    fn set_quick_css(&self, css: &str) -> CmdResult<()> {
+        if css.len() as u64 > MAX_FILE_SIZE {
+            return Err(CommandError::new("quickCss", "QuickCSS больше 8 МБ"));
+        }
+        write_text_atomically(&self.dir.join(QUICK_CSS), css).map_err(|error| {
+            tracing::warn!(%error, "не удалось сохранить quickcss.css");
+            CommandError::new("quickCss", error.to_string())
+        })
+    }
+
     /// Путь к `quickcss.css`; при первом обращении создаётся заготовка.
     fn quick_css_path(&self) -> std::io::Result<PathBuf> {
         let path = self.dir.join(QUICK_CSS);
@@ -591,6 +619,11 @@ fn read_limited(path: &Path) -> Option<String> {
 
 fn write_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
+    write_text_atomically(path, &text)
+}
+
+/// Записать файл через временный: при сбое старый текст остаётся целым.
+fn write_text_atomically(path: &Path, text: &str) -> std::io::Result<()> {
     let mut temp = path.as_os_str().to_owned();
     temp.push(".tmp");
     std::fs::write(&temp, text)?;
@@ -689,6 +722,10 @@ pub fn start_watcher(app: AppHandle) {
                 }
                 if next.themes != last.themes || next.quick_css != last.quick_css {
                     push_styles(&app);
+                }
+                // редактор QuickCSS в настройках подхватит правку из другой программы
+                if next.quick_css != last.quick_css {
+                    call_page(&app, "quickCssChanged()");
                 }
                 if names(&next.themes) != names(&last.themes)
                     || names(&next.plugins) != names(&last.plugins)
@@ -894,7 +931,9 @@ pub fn on_menu(app: &AppHandle, id: &str) {
     } else if id == MENU_OPEN_PLUGINS {
         extensions.open(OpenTarget::Plugins);
     } else if id == MENU_QUICK_CSS {
-        extensions.open(OpenTarget::QuickCss);
+        // редактор QuickCSS — окно поверх клиента (settings.js)
+        desktop::show_main_window(app);
+        call_page(app, "openQuickCss()");
     }
 }
 
@@ -1007,10 +1046,28 @@ pub fn extensions_set_plugin(
     Ok(extensions.overview())
 }
 
-/// Кнопки «Открыть папку» и «Изменить QuickCSS».
+/// Кнопки «Папка тем», «Папка плагинов» и «Открыть в редакторе» (QuickCSS).
 #[tauri::command]
 pub fn extensions_open(target: OpenTarget, extensions: State<'_, Arc<Extensions>>) {
     extensions.open(target);
+}
+
+/// Текст QuickCSS для редактора в настройках.
+#[tauri::command]
+pub fn extensions_quick_css(extensions: State<'_, Arc<Extensions>>) -> CmdResult<String> {
+    extensions.quick_css()
+}
+
+/// Сохранить QuickCSS из редактора и сразу применить на странице.
+#[tauri::command]
+pub fn extensions_set_quick_css(
+    css: String,
+    app: AppHandle,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<()> {
+    extensions.set_quick_css(&css)?;
+    push_styles(&app);
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1223,6 +1280,26 @@ mod tests {
         let before = extensions.snapshot();
         std::fs::write(dir.join(QUICK_CSS), "body { color: red }").unwrap();
         assert_ne!(extensions.snapshot(), before);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn quick_css_is_edited_in_place() {
+        let dir = temp_dir("quickcss");
+        let extensions = extensions(&dir);
+        // файла ещё нет: редактор показывает заготовку, файл не создаётся
+        assert_eq!(extensions.quick_css().unwrap(), QUICK_CSS_TEMPLATE);
+        assert!(!dir.join(QUICK_CSS).exists());
+
+        extensions.set_quick_css("body { color: red }").unwrap();
+        assert_eq!(extensions.quick_css().unwrap(), "body { color: red }");
+        let last = extensions.styles().pop().unwrap();
+        assert_eq!((last.id.as_str(), last.css.as_str()), ("quickcss", "body { color: red }"));
+        assert!(!dir.join("quickcss.css.tmp").exists());
+
+        let huge = "a".repeat(MAX_FILE_SIZE as usize + 1);
+        assert!(extensions.set_quick_css(&huge).is_err());
+        assert_eq!(extensions.quick_css().unwrap(), "body { color: red }");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

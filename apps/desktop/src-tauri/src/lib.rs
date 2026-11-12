@@ -68,6 +68,8 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-extensions-reset-theme",
     "allow-extensions-set-plugin",
     "allow-extensions-open",
+    "allow-extensions-quick-css",
+    "allow-extensions-set-quick-css",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -280,6 +282,8 @@ pub fn run() {
             extensions::extensions_reset_theme,
             extensions::extensions_set_plugin,
             extensions::extensions_open,
+            extensions::extensions_quick_css,
+            extensions::extensions_set_quick_css,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

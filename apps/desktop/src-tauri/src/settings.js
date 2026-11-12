@@ -52,6 +52,12 @@
         openPlugins: "Папка плагинов",
         openThemes: "Папка тем",
         quickCss: "Изменить QuickCSS",
+        quickCssHint: "Свой CSS поверх клиента и темы. Изменения применяются сразу и сохраняются в quickcss.css.",
+        saving: "Сохранение…",
+        saved: "Сохранено",
+        saveFailed: (message) => `Не сохранено: ${message}`,
+        openInEditor: "Открыть в редакторе",
+        done: "Готово",
         theme: "Тема",
         defaultTheme: "Stoat (по умолчанию)",
         themesHint: "Свои темы — файлы .css в папке themes. У выбранной темы здесь появятся её настройки.",
@@ -77,6 +83,12 @@
         openPlugins: "Plugins Folder",
         openThemes: "Themes Folder",
         quickCss: "Edit QuickCSS",
+        quickCssHint: "Your own CSS on top of the client and the theme. Changes apply instantly and are saved to quickcss.css.",
+        saving: "Saving…",
+        saved: "Saved",
+        saveFailed: (message) => `Not saved: ${message}`,
+        openInEditor: "Open in Editor",
+        done: "Done",
         theme: "Theme",
         defaultTheme: "Stoat (default)",
         themesHint: "Custom themes are .css files in the themes folder. The selected theme shows its own settings here.",
@@ -257,6 +269,47 @@
 .arachnid-slider > :first-child { flex: 1; }
 .arachnid-slider input[type="range"] { accent-color: var(--md-sys-color-primary); }
 .arachnid-slider-value { min-width: 4em; text-align: right; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.arachnid-scrim {
+  position: fixed; inset: 0; z-index: 999; box-sizing: border-box; padding: 80px;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.32); background: rgba(from var(--md-sys-color-scrim) r g b / 0.32);
+  animation: arachnid-fade 0.1s forwards;
+}
+@media (max-width: 768px) { .arachnid-scrim { padding: 30px; } }
+.arachnid-scrim[data-closing] { animation: arachnid-fade 0.2s reverse forwards; pointer-events: none; }
+.arachnid-dialog {
+  box-sizing: border-box; width: min(960px, 100%); height: min(720px, 100%); padding: 24px;
+  display: flex; flex-direction: column; border-radius: 28px; user-select: none;
+  color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high);
+  animation: arachnid-rise 0.3s cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+.arachnid-scrim[data-closing] .arachnid-dialog { animation: arachnid-sink 0.2s cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
+.arachnid-dialog-title { line-height: 2rem; font-size: 1.5rem; font-weight: 400; margin-block-end: 16px; }
+.arachnid-dialog-content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.arachnid-dialog-actions { display: flex; align-items: center; gap: 8px; margin-block-start: 24px; }
+.arachnid-dialog-status { flex: 1; min-width: 0; }
+.arachnid-dialog-status[data-error] { color: var(--md-sys-color-error); }
+.arachnid-code {
+  flex: 1; min-height: 0; display: flex; overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--borderRadius-md, 12px);
+  background: var(--md-sys-color-surface-container-lowest);
+}
+.arachnid-code:focus-within { border-color: var(--md-sys-color-primary); }
+.arachnid-code-lines, .arachnid-code textarea {
+  margin: 0; font-family: var(--fonts-monospace, monospace); font-size: 13px; line-height: 20px;
+}
+.arachnid-code-lines {
+  flex-shrink: 0; min-width: 3ch; padding: 12px 8px 40px 12px; overflow: hidden;
+  white-space: pre; text-align: right; color: var(--md-sys-color-outline); user-select: none;
+}
+.arachnid-code textarea {
+  flex: 1; min-width: 0; padding: 12px; border: none; outline: none; resize: none;
+  white-space: pre; overflow: auto; tab-size: 2; user-select: text;
+  background: transparent; color: var(--md-sys-color-on-surface); caret-color: var(--md-sys-color-primary);
+}
+@keyframes arachnid-fade { from { opacity: 0; } }
+@keyframes arachnid-rise { from { opacity: 0; transform: translateY(20px); } }
+@keyframes arachnid-sink { to { opacity: 0; transform: translateY(-20px); } }
 `;
 
   function mountStyle() {
@@ -843,7 +896,7 @@
         "div",
         { class: "arachnid-buttons" },
         button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
-        button(text.quickCss, () => openFolder("quickCss"), undefined, "css"),
+        button(text.quickCss, openQuickCss, undefined, "css"),
       ),
       select({
         label: text.theme,
@@ -953,6 +1006,254 @@
     ];
   }
 
+  // ─────────────────────────────── QuickCSS ───────────────────────────────
+  // Редактор quickcss.css — окно поверх клиента, как Dialog в for-web
+  // (Material 3: подложка, карточка 28px, кнопки-текст справа внизу). Текст
+  // применяется и сохраняется сам через долю секунды после правки, поэтому
+  // окно можно закрыть в любой момент: Esc, «Готово» или щелчок мимо.
+
+  /** Отступ, который вставляет Tab */
+  const INDENT = "  ";
+  /** Пауза после правки до сохранения, мс */
+  const SAVE_DELAY = 300;
+
+  /** Открытый редактор: `{ reload, close }` */
+  let quickCss = null;
+
+  function openQuickCss() {
+    if (quickCss) {
+      quickCss.focus();
+      return;
+    }
+    if (!document.body) return;
+    mountStyle();
+    openSelect?.();
+
+    const opener = document.activeElement;
+    // saved — текст, который сейчас в файле (null, пока не загружен)
+    const state = { saved: null, timer: 0, saving: null, again: false, closed: false, lines: 0 };
+
+    const status = h("span", { class: "arachnid-label arachnid-dialog-status", role: "status" });
+    const gutter = h("div", { class: "arachnid-code-lines", "aria-hidden": "true" });
+    const textarea = h("textarea", {
+      spellcheck: "false",
+      autocapitalize: "off",
+      autocomplete: "off",
+      wrap: "off",
+      "aria-label": "QuickCSS",
+      disabled: true,
+      onInput: changed,
+      onScroll: () => (gutter.scrollTop = textarea.scrollTop),
+      onKeydown: onEditorKey,
+    });
+
+    const setStatus = (message, error = false) => {
+      status.textContent = message;
+      status.toggleAttribute("data-error", error);
+    };
+
+    function updateLines() {
+      let count = 1;
+      for (let at = textarea.value.indexOf("\n"); at !== -1; at = textarea.value.indexOf("\n", at + 1)) count++;
+      if (count === state.lines) return;
+      state.lines = count;
+      gutter.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
+      gutter.scrollTop = textarea.scrollTop;
+    }
+
+    function changed() {
+      updateLines();
+      clearTimeout(state.timer);
+      state.timer = setTimeout(save, SAVE_DELAY);
+    }
+
+    /** Сохранить текущий текст; правки во время сохранения уйдут следом */
+    function save() {
+      clearTimeout(state.timer);
+      state.timer = 0;
+      if (state.saved === null) return Promise.resolve();
+      if (state.saving) {
+        state.again = true;
+        return state.saving;
+      }
+      const css = textarea.value;
+      if (css === state.saved) return Promise.resolve();
+      setStatus(text.saving);
+      state.saving = invoke("extensions_set_quick_css", { css })
+        .then(() => {
+          state.saved = css;
+          if (!state.timer && textarea.value === css) setStatus(text.saved);
+        })
+        .catch((error) => setStatus(text.saveFailed(error?.message ?? String(error)), true))
+        .finally(() => {
+          state.saving = null;
+          if (state.again) {
+            state.again = false;
+            void save();
+          }
+        });
+      return state.saving;
+    }
+
+    /** quickcss.css изменили в другой программе: показать, если здесь нет своих правок */
+    function reload() {
+      const untouched = () => !state.closed && !state.timer && !state.saving && textarea.value === state.saved;
+      if (state.saved === null || !untouched()) return;
+      invoke("extensions_quick_css").then(
+        (css) => {
+          if (!untouched() || css === state.saved) return;
+          const { selectionStart, selectionEnd, scrollTop } = textarea;
+          state.saved = css;
+          textarea.value = css;
+          textarea.setSelectionRange(Math.min(selectionStart, css.length), Math.min(selectionEnd, css.length));
+          textarea.scrollTop = scrollTop;
+          updateLines();
+        },
+        () => {},
+      );
+    }
+
+    /** Вставить текст так, чтобы работала отмена (Ctrl+Z) */
+    function insert(value) {
+      const viaHistory = typeof document.execCommand === "function" && document.execCommand("insertText", false, value);
+      if (!viaHistory) {
+        textarea.setRangeText(value, textarea.selectionStart, textarea.selectionEnd, "end");
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+
+    /** Tab и Shift+Tab: отступ строки или выделенных строк */
+    function indent(outdent) {
+      const { value, selectionStart: start, selectionEnd: end } = textarea;
+      if (!outdent && start === end) {
+        insert(INDENT);
+        return;
+      }
+      const from = value.lastIndexOf("\n", start - 1) + 1;
+      // выделение до начала строки эту строку не захватывает
+      const last = end > start && value[end - 1] === "\n" ? end - 1 : end;
+      const to = value.indexOf("\n", last) === -1 ? value.length : value.indexOf("\n", last);
+      const block = value.slice(from, to);
+      const lines = block.split("\n");
+      const next = lines.map((line) => (outdent ? line.replace(/^( {1,2}|\t)/, "") : INDENT + line)).join("\n");
+      if (next === block) return;
+      const shift = next.split("\n")[0].length - lines[0].length;
+      textarea.setSelectionRange(from, to);
+      insert(next);
+      if (start === end) {
+        const caret = Math.max(from, start + shift);
+        textarea.setSelectionRange(caret, caret);
+      } else {
+        textarea.setSelectionRange(from, from + next.length);
+      }
+    }
+
+    /** Enter: новая строка с тем же отступом, после «{» — на шаг глубже */
+    function newline() {
+      const { value, selectionStart: start, selectionEnd: end } = textarea;
+      const line = value.slice(value.lastIndexOf("\n", start - 1) + 1, start);
+      const current = /^[ \t]*/.exec(line)[0];
+      const opens = line.trimEnd().endsWith("{");
+      if (opens && value[end] === "}") {
+        insert(`\n${current}${INDENT}\n${current}`);
+        const caret = start + 1 + current.length + INDENT.length;
+        textarea.setSelectionRange(caret, caret);
+      } else {
+        insert(`\n${current}${opens ? INDENT : ""}`);
+      }
+    }
+
+    function onEditorKey(event) {
+      if (event.isComposing || event.altKey) return;
+      const command = event.ctrlKey || event.metaKey;
+      if (event.key === "Tab" && !command) {
+        event.preventDefault();
+        indent(event.shiftKey);
+      } else if (event.key === "Enter" && !command && !event.shiftKey) {
+        event.preventDefault();
+        newline();
+      } else if (command && !event.shiftKey && event.code === "KeyS") {
+        event.preventDefault();
+        void save();
+      }
+    }
+
+    function close() {
+      if (state.closed) return;
+      state.closed = true;
+      void save();
+      quickCss = null;
+      scrim.setAttribute("data-closing", "");
+      setTimeout(() => scrim.remove(), 200);
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    }
+
+    const titleId = "arachnid-quickcss-title";
+    const dialog = h(
+      "div",
+      { class: "arachnid-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": titleId },
+      h("span", { class: "arachnid-dialog-title", id: titleId }, "QuickCSS"),
+      h(
+        "div",
+        { class: "arachnid-dialog-content" },
+        h("span", { class: "arachnid-label" }, text.quickCssHint),
+        h("div", { class: "arachnid-code" }, gutter, textarea),
+      ),
+      h(
+        "div",
+        { class: "arachnid-dialog-actions" },
+        status,
+        // внешний редактор откроет уже сохранённый текст
+        button(text.openInEditor, () => void save().then(() => openFolder("quickCss")), "text", "open_in_new"),
+        button(text.done, close, "text"),
+      ),
+    );
+
+    // закрывает только щелчок, который и начался, и закончился на подложке:
+    // выделение текста, отпущенное за краем окна, его не закрывает
+    let pressedOutside = false;
+    const scrim = h(
+      "div",
+      {
+        class: "arachnid-scrim",
+        dataset: { arachnidQuickcss: "" },
+        onPointerdown: (event) => (pressedOutside = event.target === scrim),
+        onClick: (event) => {
+          if (pressedOutside && event.target === scrim) close();
+          pressedOutside = false;
+        },
+        // клавиши остаются в окне: сочетания for-web (Esc закрывает
+        // настройки) слушают document.body
+        onKeydown: (event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" && !event.isComposing) {
+            event.preventDefault();
+            close();
+          }
+        },
+        onKeyup: (event) => event.stopPropagation(),
+      },
+      dialog,
+    );
+
+    (document.getElementById("floating") ?? document.body).append(scrim);
+    quickCss = { reload, close, focus: () => textarea.focus() };
+    updateLines();
+
+    invoke("extensions_quick_css").then(
+      (css) => {
+        if (state.closed) return;
+        state.saved = css;
+        textarea.value = css;
+        textarea.disabled = false;
+        updateLines();
+        textarea.focus();
+        textarea.setSelectionRange(0, 0);
+      },
+      (error) => setStatus(error?.message ?? String(error), true),
+    );
+  }
+
   // ─────────────────────────────── обход ───────────────────────────────
 
   function renderAll() {
@@ -986,6 +1287,8 @@
   desktop.subscribe((type) => {
     if (type === "extensions") void refresh();
     else if (type === "menu") renderPluginsPage();
+    else if (type === "quickcss") quickCss?.reload();
+    else if (type === "open-quickcss") openQuickCss();
   });
 
   function start() {

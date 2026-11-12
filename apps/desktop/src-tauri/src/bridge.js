@@ -334,6 +334,9 @@
       runMenuItem,
       pluginMenu: menuEntries,
       extensionsChanged: () => emit("extensions"),
+      // quickcss.css изменили в другой программе / «Изменить QuickCSS» в трее
+      quickCssChanged: () => emit("quickcss"),
+      openQuickCss: () => emit("open-quickcss"),
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);

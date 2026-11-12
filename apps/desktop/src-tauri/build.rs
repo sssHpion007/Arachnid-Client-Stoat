@@ -19,6 +19,8 @@ const COMMANDS: &[&str] = &[
     "extensions_reset_theme",
     "extensions_set_plugin",
     "extensions_open",
+    "extensions_quick_css",
+    "extensions_set_quick_css",
 ];
 
 fn main() {

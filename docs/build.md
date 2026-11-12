@@ -39,6 +39,8 @@ cargo tauri build
 `README.txt`, папки `themes/` и `plugins/`) при каждой отправке `main` и рабочих
 веток `arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в
 `main`: архив лежит в артефактах запуска на вкладке Actions 30 дней.
+`.github/workflows/ci.yml` (rustfmt, clippy, тесты) запускается на тех же
+ветках и на pull request.
 
 `.github/workflows/release.yml` собирает три платформы и прикладывает
 `bootstrap.sh`/`bootstrap.ps1` к релизу. Запуск:

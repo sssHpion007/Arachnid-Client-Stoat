@@ -60,12 +60,16 @@ for-web проверяет `window.native`. Если объект есть, он
 | `extensions_set_theme_value` | изменить настройку темы (`null` — по умолчанию) |
 | `extensions_reset_theme` | сбросить все настройки темы |
 | `extensions_set_plugin` | включить или выключить плагин (страница не перезагружается сама) |
-| `extensions_open` | открыть папку тем, плагинов или `quickcss.css` |
+| `extensions_open` | открыть папку тем, плагинов или `quickcss.css` во внешней программе |
+| `extensions_quick_css` | текст `quickcss.css` для редактора (заготовка, если файла нет) |
+| `extensions_set_quick_css` | сохранить QuickCSS из редактора и сразу применить |
 
 В обратную сторону Rust вызывает `window.__arachnidDesktop`: `update(config)`
 (новые настройки), `setStyles(styles)` (сохранили тему), `runMenuItem(id)`
 (выбрали пункт плагина в трее), `extensionsChanged()` (темы или плагины
-изменились из трея или в папке — раздел настроек перечитывает их).
+изменились из трея или в папке — раздел настроек перечитывает их),
+`openQuickCss()` (пункт трея «Изменить QuickCSS») и `quickCssChanged()`
+(`quickcss.css` сохранили в другой программе).
 
 `native.versions` for-web выводит внизу списка настроек как «Stoat for Desktop
 0.14.0» и строку `Tauri 2.x, Windows x86_64, WebView 1xx` (поля `electron`,
@@ -79,7 +83,7 @@ Client».
 
 - раздел «Плагины» в «Настройках клиента» между «Внешним видом» и
   «Уведомлениями» (там, где у for-web закомментирован свой пункт plugins);
-- кнопки «Папка тем» и «Изменить QuickCSS» и выбор темы в «Внешнем виде» вместо
+- кнопки «Папка тем» и «Изменить QuickCSS» (окно-редактор) и выбор темы в «Внешнем виде» вместо
   приветствия «Welcome to the new appearance menu…»; при сторонней теме блок
   «Цвета» Stoat заменяется настройками темы;
 - подпись «Arachnid Client» вместо «Stoat for Desktop».
