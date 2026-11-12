@@ -708,7 +708,10 @@ impl PaintSink for Painter<'_> {
         let t = transform;
         let (a, b, c, d) = (k(t.xx), k(t.yx), k(t.xy), k(t.yy));
         let (e, f) = (n(t.dx), n(t.dy));
-        let _ = write!(self.body(), "<g transform=\"matrix({a} {b} {c} {d} {e} {f})\">");
+        let _ = write!(
+            self.body(),
+            "<g transform=\"matrix({a} {b} {c} {d} {e} {f})\">"
+        );
     }
 
     fn pop_transform(&mut self) {
@@ -725,7 +728,10 @@ impl PaintSink for Painter<'_> {
                 let id = self.id();
                 // глиф без контура обрезает всё
                 let d = (self.path)(glyph).unwrap_or_default();
-                let _ = write!(self.defs, "<clipPath id=\"c{id}\"><path d=\"{d}\"/></clipPath>");
+                let _ = write!(
+                    self.defs,
+                    "<clipPath id=\"c{id}\"><path d=\"{d}\"/></clipPath>"
+                );
                 self.clips.insert(glyph, id);
                 id
             }
@@ -1190,7 +1196,10 @@ mod tests {
         assert!(svg.contains("<g transform=\"matrix(2 0 0 2 10 0)\"><g clip-path=\"url(#c1)\">"));
         // заливка без обрезки — рамка картинки в координатах группы
         let cover = "<rect x=\"-5\" y=\"0\" width=\"50\" height=\"50\"";
-        assert!(svg.contains(&format!("{cover} fill=\"#000000\"/>")), "{svg}");
+        assert!(
+            svg.contains(&format!("{cover} fill=\"#000000\"/>")),
+            "{svg}"
+        );
         assert!(balanced(&svg));
     }
 
@@ -1252,7 +1261,8 @@ mod tests {
             painter.pop_layer_with_mode(CompositeMode::SrcOver);
         });
         assert!(svg.contains("<filter id=\"black\""));
-        assert!(svg.contains("<g mask=\"url(#m1)\"><path d=\"M0 0L1 0L0 10Z\""), "{svg}");
+        let masked = "<g mask=\"url(#m1)\"><path d=\"M0 0L1 0L0 10Z\"";
+        assert!(svg.contains(masked), "{svg}");
         assert!(balanced(&svg));
     }
 
