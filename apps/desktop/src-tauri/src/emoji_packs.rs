@@ -517,7 +517,7 @@ impl EmojiPacks {
 
     /// Картинка эмодзи стороной `side` пикселей из памяти или набора клиента
     /// (нарисованная остаётся в памяти); None — у клиента её нет, она
-    /// берётся с сервера (`from_server`). Вызывается вне главного потока.
+    /// берётся с сервера (`server_image`). Вызывается вне главного потока.
     #[cfg_attr(not(windows), allow(dead_code))]
     fn drawn(&self, pack: &str, stem: &str, side: u32) -> Option<Image> {
         let key = image_key(pack, stem, side);
@@ -532,7 +532,7 @@ impl EmojiPacks {
     /// Картинка с сервера по адресу `uri`, о котором спросила страница;
     /// тоже остаётся в памяти. Вызывается вне главного потока.
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn from_server(
+    fn server_image(
         &self,
         pack: &str,
         stem: &str,
@@ -1092,7 +1092,7 @@ mod platform {
             match drawn {
                 Ok(Some(image)) => answer(&app, id, Ok(image)),
                 Ok(None) => network.run(move || {
-                    let server = || packs.from_server(pack, &stem, &uri, side);
+                    let server = || packs.server_image(pack, &stem, &uri, side);
                     let fetched = catch_unwind(AssertUnwindSafe(server));
                     answer(&app, id, fetched.unwrap_or(Err(Unavailable::Failed)));
                 }),
