@@ -1294,7 +1294,10 @@ mod tests {
         extensions.set_quick_css("body { color: red }").unwrap();
         assert_eq!(extensions.quick_css().unwrap(), "body { color: red }");
         let last = extensions.styles().pop().unwrap();
-        assert_eq!((last.id.as_str(), last.css.as_str()), ("quickcss", "body { color: red }"));
+        assert_eq!(
+            (last.id.as_str(), last.css.as_str()),
+            ("quickcss", "body { color: red }")
+        );
         assert!(!dir.join("quickcss.css.tmp").exists());
 
         let huge = "a".repeat(MAX_FILE_SIZE as usize + 1);

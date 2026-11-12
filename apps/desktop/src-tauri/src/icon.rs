@@ -97,14 +97,15 @@ mod platform {
             return;
         }
         let result = tray.with_inner_tray_icon(move |inner| {
-            let icon = tray_icon::Icon::from_resource(ICON_RESOURCE, Some((size, size)))
-                .map_err(|error| error.to_string())?;
-            inner.set_icon(Some(icon)).map_err(|error| error.to_string())
+            let icon = tray_icon::Icon::from_resource(ICON_RESOURCE, Some((size, size)));
+            let icon = icon.map_err(|error| error.to_string())?;
+            let set = inner.set_icon(Some(icon));
+            set.map_err(|error| error.to_string())
         });
         match result {
             Ok(Ok(())) => {}
-            Ok(Err(error)) => tracing::warn!("значок трея {size}×{size} не загружен: {error}"),
-            Err(error) => tracing::warn!("значок трея не обновлён: {error}"),
+            Ok(Err(error)) => tracing::warn!(%error, size, "значок трея не загружен"),
+            Err(error) => tracing::warn!(%error, "значок трея не обновлён"),
         }
     }
 }
