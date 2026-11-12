@@ -15,10 +15,11 @@
 //!
 //! * Twemoji — набор по умолчанию — встроен в exe (`emoji/twemoji.bin`).
 //! * Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix и Noto скачиваются в
-//!   «Внешний вид» → «Наборы эмодзи» одним файлом с GitHub (пре-релиз
-//!   `emoji-packs-v1`, его собирает `.github/workflows/emoji-packs.yml` из тех
-//!   же картинок static.stoat.chat) в папку `emoji/` каталога данных, там же
-//!   удаляются. Размеры наборов — в `manifest.json` того же релиза.
+//!   шторке выбора набора («Внешний вид» → «Emoji Pack», `emoji_packs.js`)
+//!   одним файлом с GitHub (пре-релиз `emoji-packs-v1`, его собирает
+//!   `.github/workflows/emoji-packs.yml` из тех же картинок static.stoat.chat)
+//!   в папку `emoji/` каталога данных, там же удаляются. Размеры наборов — в
+//!   `manifest.json` того же релиза.
 //!
 //! Формат файла описан в `emoji/pack.mjs`. Скачанный набор не читается в
 //! память целиком: в памяти только оглавление, картинка читается с диска по
@@ -419,10 +420,17 @@ impl EmojiPacks {
         read(&self.installed).get(id).cloned()
     }
 
-    /// Картинка эмодзи из набора клиента; None — пусть грузит сеть.
+    /// Картинка эмодзи из набора клиента и откуда она: `builtin` или
+    /// `downloaded`; None — пусть грузит сеть.
     #[cfg_attr(not(windows), allow(dead_code))]
-    fn svg(&self, pack: &str, stem: &str) -> Option<Vec<u8>> {
-        self.pack(pack)?.svg(stem)
+    fn svg(&self, pack: &str, stem: &str) -> Option<(Vec<u8>, &'static str)> {
+        let image = self.pack(pack)?.svg(stem)?;
+        let source = if pack == BUILTIN {
+            "builtin"
+        } else {
+            "downloaded"
+        };
+        Some((image, source))
     }
 
     fn overview(&self) -> Overview {
@@ -732,7 +740,7 @@ fn known(id: &str) -> CmdResult<&'static str> {
 
 // ─────────────────────────────── команды ───────────────────────────────
 
-/// Наборы эмодзи для раздела «Внешний вид».
+/// Наборы эмодзи для шторки выбора набора (`emoji_packs.js`).
 #[tauri::command]
 pub fn emoji_packs(app: AppHandle, packs: State<'_, Arc<EmojiPacks>>) -> Overview {
     packs.load_manifest_once(&app);
@@ -790,9 +798,18 @@ mod platform {
     use super::{EmojiPacks, PREFIX, parse_address};
 
     /// Картинки неизменны (адрес с версией `?v=1`), как и у static.stoat.chat.
-    const HEADERS: &str = "Content-Type: image/svg+xml\r\n\
-        Cache-Control: public, max-age=31536000, immutable\r\n\
-        Access-Control-Allow-Origin: *";
+    /// `Server-Timing` говорит, что картинку отдал клиент (видно в DevTools и
+    /// в `PerformanceResourceTiming.serverTiming`).
+    fn headers(source: &str) -> HSTRING {
+        HSTRING::from(format!(
+            "Content-Type: image/svg+xml\r\n\
+             Cache-Control: public, max-age=31536000, immutable\r\n\
+             Access-Control-Allow-Origin: *\r\n\
+             Access-Control-Expose-Headers: Server-Timing\r\n\
+             Timing-Allow-Origin: *\r\n\
+             Server-Timing: arachnid;desc=\"{source}\""
+        ))
+    }
 
     pub fn serve(window: &WebviewWindow, packs: Arc<EmojiPacks>) {
         let result = window.with_webview(move |webview| {
@@ -853,8 +870,8 @@ mod platform {
         let Some((pack, stem)) = parse_address(&uri) else {
             return Ok(());
         };
-        if let Some(image) = packs.svg(pack, &stem) {
-            let response = response(env, &image)?;
+        if let Some((image, source)) = packs.svg(pack, &stem) {
+            let response = response(env, &image, source)?;
             // SAFETY: ответ передаётся WebView2 во время обработчика
             unsafe { args.SetResponse(&response)? };
         }
@@ -864,8 +881,9 @@ mod platform {
     fn response(
         env: &wv::ICoreWebView2Environment,
         image: &[u8],
+        source: &str,
     ) -> windows_core::Result<wv::ICoreWebView2WebResourceResponse> {
-        let headers = HSTRING::from(HEADERS);
+        let headers = headers(source);
         // SAFETY: поток создаётся из копии данных
         unsafe {
             let stream = SHCreateMemStream(Some(image));
@@ -923,10 +941,11 @@ mod tests {
         let uri = address("twemoji", "1f600.svg?v=1");
         let (pack, stem) = parse_address(&uri).unwrap();
         assert_eq!((pack, stem.as_str()), ("twemoji", "1f600"));
-        let image = packs.svg(pack, &stem).unwrap();
+        let (image, source) = packs.svg(pack, &stem).unwrap();
         assert!(image.starts_with(b"<svg"));
+        assert_eq!(source, "builtin");
 
-        let svg = |stem: &str| packs.svg("twemoji", stem);
+        let svg = |stem: &str| packs.svg("twemoji", stem).map(|(image, _)| image);
         // ❤️ for-web запрашивает с fe0f, у Twemoji файл без него — та же картинка
         assert_eq!(svg("2764-fe0f"), svg("2764"));
         assert!(svg("2764").is_some());
@@ -965,7 +984,9 @@ mod tests {
         put(&dir, "fluent-3d.bin.part", b"half");
         let packs = EmojiPacks::new(dir.clone());
 
-        assert!(packs.svg("noto", "1f600").unwrap().starts_with(b"<svg"));
+        let (image, source) = packs.svg("noto", "1f600").unwrap();
+        assert!(image.starts_with(b"<svg"));
+        assert_eq!(source, "downloaded");
         assert_eq!(packs.svg("mutant", "1f600"), None);
         assert!(!dir.join("fluent-3d.bin.part").exists());
 

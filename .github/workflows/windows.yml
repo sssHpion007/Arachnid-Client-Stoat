@@ -60,3 +60,39 @@ jobs:
           path: dist/arachnid-client-windows-x86_64.zip
           if-no-files-found: error
           retention-days: 30
+
+  # Собранный exe в настоящем WebView2: тестовая страница вместо stoat.chat
+  # (apps/desktop/src-tauri/e2e) проверяет встроенный Twemoji (в том числе
+  # под service worker, как у for-web), значение набора эмодзи по умолчанию в
+  # хранилище for-web, шторку выбора набора и скачивание/удаление набора.
+  e2e:
+    name: проверка в WebView2
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: arachnid-client-windows-x86_64
+          path: artifact
+
+      - name: Распаковать
+        shell: pwsh
+        run: Expand-Archive artifact/arachnid-client-windows-x86_64.zip -DestinationPath app
+
+      - name: localforage для тестовой страницы
+        run: npm install --no-save --no-package-lock --prefix apps/desktop/src-tauri/e2e localforage@1.10.0
+
+      - name: Проверка
+        shell: pwsh
+        run: ./apps/desktop/src-tauri/e2e/run.ps1 -Exe app/Arachnid-Client/arachnid-client.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-logs
+          path: apps/desktop/src-tauri/e2e/logs
+          if-no-files-found: ignore
+          retention-days: 7

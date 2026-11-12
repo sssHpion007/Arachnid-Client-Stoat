@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Arachnid Client — проверка в WebView2</title>
+    <!-- localforage, как у for-web: хранилище настроек — IndexedDB localforage -->
+    <script src="/app/localforage.js"></script>
+  </head>
+  <body>
+    <!-- картинка эмодзи в самой первой странице, как в сообщениях for-web -->
+    <img id="first" alt="😀" src="https://static.stoat.chat/emoji/twemoji/1f600.svg?v=1" />
+    <div id="root"></div>
+    <!-- сюда for-web выводит шторки выбора (FloatingSelect) -->
+    <div id="floating"></div>
+    <pre id="log"></pre>
+    <script src="/app/test.js"></script>
+  </body>
+</html>

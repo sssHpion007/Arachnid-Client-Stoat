@@ -57,6 +57,12 @@ const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 /// Разделы и «Часто используемые» в окне выбора эмодзи, как в Discord.
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
+/// Скачивание и удаление наборов эмодзи в шторке выбора набора.
+const EMOJI_PACKS_SCRIPT: &str = include_str!("emoji_packs.js");
+
+/// Первая страница окна в Windows, пока подключаются обработчики WebView2.
+const BLANK_PAGE: &str = "about:blank";
+
 /// Приложение Discord, от имени которого показывается статус (`discordRpc.ts`).
 const DISCORD_CLIENT_ID: &str = "872068124005007420";
 
@@ -402,7 +408,16 @@ pub fn create_main_window(
         .find(|window| window.label == MAIN_WINDOW)
         .cloned()
         .unwrap_or_default();
-    window_config.url = WebviewUrl::External(instance.app_url.clone());
+    // В Windows окно открывается пустым, а веб-клиент — после того, как
+    // подключены обработчики WebView2 (наборы эмодзи, микрофон и камера):
+    // фильтры WebResourceRequested для запросов service worker веб-клиента
+    // действуют, только если добавлены до перехода на страницу
+    // (ICoreWebView2_22::AddWebResourceRequestedFilterWithRequestSourceKinds).
+    #[cfg(windows)]
+    let start_url = Url::parse(BLANK_PAGE).expect("about:blank — корректный адрес");
+    #[cfg(not(windows))]
+    let start_url = instance.app_url.clone();
+    window_config.url = WebviewUrl::External(start_url);
 
     let hidden = config.start_minimised_to_tray && std::env::args().any(|arg| arg == HIDDEN_ARG);
     let guard = instance.clone();
@@ -415,9 +430,10 @@ pub fn create_main_window(
         .initialization_script(SETTINGS_SCRIPT)
         .initialization_script(DEFAULTS_SCRIPT)
         .initialization_script(EMOJI_SCRIPT)
+        .initialization_script(EMOJI_PACKS_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {
-            let allowed = guard.owns(url);
+            let allowed = guard.owns(url) || url.as_str() == BLANK_PAGE;
             if !allowed {
                 tracing::info!(%url, "переход с клиента заблокирован");
             }
@@ -448,6 +464,10 @@ pub fn create_main_window(
     icon::apply_window(&window);
     media::allow_for_client(&window, instance);
     emoji_packs::serve(&window, Arc::clone(&app.state::<Arc<EmojiPacks>>()));
+    // обработчики выше подключаются в главном потоке по очереди, переход —
+    // следом за ними
+    #[cfg(windows)]
+    window.navigate(instance.app_url.clone())?;
 
     // положение — в физических пикселях, как и сохранено
     if state.width >= 300 && state.height >= 300 && on_screen(&window, state) {
@@ -876,7 +896,12 @@ mod tests {
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
         // в остальных скриптах подставлять нечего: они берут всё у моста
-        for script in [SETTINGS_SCRIPT, DEFAULTS_SCRIPT, EMOJI_SCRIPT] {
+        for script in [
+            SETTINGS_SCRIPT,
+            DEFAULTS_SCRIPT,
+            EMOJI_SCRIPT,
+            EMOJI_PACKS_SCRIPT,
+        ] {
             assert!(!script.contains("__ARACHNID_"));
         }
     }

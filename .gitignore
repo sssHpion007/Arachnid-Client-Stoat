@@ -17,3 +17,6 @@ node_modules/
 # сборочные каталоги cargo
 /target/
 *.rlib
+
+# журналы проверки в WebView2 (apps/desktop/src-tauri/e2e/run.ps1)
+apps/desktop/src-tauri/e2e/logs/

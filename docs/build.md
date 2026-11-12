@@ -71,3 +71,27 @@ ARACHNID_CLIENT_DIR=/path/to/folder ./arachnid-client
 
 или положите `config.toml` рядом с исполняемым файлом — клиент использует
 свой каталог вместо системного.
+
+## Проверка в WebView2
+
+`apps/desktop/src-tauri/e2e` — проверка собранного exe в настоящем WebView2.
+Клиент открывает тестовую страницу (`e2e/app`) как веб-клиент своего инстанса
+(`config.toml`, `app_url = "http://127.0.0.1:8765/app/"`). Страница повторяет
+то, на что опирается клиент у for-web: localforage, service worker с
+обработчиком `fetch` (как workbox), шторку выбора в `#floating`. Она проверяет:
+
+- картинки Twemoji отдаёт клиент — в первой странице, под service worker и на
+  запросы самого service worker (заголовок `Server-Timing` ответа);
+- набор эмодзи по умолчанию — Twemoji при первом запуске и в прежних
+  настройках с fluent-3d, а выбранный вручную набор остаётся;
+- шторка выбора получает кнопки, Mutant Remix скачивается с релиза
+  `emoji-packs-v1` и удаляется кнопками шторки, картинки скачанного набора
+  отдаёт клиент.
+
+В CI её запускает задача «проверка в WebView2» в `windows.yml` после сборки.
+Локально (Windows, Python 3, Node.js):
+
+```powershell
+npm install --no-save --prefix apps/desktop/src-tauri/e2e localforage@1.10.0
+pwsh apps/desktop/src-tauri/e2e/run.ps1 -Exe target/release/arachnid-client.exe
+```
