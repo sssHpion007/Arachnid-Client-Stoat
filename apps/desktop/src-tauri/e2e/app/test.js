@@ -363,6 +363,54 @@
       const afterDelete = await fetched(emoji("mutant", "1f600"));
       await check("после удаления картинки идут с сервера", afterDelete.source === null, afterDelete);
       await check("кнопки не выбирали набор", selected === 0, selected);
+
+      // ВРЕМЕННО: цена задачи главного потока после многих картинок эмодзи
+      const hop = async (count) => {
+        const channel = new MessageChannel();
+        const start = performance.now();
+        for (let i = 0; i < count; i++) {
+          await new Promise((resolve) => {
+            channel.port1.onmessage = resolve;
+            channel.port2.postMessage(0);
+          });
+        }
+        return (performance.now() - start) / count;
+      };
+      const stems = [];
+      for (let code = 0x1f300; code <= 0x1f64f; code++) stems.push(code.toString(16));
+      for (let code = 0x1f680; code <= 0x1f6ff; code++) stems.push(code.toString(16));
+      for (let code = 0x1f900; code <= 0x1f9ff; code++) stems.push(code.toString(16));
+      for (const hand of ["1f44b", "1f44d", "1f44e", "1f44f", "1f64c", "1f64f", "1f590", "270c", "1f91e", "1f918"]) {
+        for (const tone of ["1f3fb", "1f3fc", "1f3fd", "1f3fe", "1f3ff"]) stems.push(`${hand}-${tone}`);
+      }
+      const hops = { before: await hop(300) };
+      const holder = document.createElement("div");
+      holder.style.cssText = "position:fixed;left:0;top:0;width:32px;height:32px;overflow:hidden";
+      document.body.append(holder);
+      let loaded = 0;
+      for (const [from, to] of [[0, 400], [400, 800], [800, stems.length]]) {
+        await Promise.all(
+          stems.slice(from, to).map(
+            (stem) =>
+              new Promise((resolve) => {
+                const img = new Image(32, 32);
+                const done = (ok) => {
+                  if (ok) loaded++;
+                  img.remove();
+                  resolve();
+                };
+                img.onload = () => done(true);
+                img.onerror = () => done(false);
+                setTimeout(() => done(false), 5000);
+                img.src = emoji("twemoji", stem);
+                holder.append(img);
+              }),
+          ),
+        );
+        hops[loaded] = await hop(300);
+      }
+      holder.remove();
+      await check("ВРЕМЕННО: мс на задачу после картинок эмодзи", true, hops);
       return finish();
     }
   } catch (error) {
