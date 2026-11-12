@@ -748,7 +748,10 @@ pub fn emoji_pack_download(
 ) -> CmdResult<Overview> {
     let id = known(&id)?;
     if !cfg!(windows) {
-        return Err(CommandError::new("emoji", "скачивание наборов есть только в Windows"));
+        return Err(CommandError::new(
+            "emoji",
+            "скачивание наборов есть только в Windows",
+        ));
     }
     packs.start(&app, id);
     Ok(packs.overview())

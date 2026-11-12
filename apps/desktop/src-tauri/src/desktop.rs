@@ -25,9 +25,9 @@ use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 
+use crate::emoji_packs::{self, EmojiPacks};
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
-use crate::emoji_packs::{self, EmojiPacks};
 use crate::{CmdResult, CommandError, extensions, icon, media};
 
 /// Метка главного окна (как в `tauri.conf.json`).
