@@ -1,0 +1,104 @@
+name: emoji-packs
+
+# Скачиваемые наборы эмодзи для раздела «Внешний вид» → «Наборы эмодзи».
+#
+# Картинки берутся с static.stoat.chat — те же файлы, что веб-клиент Stoat
+# показывает в сообщениях, — и упаковываются в один файл на набор
+# (apps/desktop/src-tauri/emoji/fetch.mjs и pack.mjs). Файлы и manifest.json
+# с их размерами выкладываются в пре-релиз emoji-packs-v1: клиент скачивает их
+# с GitHub одним файлом, с понятным размером и без тысяч запросов к серверу
+# Stoat. Пре-релиз не считается «последним», поэтому бутстрап его не видит.
+#
+# Номер в теге — версия формата файла (FORMAT в emoji_packs.rs, RELEASE там же): при её
+# смене нужен новый тег.
+on:
+  push:
+    branches: [main, "arena/**"]
+    paths:
+      - "apps/desktop/src-tauri/emoji/**"
+      - ".github/workflows/emoji-packs.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: emoji-packs
+  cancel-in-progress: false
+
+env:
+  TAG: emoji-packs-v1
+  # версия emoji-test.txt, по которой Stoat собирает наборы
+  GENEMOJI: 14baa6a2c2c47932b55da4519a6815d921c465b8
+
+jobs:
+  build:
+    name: набор ${{ matrix.pack }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        pack: [fluent-3d, fluent-color, fluent-flat, mutant, noto]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: emoji-test.txt
+        run: >
+          curl -fsSL -o emoji-test.txt
+          "https://raw.githubusercontent.com/stoatchat/javascript-genemoji/$GENEMOJI/data/emoji-test.txt"
+
+      - name: Картинки с static.stoat.chat
+        run: >
+          node apps/desktop/src-tauri/emoji/fetch.mjs ${{ matrix.pack }}
+          emoji-test.txt apps/desktop/src-tauri/emoji/twemoji.bin svg
+
+      - name: Упаковка
+        run: node apps/desktop/src-tauri/emoji/pack.mjs svg ${{ matrix.pack }}.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emoji-${{ matrix.pack }}
+          path: ${{ matrix.pack }}.bin
+          retention-days: 7
+
+  publish:
+    name: пре-релиз
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: emoji-*
+          merge-multiple: true
+          path: packs
+
+      - name: manifest.json
+        working-directory: packs
+        run: |
+          node -e '
+            const fs = require("fs");
+            const packs = {};
+            for (const file of fs.readdirSync(".").filter((name) => name.endsWith(".bin")).sort()) {
+              const data = fs.readFileSync(file);
+              packs[file.slice(0, -4)] = { size: data.length, count: data.readUInt32LE(5) };
+            }
+            fs.writeFileSync("manifest.json", JSON.stringify({ version: 1, packs }, null, 2) + "\n");
+          '
+          cat manifest.json
+
+      - name: Выкладка
+        working-directory: packs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            gh release create "$TAG" --prerelease --latest=false --target "$GITHUB_SHA" \
+              --title "Наборы эмодзи" \
+              --notes "Скачиваемые наборы эмодзи для Arachnid Client (Настройки → Внешний вид → Наборы эмодзи). Картинки — с static.stoat.chat: Fluent Emoji © Microsoft (MIT), Noto Emoji © Google (Apache 2.0), Mutant Remix (CC BY-NC-SA 4.0), Twemoji © Twitter и участники (CC-BY 4.0)."
+          fi
+          gh release upload "$TAG" *.bin manifest.json --clobber

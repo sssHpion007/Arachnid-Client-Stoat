@@ -21,6 +21,10 @@ const COMMANDS: &[&str] = &[
     "extensions_open",
     "extensions_quick_css",
     "extensions_set_quick_css",
+    "emoji_packs",
+    "emoji_pack_download",
+    "emoji_pack_cancel",
+    "emoji_pack_delete",
 ];
 
 fn main() {

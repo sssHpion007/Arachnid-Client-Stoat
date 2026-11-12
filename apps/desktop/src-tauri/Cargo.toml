@@ -35,7 +35,7 @@ open = "5"
 discord-rich-presence = "1"
 # секции regexp() в @-moz-document тем UserCSS
 regex = "1"
-# встроенный набор Twemoji сжат Brotli (src/twemoji.rs)
+# картинки наборов эмодзи сжаты Brotli (src/emoji_packs.rs)
 brotli-decompressor = "5"
 
 # экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
@@ -47,6 +47,7 @@ windows-core = "0.61"
 tray-icon = { version = "0.24", default-features = false }
 windows = { version = "0.61", features = [
   "Win32_Foundation",
+  "Win32_Networking_WinHttp",
   "Win32_System_Com",
   "Win32_System_LibraryLoader",
   "Win32_UI_HiDpi",

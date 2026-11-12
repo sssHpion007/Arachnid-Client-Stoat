@@ -12,6 +12,12 @@ Node.js не нужен: интерфейс (for-web) загружается с 
 лежит в репозитории готовым; Node.js понадобится, только чтобы пересобрать его
 из jdecked/twemoji (`emoji/pack.mjs`, команды — в начале файла).
 
+Скачиваемые наборы эмодзи (Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix,
+Noto) в сборку не входят. Их собирает `.github/workflows/emoji-packs.yml`
+(`emoji/fetch.mjs` + `emoji/pack.mjs`) и выкладывает в пре-релиз
+`emoji-packs-v1` вместе с `manifest.json` (размеры файлов). Workflow запускается
+сам при изменениях в `apps/desktop/src-tauri/emoji/` и вручную.
+
 ## Клиент (Tauri)
 
 ```bash

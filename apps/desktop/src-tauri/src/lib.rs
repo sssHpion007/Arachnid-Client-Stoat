@@ -18,12 +18,14 @@ use tauri::Manager;
 use tauri::ipc::CapabilityBuilder;
 
 mod desktop;
+mod emoji_packs;
 mod extensions;
+#[cfg(windows)]
+mod http;
 mod icon;
 mod instance;
 mod media;
 mod memory;
-mod twemoji;
 mod usercss;
 
 /// Проблема, которую нужно сообщить странице.
@@ -72,6 +74,10 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-extensions-open",
     "allow-extensions-quick-css",
     "allow-extensions-set-quick-css",
+    "allow-emoji-packs",
+    "allow-emoji-pack-download",
+    "allow-emoji-pack-cancel",
+    "allow-emoji-pack-delete",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -253,6 +259,9 @@ pub fn run() {
                 &data_dir,
             ))));
             memory::MemorySaver::start(app.handle());
+            // до создания окна: оно отдаёт картинки эмодзи из этих наборов
+            let emoji_dir = data_dir.join(emoji_packs::DIR);
+            app.manage(Arc::new(emoji_packs::EmojiPacks::new(emoji_dir)));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -286,6 +295,10 @@ pub fn run() {
             extensions::extensions_open,
             extensions::extensions_quick_css,
             extensions::extensions_set_quick_css,
+            emoji_packs::emoji_packs,
+            emoji_packs::emoji_pack_download,
+            emoji_packs::emoji_pack_cancel,
+            emoji_packs::emoji_pack_delete,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

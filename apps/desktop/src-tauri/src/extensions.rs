@@ -633,7 +633,7 @@ fn write_text_atomically(path: &Path, text: &str) -> std::io::Result<()> {
 // ───────────────────────────────── страница ─────────────────────────────────
 
 /// Выполнить на странице метод моста `window.__arachnidDesktop`.
-fn call_page(app: &AppHandle, call: &str) {
+pub(crate) fn call_page(app: &AppHandle, call: &str) {
     if let Some(window) = app.get_webview_window(desktop::MAIN_WINDOW) {
         let _ = window.eval(format!(
             "window.__arachnidDesktop && window.__arachnidDesktop.{call};"

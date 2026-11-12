@@ -25,7 +25,8 @@ WKWebView в macOS.
   memory.rs: экономия памяти WebView2, пока окно в фоне
   icon.rs: чёткие значки окна и трея из ресурса exe (Windows)
   media.rs: микрофон, камера и звук для клиента без запросов (Windows)
-  twemoji.rs: картинки Twemoji из exe вместо static.stoat.chat (Windows)
+  emoji_packs.rs + http.rs: наборы эмодзи без static.stoat.chat — Twemoji
+                            из exe, остальные скачиваются (Windows)
 ```
 
 ## Договор с веб-клиентом
@@ -151,7 +152,7 @@ for-web читает эти настройки один раз — при вхо
   базы (`IDBDatabase.createObjectStore` для хранилищ `@<id>` базы
   `localforage`), так что for-web читает их сразу, без перезапуска.
 
-### Встроенный Twemoji
+### Наборы эмодзи
 
 for-web рисует каждый стандартный эмодзи картинкой
 `https://static.stoat.chat/emoji/<набор>/<кодовые точки>.svg?v=1` (адрес
@@ -161,21 +162,44 @@ for-web рисует каждый стандартный эмодзи карти
 связь медленная (в России Stoat заблокирован), эмодзи и выбор набора появляются
 с большой задержкой.
 
-Поэтому набор Twemoji встроен в клиент. `twemoji.rs` (Windows) подписывается на
-`WebResourceRequested` WebView2 для `https://static.stoat.chat/emoji/twemoji/*`
-и отвечает картинкой из exe — эмодзи появляются сразу и без сети. Набор —
-`emoji/twemoji.bin`: SVG из [jdecked/twemoji](https://github.com/jdecked/twemoji)
-той же версии, что у официального набора Stoat (подмодуль `packs/twemoji` в
-[stoatchat/javascript-genemoji](https://github.com/stoatchat/javascript-genemoji)),
-каждый сжат Brotli, всего около 4 МБ. Формы записи с селектором варианта
-`fe0f` и без него — одна картинка, как у genemoji. Чего во встроенном наборе нет,
-по-прежнему загружается с сервера. Остальные наборы (Fluent, Noto, Mutant)
-загружаются с сервера, как в официальном клиенте: ими пользуются реже, а места
-они заняли бы во много раз больше. В Linux и macOS все картинки идут с сервера.
+Поэтому картинки отдаёт сам клиент. `emoji_packs.rs` (Windows) подписывается на
+`WebResourceRequested` WebView2 для `https://static.stoat.chat/emoji/*` и
+отвечает картинкой из файла набора, если набор есть у клиента, — эмодзи
+появляются сразу и без сети. Если набора у клиента нет или в нём нет картинки,
+запрос уходит на сервер, как в официальном клиенте.
+
+- **Twemoji** (набор по умолчанию) встроен в exe: `emoji/twemoji.bin`, SVG из
+  [jdecked/twemoji](https://github.com/jdecked/twemoji) той же версии, что у
+  официального набора Stoat (подмодуль `packs/twemoji` в
+  [stoatchat/javascript-genemoji](https://github.com/stoatchat/javascript-genemoji)),
+  4009 картинок, около 4 МБ.
+- **Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix, Noto** скачиваются в
+  «Настройки» → «Внешний вид» → «Наборы эмодзи» (под выбором набора for-web).
+  У каждого набора — размер, кнопка «Скачать», полоса загрузки с процентами и
+  «Отмена», после скачивания — «Удалить», при ошибке — причина и «Повторить».
+  Файлы лежат в папке `emoji/` каталога данных (`<набор>.bin`); скачивание идёт
+  во временный `<набор>.bin.part`, который подключается только после проверки
+  размера (по `manifest.json`) и оглавления. Загрузка — WinHTTP (`http.rs`):
+  системный HTTP-стек с прокси из настроек Windows, без отдельной TLS-библиотеки
+  в exe.
+
+Файлы скачиваемых наборов — пре-релиз
+[`emoji-packs-v1`](https://github.com/sssHpion007/Arachnid-Client-Stoat/releases/tag/emoji-packs-v1).
+Его собирает `.github/workflows/emoji-packs.yml`: `emoji/fetch.mjs` скачивает с
+static.stoat.chat те же картинки, что показывает for-web (все эмодзи из
+`data/emoji-test.txt` genemoji и всё, что есть в Twemoji: genemoji подставляет
+Twemoji туда, где у набора своей картинки нет), `emoji/pack.mjs` упаковывает их.
+Номер в названии релиза — версия формата файла.
+
+Формат файла набора описан в начале `emoji/pack.mjs`: оглавление с ключами по
+возрастанию и картинки, каждая сжата Brotli отдельно. Формы записи с селектором
+варианта `fe0f` и без него — одна картинка, как у genemoji. Скачанный набор не
+читается в память целиком: в памяти только оглавление, картинка читается с
+диска по запросу. В Linux и macOS все картинки идут с сервера.
 
 Графика Twemoji — © Twitter, Inc. и другие участники, лицензия CC-BY 4.0
-(`emoji/LICENSE-GRAPHICS`). Пересобрать набор — `emoji/pack.mjs`, команды в
-его начале.
+(`emoji/LICENSE-GRAPHICS`). Пересобрать встроенный набор — `emoji/pack.mjs`,
+команды в его начале.
 
 ### Чего нет в договоре и почему
 

@@ -68,6 +68,31 @@
         reset: "Сбросить настройки темы",
         author: (name) => `Автор: ${name}`,
         version: (value) => `Версия ${value}`,
+        emojiPacks: "Наборы эмодзи",
+        emojiPacksHint:
+          "Twemoji встроен в клиент. Скачанные наборы показываются сразу, без загрузки картинок с сервера Stoat, а не скачанные грузятся с сервера, как в браузере. Сам набор выбирается в списке выше.",
+        packBuiltin: "Встроен в клиент",
+        packInstalled: (size) => `Скачан · ${size}`,
+        packAvailable: (size) => `Не скачан · ${size}`,
+        packNotInstalled: "Не скачан",
+        packDownloading: (percent, received, total) =>
+          percent === null ? `Загрузка… ${received}` : `Загрузка… ${percent}% · ${received} из ${total}`,
+        packFailed: (reason) => `Не скачан: ${reason}`,
+        sizesFailed: (reason) => `Размеры наборов не получены: ${reason}.`,
+        download: "Скачать",
+        retry: "Повторить",
+        cancel: "Отмена",
+        remove: "Удалить",
+        kb: "КБ",
+        mb: "МБ",
+        failure: {
+          network: (code) => (code ? `нет связи с GitHub (ошибка ${code})` : "нет связи с GitHub"),
+          status: (code) => `сервер ответил ${code}`,
+          missing: () => "набора нет на сервере загрузки",
+          corrupt: () => "файл пришёл повреждённым, попробуйте ещё раз",
+          io: (_, message) => `не удалось сохранить файл (${message})`,
+          unsupported: () => "скачивание наборов есть только в Windows",
+        },
       }
     : {
         plugins: "Plugins",
@@ -99,6 +124,31 @@
         reset: "Reset Theme Settings",
         author: (name) => `By ${name}`,
         version: (value) => `Version ${value}`,
+        emojiPacks: "Emoji Packs",
+        emojiPacksHint:
+          "Twemoji is built into the client. Downloaded packs show up instantly, without loading images from the Stoat server; packs that are not downloaded load from the server, as in the browser. The pack itself is chosen in the list above.",
+        packBuiltin: "Built into the client",
+        packInstalled: (size) => `Downloaded · ${size}`,
+        packAvailable: (size) => `Not downloaded · ${size}`,
+        packNotInstalled: "Not downloaded",
+        packDownloading: (percent, received, total) =>
+          percent === null ? `Downloading… ${received}` : `Downloading… ${percent}% · ${received} of ${total}`,
+        packFailed: (reason) => `Not downloaded: ${reason}`,
+        sizesFailed: (reason) => `Pack sizes are unavailable: ${reason}.`,
+        download: "Download",
+        retry: "Retry",
+        cancel: "Cancel",
+        remove: "Delete",
+        kb: "KB",
+        mb: "MB",
+        failure: {
+          network: (code) => (code ? `cannot reach GitHub (error ${code})` : "cannot reach GitHub"),
+          status: (code) => `the server responded with ${code}`,
+          missing: () => "the pack is missing on the download server",
+          corrupt: () => "the file arrived damaged, please try again",
+          io: (_, message) => `could not save the file (${message})`,
+          unsupported: () => "downloading packs is only available on Windows",
+        },
       };
 
   const BRAND = "Arachnid Client";
@@ -309,6 +359,19 @@
   white-space: pre; overflow: auto; tab-size: 2; user-select: text;
   background: transparent; color: var(--md-sys-color-on-surface); caret-color: var(--md-sys-color-primary);
 }
+.arachnid-emoji-preview { display: flex; gap: 2px; flex-shrink: 0; }
+.arachnid-emoji-preview img { width: 24px; height: 24px; object-fit: contain; }
+.arachnid-emoji-error { color: var(--md-sys-color-error); }
+.arachnid-progress {
+  height: 4px; margin-top: 6px; overflow: hidden; border-radius: 2px;
+  background: color-mix(in srgb, var(--md-sys-color-primary) 24%, transparent);
+}
+.arachnid-progress > div {
+  height: 100%; width: 0; border-radius: inherit;
+  background: var(--md-sys-color-primary); transition: width 0.2s linear;
+}
+.arachnid-progress[data-indeterminate] > div { width: 30%; animation: arachnid-indeterminate 1.4s ease-in-out infinite; }
+@keyframes arachnid-indeterminate { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
 @keyframes arachnid-fade { from { opacity: 0; } }
 @keyframes arachnid-rise { from { opacity: 0; transform: translateY(20px); } }
 @keyframes arachnid-sink { to { opacity: 0; transform: translateY(-20px); } }
@@ -840,7 +903,7 @@
   }
 
   // ───────────────────────────── «Внешний вид» ─────────────────────────────
-  /** Обработанная страница: { root, picker, colours, block } */
+  /** Обработанная страница: { root, picker, colours, block, emoji } */
   let appearance = null;
 
   /** Найти «Внешний вид» в колонке страницы настроек */
@@ -872,9 +935,25 @@
     if (colours && coloursTitle === "Colours") colours.after(block);
     else welcome.after(block);
 
-    appearance = { root, picker, colours: coloursTitle === "Colours" ? colours : null, block };
+    // под выбором набора эмодзи for-web — последним блоком страницы
+    const emoji = h("div", {
+      class: "arachnid-column",
+      dataset: { arachnidAppearance: "emoji" },
+      "data-arachnid-hidden": true,
+    });
+    root.append(emoji);
+
+    appearance = {
+      root,
+      picker,
+      colours: coloursTitle === "Colours" ? colours : null,
+      block,
+      emoji: { root: emoji, rows: null, note: null },
+    };
     renderAppearance();
+    renderEmojiPacks();
     void refresh();
+    refreshEmojiPacks();
   }
 
   function renderAppearance() {
@@ -1256,6 +1335,191 @@
     );
   }
 
+  // ───────────────────────────── наборы эмодзи ─────────────────────────────
+  // Twemoji встроен в клиент, остальные наборы for-web скачиваются отсюда
+  // (emoji_packs.rs): картинки скачанного набора клиент отдаёт сам, без
+  // загрузки с static.stoat.chat. Блок стоит под выбором набора for-web.
+
+  /** Названия как в выборе набора for-web (AppearanceMenu.tsx) */
+  const EMOJI_PACK_NAMES = {
+    twemoji: "Twemoji",
+    "fluent-3d": "Fluent 3D",
+    "fluent-color": "Fluent Color",
+    "fluent-flat": "Fluent Flat",
+    mutant: "Mutant Remix",
+    noto: "Noto",
+  };
+  /** 😃 😂 🤔 — как в превью набора for-web */
+  const EMOJI_PREVIEW = ["1f603", "1f602", "1f914"];
+
+  /** Последний ответ emoji_packs */
+  let emojiPacks = null;
+  let emojiRequest = null;
+  let emojiStale = false;
+
+  function refreshEmojiPacks() {
+    if (emojiRequest) {
+      // ответ на идущий запрос уже устарел: спросить ещё раз после него
+      emojiStale = true;
+      return;
+    }
+    emojiRequest = invoke("emoji_packs")
+      .then(
+        (next) => {
+          emojiPacks = next;
+          renderEmojiPacks();
+        },
+        (error) => console.warn("[Arachnid] наборы эмодзи не получены", error),
+      )
+      .finally(() => {
+        emojiRequest = null;
+        if (emojiStale) {
+          emojiStale = false;
+          refreshEmojiPacks();
+        }
+      });
+  }
+
+  function emojiCommand(command, id) {
+    invoke(command, { id }).then(
+      (next) => {
+        emojiPacks = next;
+        renderEmojiPacks();
+      },
+      (error) => {
+        console.warn(`[Arachnid] ${command}:`, error);
+        refreshEmojiPacks();
+      },
+    );
+  }
+
+  const sizeFormat = new Intl.NumberFormat(russian ? "ru" : "en", { maximumFractionDigits: 1 });
+  function formatSize(bytes) {
+    if (bytes >= 1024 * 1024) return `${sizeFormat.format(bytes / (1024 * 1024))} ${text.mb}`;
+    return `${sizeFormat.format(Math.max(1, Math.round(bytes / 1024)))} ${text.kb}`;
+  }
+
+  /** Причина ошибки словами */
+  function failureText(failure) {
+    const describe = text.failure[failure?.kind] ?? text.failure.network;
+    return describe(failure?.code, failure?.message ?? "");
+  }
+
+  function emojiRow(id) {
+    const status = h("span", { class: "arachnid-item-description" });
+    const error = h("span", { class: "arachnid-item-description arachnid-emoji-error", hidden: true });
+    const fill = h("div");
+    const bar = h(
+      "div",
+      { class: "arachnid-progress", role: "progressbar", "aria-label": EMOJI_PACK_NAMES[id] ?? id, hidden: true },
+      fill,
+    );
+    const actions = h("div", { class: "arachnid-buttons" });
+    const root = h(
+      "div",
+      { class: "arachnid-item" },
+      h(
+        "div",
+        { class: "arachnid-emoji-preview", "aria-hidden": "true" },
+        // адреса for-web: скачанный набор отдаёт клиент, остальные — сервер
+        EMOJI_PREVIEW.map((code) =>
+          h("img", { src: `https://static.stoat.chat/emoji/${id}/${code}.svg?v=1`, alt: "", loading: "lazy", draggable: false }),
+        ),
+      ),
+      h(
+        "div",
+        { class: "arachnid-item-content" },
+        h("div", { class: "arachnid-item-title" }, EMOJI_PACK_NAMES[id] ?? id),
+        status,
+        error,
+        bar,
+      ),
+      actions,
+    );
+    return { id, root, status, error, bar, fill, actions, action: null };
+  }
+
+  function updateEmojiRow(row, pack) {
+    const job = pack.download;
+    let status;
+    let action = "none";
+    let failure = null;
+    if (pack.builtin) status = text.packBuiltin;
+    else if (job) {
+      const percent = job.total ? Math.min(100, Math.floor((job.received / job.total) * 100)) : null;
+      status = text.packDownloading(percent, formatSize(job.received), job.total ? formatSize(job.total) : "");
+      action = "cancel";
+    } else if (pack.installed) {
+      status = text.packInstalled(formatSize(pack.size ?? 0));
+      action = "delete";
+    } else {
+      status = pack.size ? text.packAvailable(formatSize(pack.size)) : text.packNotInstalled;
+      action = pack.error ? "retry" : "download";
+      if (pack.error) failure = text.packFailed(failureText(pack.error));
+    }
+
+    row.status.textContent = status;
+    row.error.textContent = failure ?? "";
+    row.error.hidden = !failure;
+
+    row.bar.hidden = !job;
+    if (job) {
+      const ratio = job.total ? Math.min(1, job.received / job.total) : null;
+      row.bar.toggleAttribute("data-indeterminate", ratio === null);
+      row.fill.style.width = ratio === null ? "" : `${ratio * 100}%`;
+      if (ratio === null) row.bar.removeAttribute("aria-valuenow");
+      else row.bar.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
+    }
+
+    // кнопки пересоздаются только при смене действия: ход загрузки обновляется
+    // несколько раз в секунду, а кнопка под курсором должна оставаться той же
+    if (row.action === action) return;
+    row.action = action;
+    const run = (command) => () => emojiCommand(command, row.id);
+    row.actions.replaceChildren(
+      action === "download" ? button(text.download, run("emoji_pack_download"), "filled", "download") : null,
+      action === "retry" ? button(text.retry, run("emoji_pack_download"), "filled", "refresh") : null,
+      action === "cancel" ? button(text.cancel, run("emoji_pack_cancel"), undefined, "close") : null,
+      action === "delete" ? button(text.remove, run("emoji_pack_delete"), undefined, "delete") : null,
+    );
+  }
+
+  function renderEmojiPacks() {
+    const view = appearance?.emoji;
+    if (!view?.root.isConnected) return;
+    const data = emojiPacks;
+    view.root.toggleAttribute("data-arachnid-hidden", !data);
+    if (!data) return;
+    if (!data.supported) {
+      view.rows = null;
+      view.root.replaceChildren(
+        h("span", { class: "arachnid-subtitle" }, text.emojiPacks),
+        h("span", { class: "arachnid-label" }, text.failure.unsupported()),
+      );
+      return;
+    }
+
+    // Twemoji первым, остальные — в порядке выбора for-web
+    const packs = [...data.packs].sort((a, b) => Number(b.builtin) - Number(a.builtin));
+    if (!view.rows) {
+      view.rows = new Map(packs.map((pack) => [pack.id, emojiRow(pack.id)]));
+      view.note = h("span", { class: "arachnid-label arachnid-emoji-error", hidden: true });
+      view.root.replaceChildren(
+        h("span", { class: "arachnid-subtitle" }, text.emojiPacks),
+        h("span", { class: "arachnid-label" }, text.emojiPacksHint),
+        h("div", { class: "arachnid-group" }, [...view.rows.values()].map((row) => row.root)),
+        view.note,
+      );
+    }
+    for (const pack of packs) {
+      const row = view.rows.get(pack.id);
+      if (row) updateEmojiRow(row, pack);
+    }
+    const sizesFailed = data.sizes === "failed" && packs.some((pack) => !pack.installed && !pack.download);
+    view.note.textContent = sizesFailed ? text.sizesFailed(failureText(data.sizesError)) : "";
+    view.note.hidden = !sizesFailed;
+  }
+
   // ─────────────────────────────── обход ───────────────────────────────
 
   function renderAll() {
@@ -1291,6 +1555,7 @@
     else if (type === "menu") renderPluginsPage();
     else if (type === "quickcss") quickCss?.reload();
     else if (type === "open-quickcss") openQuickCss();
+    else if (type === "emoji-packs" && appearance?.emoji.root.isConnected) refreshEmojiPacks();
   });
 
   function start() {

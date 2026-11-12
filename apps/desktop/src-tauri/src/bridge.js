@@ -337,6 +337,8 @@
       // quickcss.css изменили в другой программе / «Изменить QuickCSS» в трее
       quickCssChanged: () => emit("quickcss"),
       openQuickCss: () => emit("open-quickcss"),
+      // скачивание, удаление и ход загрузки наборов эмодзи (emoji_packs.rs)
+      emojiPacksChanged: () => emit("emoji-packs"),
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);

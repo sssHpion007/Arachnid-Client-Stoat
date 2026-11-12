@@ -23,6 +23,7 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 | Экономия памяти | пока окно свёрнуто или в трее, WebView2 переводится в экономный режим (`MemoryUsageTargetLevel`), клиент продолжает работать ([docs/desktop.md](docs/desktop.md#память)) |
 | Автозапуск | «Запускать вместе с компьютером» и «Запускать свёрнутым в трей» |
 | Выбор эмодзи | разделы как в Discord («Люди», «Природа», «Еда и напитки», …, «Флаги»), быстрый переход к стандартным эмодзи и «Часто используемые»; набор эмодзи по умолчанию — Twemoji, он встроен в клиент и показывается сразу, без загрузки с static.stoat.chat |
+| Наборы эмодзи | Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix и Noto скачиваются в «Внешний вид» → «Наборы эмодзи» (размер, полоса загрузки, отмена, удаление) и затем тоже показываются без загрузки с сервера |
 | Discord RPC | статус «Chatting with others», как у Stoat for Desktop; выключен, пока его не включат в разделе «ПК» |
 | Проверка орфографии | вкл./выкл. из раздела «ПК»; подсказки и «Добавить в словарь» — в контекстном меню WebView2 |
 | Аппаратное ускорение | вкл./выкл. (после перезапуска) |
@@ -52,8 +53,9 @@ apps/desktop/src-tauri/   оболочка: окно, мост к веб-кли�
   src/memory.rs           экономия памяти WebView2 в фоне
   src/icon.rs             чёткие значки окна и трея (Windows)
   src/media.rs            микрофон, камера и звук без запросов (Windows)
-  src/twemoji.rs          встроенный набор Twemoji вместо static.stoat.chat (Windows)
-  emoji/                  twemoji.bin, его сборка (pack.mjs) и лицензия графики
+  src/emoji_packs.rs      наборы эмодзи вместо static.stoat.chat: встроенный и скачанные (Windows)
+  src/http.rs             скачивание по HTTPS через WinHTTP (Windows)
+  emoji/                  twemoji.bin, сборка наборов (fetch.mjs, pack.mjs) и лицензия графики
   src/instance.rs         адрес веб-клиента из config.toml
 bootstrap/                скачиваемые установщики: bootstrap.sh, bootstrap.ps1
 docs/                     документация
