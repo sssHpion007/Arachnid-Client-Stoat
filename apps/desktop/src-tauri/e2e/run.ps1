@@ -92,7 +92,7 @@ foreach ($check in $checks) {
 }
 $summary = foreach ($check in $checks) {
   $mark = if ($check.ok) { "OK  " } else { "FAIL" }
-  $details = if ($check.ok -or $null -eq $check.details) { "" } else { " — " + ($check.details | ConvertTo-Json -Compress -Depth 5) }
+  $details = if (($check.ok -and -not $check.name.StartsWith("ВРЕМЕННО")) -or $null -eq $check.details) { "" } else { " — " + ($check.details | ConvertTo-Json -Compress -Depth 5) }
   "$mark [шаг $($check.step)] $($check.name)$details"
 }
 if ($failed.Count -gt 0) {
