@@ -21,6 +21,12 @@
 //!   в папку `emoji/` каталога данных, там же удаляются. Размеры наборов — в
 //!   `manifest.json` того же релиза.
 //!
+//! * Fluent Color и Fluent Flat в Windows 11 уже есть: это эмодзи системного
+//!   шрифта Segoe UI Emoji (`system_emoji.rs`). Если они в нём есть, наборы
+//!   не скачиваются — картинки рисуются из шрифта, а в шрифте нет только
+//!   флагов. Скачанная раньше копия набора остаётся главнее шрифта, пока её
+//!   не удалят.
+//!
 //! Формат файла описан в `emoji/pack.mjs`. Скачанный набор не читается в
 //! память целиком: в памяти только оглавление, картинка читается с диска по
 //! запросу.
@@ -41,6 +47,7 @@ use std::sync::{
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
 
+use crate::system_emoji::{self, SystemEmoji};
 use crate::{CmdResult, CommandError, extensions};
 
 /// Наборы for-web (`UNICODE_EMOJI_PACKS` в UnicodeEmoji.tsx).
@@ -334,10 +341,12 @@ struct Job {
 /// Скачанные наборы по названию.
 type Installed = HashMap<&'static str, Arc<Pack>>;
 
-/// Наборы клиента: встроенный, скачанные и скачиваемые сейчас.
+/// Наборы клиента: встроенный, скачанные, скачиваемые сейчас и системные.
 pub struct EmojiPacks {
     dir: PathBuf,
     builtin: OnceLock<Option<Arc<Pack>>>,
+    /// Шрифт эмодзи Windows; читается, когда о нём спросят впервые
+    system: OnceLock<Option<SystemEmoji>>,
     installed: RwLock<Installed>,
     jobs: Mutex<HashMap<&'static str, Job>>,
     failures: Mutex<HashMap<&'static str, Failure>>,
@@ -361,6 +370,8 @@ pub struct Overview {
 struct PackState {
     id: &'static str,
     builtin: bool,
+    /// Набор есть в Windows: скачивать не нужно
+    system: bool,
     installed: bool,
     /// Размер файла: скачанного или на сервере
     size: Option<u64>,
@@ -399,6 +410,7 @@ impl EmojiPacks {
         Self {
             dir,
             builtin: OnceLock::new(),
+            system: OnceLock::new(),
             installed: RwLock::new(installed),
             jobs: Mutex::default(),
             failures: Mutex::default(),
@@ -420,17 +432,32 @@ impl EmojiPacks {
         read(&self.installed).get(id).cloned()
     }
 
-    /// Картинка эмодзи из набора клиента и откуда она: `builtin` или
-    /// `downloaded`; None — пусть грузит сеть.
+    fn system(&self) -> Option<&SystemEmoji> {
+        self.system.get_or_init(SystemEmoji::load).as_ref()
+    }
+
+    /// Набор есть в Windows (шрифт читается только для таких наборов).
+    fn in_system(&self, id: &str) -> bool {
+        system_emoji::covers(id) && self.system().is_some_and(|system| system.provides(id))
+    }
+
+    /// Картинка эмодзи из набора клиента и откуда она: `builtin`,
+    /// `downloaded` или `system`; None — пусть грузит сеть.
     #[cfg_attr(not(windows), allow(dead_code))]
     fn svg(&self, pack: &str, stem: &str) -> Option<(Vec<u8>, &'static str)> {
-        let image = self.pack(pack)?.svg(stem)?;
-        let source = if pack == BUILTIN {
-            "builtin"
-        } else {
-            "downloaded"
-        };
-        Some((image, source))
+        if let Some(image) = self.pack(pack).and_then(|local| local.svg(stem)) {
+            let source = if pack == BUILTIN {
+                "builtin"
+            } else {
+                "downloaded"
+            };
+            return Some((image, source));
+        }
+        if !self.in_system(pack) {
+            return None;
+        }
+        let image = self.system()?.svg(pack, stem)?;
+        Some((image, "system"))
     }
 
     fn overview(&self) -> Overview {
@@ -457,6 +484,7 @@ impl EmojiPacks {
                 PackState {
                     id,
                     builtin,
+                    system: self.in_system(id),
                     installed: builtin || local.is_some(),
                     size,
                     count: local.map(|pack| pack.len()),
@@ -520,7 +548,7 @@ impl EmojiPacks {
 
     /// Начать скачивание набора в отдельном потоке.
     fn start(self: &Arc<Self>, app: &AppHandle, id: &'static str) {
-        if read(&self.installed).contains_key(id) {
+        if read(&self.installed).contains_key(id) || self.in_system(id) {
             return;
         }
         let cancel = Arc::new(AtomicBool::new(false));
@@ -1003,6 +1031,26 @@ mod tests {
         // удалить уже удалённое — не ошибка
         packs.delete("noto").unwrap();
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn system_packs_need_no_download() {
+        let packs = EmojiPacks::new(temp_dir("system"));
+        let system = SystemEmoji::load();
+        let overview = packs.overview();
+        for id in PACKS {
+            let expected = system.as_ref().is_some_and(|system| system.provides(id));
+            assert_eq!(state(&overview, id).system, expected, "{id}");
+        }
+        assert!(!state(&overview, "fluent-3d").system);
+        assert!(!state(&overview, "twemoji").system);
+        if state(&overview, "fluent-color").system {
+            let (image, source) = packs.svg("fluent-color", "1f600").unwrap();
+            assert!(image.starts_with(b"<svg"));
+            assert_eq!(source, "system");
+            // флагов в шрифте нет: они идут с сервера
+            assert_eq!(packs.svg("fluent-color", "1f1f7-1f1fa"), None);
+        }
     }
 
     #[test]

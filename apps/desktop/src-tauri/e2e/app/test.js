@@ -314,6 +314,22 @@
       await waitFor(() => /\d/.test(row("mutant")?.textContent ?? ""), 3000, 50);
       await check("шторка: размер Mutant Remix", /\d/.test(row("mutant")?.textContent ?? ""), row("mutant")?.textContent);
 
+      // Fluent Color и Flat в Windows 11 — эмодзи шрифта Segoe UI Emoji:
+      // если шрифт их рисует, скачивать нечего, а Fluent 3D в шрифте нет
+      const system = (await invoke("emoji_packs")).packs.filter((pack) => pack.system).map((pack) => pack.id);
+      await check("Fluent 3D не считается системным", !system.includes("fluent-3d"), system);
+      if (system.includes("fluent-color")) {
+        const shown = /In system|В системе/.test(row("fluent-color")?.textContent ?? "");
+        const noButton = !row("fluent-color")?.querySelector("button");
+        await check("шторка: Fluent Color «В системе», без кнопки скачивания", shown && noButton, row("fluent-color")?.textContent);
+        const drawn = await fetched(emoji("fluent-color", "1f469-200d-1f4bb"));
+        await check("картинку системного набора нарисовал клиент", drawn.source === "system" && drawn.svg, drawn);
+        const flag = await fetched(emoji("fluent-color", "1f1f7-1f1fa"));
+        await check("флаг системного набора — с сервера", flag.source === null, flag);
+      } else {
+        await check("в шрифте Windows нет эмодзи Fluent — системные проверки пропущены", true, system);
+      }
+
       row("mutant").querySelector("button").click();
       await check("кнопка не выбирает набор", selected === 0, selected);
 

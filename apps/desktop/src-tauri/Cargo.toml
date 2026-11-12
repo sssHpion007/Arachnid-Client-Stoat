@@ -37,6 +37,11 @@ discord-rich-presence = "1"
 regex = "1"
 # картинки наборов эмодзи сжаты Brotli (src/emoji_packs.rs)
 brotli-decompressor = "5"
+# эмодзи из системного шрифта Segoe UI Emoji (src/system_emoji.rs): слои
+# глифов COLR и контуры — read-fonts, последовательность кодовых точек →
+# глиф — harfrust (на том же read-fonts)
+read-fonts = "0.47"
+harfrust = "0.16"
 
 # экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
 # версии, что у Tauri и wry)
@@ -48,8 +53,10 @@ tray-icon = { version = "0.24", default-features = false }
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Networking_WinHttp",
+  "Win32_Security",
   "Win32_System_Com",
   "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
   "Win32_UI_HiDpi",
   "Win32_UI_Shell",
   "Win32_UI_WindowsAndMessaging",

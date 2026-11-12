@@ -26,6 +26,7 @@ mod icon;
 mod instance;
 mod media;
 mod memory;
+mod system_emoji;
 mod usercss;
 
 /// Проблема, которую нужно сообщить странице.

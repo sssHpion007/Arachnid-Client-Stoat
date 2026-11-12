@@ -39,6 +39,8 @@
     ? {
         builtin: "Встроен",
         builtinHint: "Встроен в клиент: показывается сразу, без загрузки с сервера",
+        system: "В системе",
+        systemHint: "Уже есть в Windows (шрифт Segoe UI Emoji): скачивать не нужно, флаги — с сервера",
         installed: "Скачан",
         installedHint: (size) => `Скачан (${size}): показывается сразу, без загрузки с сервера`,
         availableHint: (size) =>
@@ -63,6 +65,8 @@
     : {
         builtin: "Built-in",
         builtinHint: "Built into the client: shows instantly, without loading from the server",
+        system: "In system",
+        systemHint: "Already in Windows (Segoe UI Emoji font): no download needed, flags come from the server",
         installed: "Downloaded",
         installedHint: (size) => `Downloaded (${size}): shows instantly, without loading from the server`,
         availableHint: (size) =>
@@ -289,6 +293,9 @@ svg { width: 24px; height: 24px; fill: currentColor; }
         "installed",
         [label(text.installed, text.installedHint(size)), button("delete", text.remove, run("emoji_pack_delete"))],
       ];
+    }
+    if (pack.system) {
+      return ["system", [label(text.system, text.systemHint)]];
     }
     if (!overview.supported) {
       return ["unsupported", []];
