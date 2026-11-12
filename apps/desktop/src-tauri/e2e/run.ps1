@@ -46,6 +46,25 @@ Stop-Process -Id $client.Id -Force -ErrorAction SilentlyContinue
 Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
+# Итог и журналы ещё и аннотациями GitHub: их видно в сводке запуска и через
+# API, без скачивания журнала задания.
+function Annotate([string]$Level, [string]$Title, [string[]]$Lines) {
+  if (-not $env:GITHUB_ACTIONS) { return }
+  $text = ($Lines -join "`n")
+  if ($text.Length -gt 30000) { $text = $text.Substring($text.Length - 30000) }
+  $text = $text.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+  $Title = $Title.Replace("%", "%25").Replace(":", "%3A").Replace(",", "%2C")
+  Write-Host "::$Level title=$Title::$text"
+}
+$serverLog = @()
+if (Test-Path (Join-Path $out "server.log")) {
+  $serverLog = @(Get-Content (Join-Path $out "server.log") | Where-Object { $_ -notmatch "^\[http\]" })
+}
+$clientLog = @(Get-ChildItem -Path (Join-Path $data "logs") -File -ErrorAction SilentlyContinue |
+  ForEach-Object { Get-Content $_.FullName })
+Annotate "notice" "e2e: страница" $serverLog
+Annotate "notice" "e2e: журнал клиента" ($clientLog | Select-Object -Last 80)
+
 Write-Host "──────── server.log ────────"
 if (Test-Path (Join-Path $out "server.log")) { Get-Content (Join-Path $out "server.log") }
 Write-Host "──────── журнал клиента ────────"
@@ -59,8 +78,9 @@ Copy-Item -Recurse -Force -Path (Join-Path $out "*") -Destination $logs -ErrorAc
 Copy-Item -Recurse -Force -Path (Join-Path $data "logs") -Destination $logs -ErrorAction SilentlyContinue
 
 if (-not (Test-Path $result)) {
-  if ($exited) { Write-Error "клиент завершился, не дождавшись итога" }
-  Write-Error "итога нет за $TimeoutSeconds с"
+  $reason = if ($exited) { "клиент завершился (код $($client.ExitCode)), не дождавшись итога" } else { "итога нет за $TimeoutSeconds с" }
+  Annotate "error" "e2e: $reason" @("см. аннотации со страницей и журналом клиента")
+  Write-Error $reason
 }
 
 $checks = (Get-Content -Raw $result | ConvertFrom-Json).results
@@ -70,7 +90,14 @@ foreach ($check in $checks) {
   $mark = if ($check.ok) { "OK  " } else { "FAIL" }
   Write-Host "$mark [шаг $($check.step)] $($check.name)"
 }
+$summary = foreach ($check in $checks) {
+  $mark = if ($check.ok) { "OK  " } else { "FAIL" }
+  $details = if ($check.ok -or $null -eq $check.details) { "" } else { " — " + ($check.details | ConvertTo-Json -Compress -Depth 5) }
+  "$mark [шаг $($check.step)] $($check.name)$details"
+}
 if ($failed.Count -gt 0) {
+  Annotate "error" "e2e: не прошло $($failed.Count) из $($checks.Count)" $summary
   Write-Error "не прошло проверок: $($failed.Count) из $($checks.Count)"
 }
+Annotate "notice" "e2e: все проверки прошли ($($checks.Count))" $summary
 Write-Host "все проверки прошли: $($checks.Count)"
