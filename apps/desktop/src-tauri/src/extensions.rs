@@ -5,14 +5,14 @@
 //! Всё лежит в каталоге данных, рядом с `config.toml`:
 //!
 //! ```text
-//! themes/*.css     темы: выбирается одна, в «Оформлении» или в трее
+//! themes/*.css     темы: выбирается одна, в «Внешнем виде» или в трее
 //! plugins/*.js     плагины: в разделе «Плагины» или в трее
 //! quickcss.css     свой CSS, действует всегда
 //! extensions.json  выбранная тема, её настройки и включённые плагины
 //! ```
 //!
 //! Тема может описать свои настройки (палитры, цвета, размеры) в заголовке
-//! UserCSS (см. [`crate::usercss`]); пока тема выбрана, «Оформление»
+//! UserCSS (см. [`crate::usercss`]); пока тема выбрана, «Внешний вид»
 //! показывает их вместо встроенных цветов Stoat.
 //!
 //! Новые плагины по умолчанию выключены: плагин получает те же права, что и
@@ -187,7 +187,7 @@ pub struct PluginMenuAction {
     name: String,
 }
 
-/// Тема для раздела «Оформление».
+/// Тема для раздела «Внешний вид».
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeInfo {
@@ -936,7 +936,7 @@ pub fn extensions_overview(extensions: State<'_, Arc<Extensions>>) -> Overview {
     extensions.overview()
 }
 
-/// Выбор в «Оформлении»: тема или `null` — стандартное оформление Stoat.
+/// Выбор в «Внешнем виде»: тема или `null` — стандартное оформление Stoat.
 #[tauri::command]
 pub fn extensions_set_theme(
     file: Option<String>,

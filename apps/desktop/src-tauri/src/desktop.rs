@@ -45,7 +45,7 @@ const WEBVIEW_DIR: &str = "webview";
 /// Мост `window.native` / `window.desktopConfig` для веб-клиента.
 const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
 
-/// Раздел «Плагины», выбор темы в «Оформлении» и подпись Arachnid Client в
+/// Раздел «Плагины», выбор темы в «Внешнем виде» и подпись Arachnid Client в
 /// настройках веб-клиента; выполняется после моста.
 const SETTINGS_SCRIPT: &str = include_str!("settings.js");
 
