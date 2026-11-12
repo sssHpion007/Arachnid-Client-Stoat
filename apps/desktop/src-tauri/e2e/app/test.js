@@ -363,43 +363,6 @@
       const afterDelete = await fetched(emoji("mutant", "1f600"));
       await check("после удаления картинки идут с сервера", afterDelete.source === null, afterDelete);
       await check("кнопки не выбирали набор", selected === 0, selected);
-      // ВРЕМЕННО: образцы картинок из шрифта для просмотра
-      if (system.includes("fluent-color")) {
-        const samples = [
-          ["fluent-color", "1f600"], ["fluent-color", "1f469-200d-1f4bb"], ["fluent-color", "1f44b-1f3fd"],
-          ["fluent-color", "23-fe0f-20e3"], ["fluent-color", "2764-fe0f"], ["fluent-color", "1f525"],
-          ["fluent-color", "1f308"], ["fluent-color", "1f389"], ["fluent-color", "1f30d"], ["fluent-color", "1f914"],
-          ["fluent-color", "1f60d"], ["fluent-color", "1f680"], ["fluent-flat", "1f600"], ["fluent-flat", "1f525"],
-          ["fluent-flat", "1f389"], ["fluent-flat", "1f469-200d-1f4bb"],
-        ];
-        const size = 64;
-        const canvas = document.createElement("canvas");
-        canvas.width = size * 8;
-        canvas.height = size * 2;
-        const context = canvas.getContext("2d");
-        context.fillStyle = "#fff";
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        const failed = [];
-        for (const [index, [pack, stem]] of samples.entries()) {
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          img.src = emoji(pack, stem);
-          try {
-            await img.decode();
-            const probe = document.createElement("canvas").getContext("2d");
-            probe.drawImage(img, 0, 0, 8, 8);
-            probe.getImageData(0, 0, 1, 1);
-            context.drawImage(img, (index % 8) * size, Math.floor(index / 8) * size, size, size);
-          } catch (error) {
-            failed.push(`${stem}: ${error}`);
-          }
-        }
-        await send("/log", `SAMPLEFAIL ${JSON.stringify(failed)}`);
-        const data = canvas.toDataURL("image/webp", 0.8);
-        for (let i = 0; i * 3900 < data.length; i++) {
-          await send("/log", `SAMPLE ${i} ${data.slice(i * 3900, (i + 1) * 3900)}`);
-        }
-      }
       return finish();
     }
   } catch (error) {
