@@ -33,6 +33,14 @@ toml = "1"
 open = "5"
 # «Discord RPC» в разделе «ПК», как в Stoat for Desktop
 discord-rich-presence = "1"
+# секции regexp() в @-moz-document тем UserCSS
+regex = "1"
+
+# экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
+# версии, что у Tauri и wry)
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows-core = "0.61"
 
 [[bin]]
 name = "arachnid-client"

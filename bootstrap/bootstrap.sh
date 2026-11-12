@@ -165,6 +165,12 @@ create_layout() {
 [instance]
 # адрес веб-клиента Stoat, который открывается в окне
 app_url = "https://stoat.chat/app"
+
+[memory]
+# экономить память, пока окно свёрнуто или в трее (Windows, WebView2)
+background = true
+# ещё и когда окно 2 минуты без фокуса
+unfocused = false
 CFG
     fi
     ok "создан config.toml"

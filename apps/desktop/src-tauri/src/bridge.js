@@ -185,15 +185,43 @@
   );
   document.addEventListener("DOMContentLoaded", mountStyles, { once: true });
 
+  // ─────────────────────────────── события ───────────────────────────────
+  // Раздел «Плагины» и выбор темы (settings.js) узнают отсюда, что темы,
+  // плагины или пункты AviaMenu изменились.
+  const listeners = new Set();
+
+  function emit(type) {
+    for (const listener of listeners) {
+      try {
+        listener(type);
+      } catch (error) {
+        console.error("[Arachnid]", error);
+      }
+    }
+  }
+
   // ───────────────────────── меню плагинов (AviaMenu) ─────────────────────────
   // Плагины Avia Client добавляют свои пункты (ключ API, звуки, переключатели)
   // через window.AviaMenu (avia_core/menu.js). Здесь тот же объект с теми же
-  // проверками, но пункты показываются в меню трея («Действия плагинов»):
-  // Rust получает их список, а при выборе пункта вызывает runMenuItem.
+  // проверками; пункты показываются в разделе «Плагины» и в меню трея
+  // («Действия плагинов»): Rust получает их список, а при выборе пункта
+  // вызывает runMenuItem.
   const menuHandlers = new Map(); // id действия → onClick
   const menuActions = []; // AviaMenu.register: { id, name }
   const menuGroups = []; // AviaMenu.submenuregister: { id, name, items: [{ id, name }] }
   let menuSyncQueued = false;
+
+  /** Копия пунктов: сначала действия, затем группы, как в меню Avia */
+  function menuEntries() {
+    return [
+      ...menuActions.map(({ id, name }) => ({ id, name })),
+      ...menuGroups.map(({ id, name, items }) => ({
+        id,
+        name,
+        items: items.map((item) => ({ id: item.id, name: item.name })),
+      })),
+    ];
+  }
 
   function syncMenu() {
     if (menuSyncQueued) return;
@@ -201,15 +229,8 @@
     // плагин обычно регистрирует несколько пунктов подряд: отправляем один раз
     setTimeout(() => {
       menuSyncQueued = false;
-      const entries = [
-        ...menuActions.map(({ id, name }) => ({ id, name })),
-        ...menuGroups.map(({ id, name, items }) => ({
-          id,
-          name,
-          items: items.map((item) => ({ id: item.id, name: item.name })),
-        })),
-      ];
-      void invoke("set_plugin_menu", { entries });
+      void invoke("set_plugin_menu", { entries: menuEntries() });
+      emit("menu");
     }, 0);
   }
 
@@ -301,7 +322,8 @@
   syncMenu();
 
   // Rust сообщает об изменениях, сделанных не со страницы: окно развернули
-  // кнопкой системы или перетаскиванием к краю экрана, сохранили тему.
+  // кнопкой системы или перетаскиванием к краю экрана, сохранили тему,
+  // выбрали тему или плагин в трее. settings.js подписывается на события.
   Object.defineProperty(window, "__arachnidDesktop", {
     value: Object.freeze({
       update: replaceConfig,
@@ -310,6 +332,12 @@
         setStyles(styles);
       },
       runMenuItem,
+      pluginMenu: menuEntries,
+      extensionsChanged: () => emit("extensions"),
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
     }),
   });
 
@@ -328,7 +356,7 @@
           extensions: "Расширения",
           themes: "Темы",
           plugins: "Плагины",
-          noThemes: "Тем нет",
+          defaultTheme: "Stoat (по умолчанию)",
           noPlugins: "Плагинов нет",
           openFolder: "Открыть папку",
           quickCss: "Изменить QuickCSS",
@@ -342,7 +370,7 @@
           extensions: "Extensions",
           themes: "Themes",
           plugins: "Plugins",
-          noThemes: "No themes",
+          defaultTheme: "Stoat (default)",
           noPlugins: "No plugins",
           openFolder: "Open Folder",
           quickCss: "Edit QuickCSS",
