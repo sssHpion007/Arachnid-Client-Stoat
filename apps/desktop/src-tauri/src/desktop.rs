@@ -26,6 +26,7 @@ use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEve
 use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::instance::Instance;
+use crate::memory::MemorySaver;
 use crate::{CmdResult, CommandError, extensions};
 
 /// Метка главного окна (как в `tauri.conf.json`).
@@ -43,6 +44,10 @@ const WEBVIEW_DIR: &str = "webview";
 
 /// Мост `window.native` / `window.desktopConfig` для веб-клиента.
 const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
+
+/// Раздел «Плагины», выбор темы в «Оформлении» и подпись Arachnid Client в
+/// настройках веб-клиента; выполняется после моста.
+const SETTINGS_SCRIPT: &str = include_str!("settings.js");
 
 /// Приложение Discord, от имени которого показывается статус (`discordRpc.ts`).
 const DISCORD_CLIENT_ID: &str = "872068124005007420";
@@ -190,8 +195,8 @@ pub struct TrayLabels {
     pub themes: String,
     /// «Плагины»
     pub plugins: String,
-    /// «Тем нет»
-    pub no_themes: String,
+    /// «Stoat (по умолчанию)»: стандартное оформление вместо темы
+    pub default_theme: String,
     /// «Плагинов нет»
     pub no_plugins: String,
     /// «Открыть папку»
@@ -212,7 +217,7 @@ impl Default for TrayLabels {
             extensions: "Расширения".into(),
             themes: "Темы".into(),
             plugins: "Плагины".into(),
-            no_themes: "Тем нет".into(),
+            default_theme: "Stoat (по умолчанию)".into(),
             no_plugins: "Плагинов нет".into(),
             open_folder: "Открыть папку".into(),
             quick_css: "Изменить QuickCSS".into(),
@@ -398,6 +403,7 @@ pub fn create_main_window(
         .visible(false)
         .data_directory(desktop.dir.join(WEBVIEW_DIR))
         .initialization_script(bridge_script(&config, instance))
+        .initialization_script(SETTINGS_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {
             let allowed = guard.owns(url);
@@ -439,6 +445,7 @@ pub fn create_main_window(
     }
     if !hidden {
         let _ = window.show();
+        MemorySaver::foreground(app);
     }
 
     // как в Stoat for Desktop: признак первого запуска сбрасывается сразу
@@ -483,6 +490,7 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
             if desktop.config().minimise_to_tray && !desktop.quitting.load(Ordering::SeqCst) {
                 api.prevent_close();
                 let _ = webview.hide();
+                app.state::<Arc<MemorySaver>>().backgrounded();
                 refresh_tray(app);
             }
         }
@@ -492,7 +500,17 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
             if maximised_changed {
                 push_config(&webview, &desktop.config());
             }
+            if matches!(event, WindowEvent::Resized(_)) {
+                // сворачивание и возврат из свёрнутого приходят как Resized
+                if webview.is_minimized().unwrap_or(false) {
+                    app.state::<Arc<MemorySaver>>().backgrounded();
+                } else if webview.is_visible().unwrap_or(false) {
+                    MemorySaver::foreground(app);
+                }
+            }
         }
+        WindowEvent::Focused(true) => MemorySaver::foreground(app),
+        WindowEvent::Focused(false) => app.state::<Arc<MemorySaver>>().unfocused(),
         _ => {}
     }
 }
@@ -503,6 +521,7 @@ pub fn show_main_window(app: &AppHandle) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
+        MemorySaver::foreground(app);
     }
     refresh_tray(app);
 }
@@ -559,6 +578,7 @@ fn toggle_window(app: &AppHandle) {
     };
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
+        app.state::<Arc<MemorySaver>>().backgrounded();
         refresh_tray(app);
     } else {
         show_main_window(app);
@@ -836,6 +856,8 @@ mod tests {
         assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
+        // в разделе настроек подставлять нечего: он берёт всё у моста
+        assert!(!SETTINGS_SCRIPT.contains("__ARACHNID_"));
     }
 
     #[test]

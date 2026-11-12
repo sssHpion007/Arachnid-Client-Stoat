@@ -4,8 +4,11 @@
 //! (по умолчанию https://stoat.chat/app), как это делает официальный Stoat
 //! for Desktop. Оболочка отвечает за то, чего нет у браузера: окно со своей
 //! рамкой, трей, автозапуск, Discord RPC, раздел настроек «ПК»,
-//! портативный каталог данных (см. [`desktop`] и [`instance`]), а также темы,
-//! QuickCSS и плагины в формате Avia Client (см. [`extensions`]).
+//! портативный каталог данных (см. [`desktop`] и [`instance`]), экономия
+//! памяти в фоне (см. [`memory`]), а также темы с собственными настройками,
+//! QuickCSS и плагины в формате Avia Client (см. [`extensions`] и
+//! [`usercss`]). В настройки веб-клиента добавлены раздел «Плагины» и выбор
+//! темы в «Оформлении» (`settings.js`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,6 +20,8 @@ use tauri::ipc::CapabilityBuilder;
 mod desktop;
 mod extensions;
 mod instance;
+mod memory;
+mod usercss;
 
 /// Проблема, которую нужно сообщить странице.
 #[derive(Debug, Serialize)]
@@ -56,6 +61,12 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-set-tray-labels",
     "allow-extensions-styles",
     "allow-set-plugin-menu",
+    "allow-extensions-overview",
+    "allow-extensions-set-theme",
+    "allow-extensions-set-theme-value",
+    "allow-extensions-reset-theme",
+    "allow-extensions-set-plugin",
+    "allow-extensions-open",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -228,7 +239,15 @@ pub fn run() {
             }
             app.add_capability(capability)?;
             app.manage(instance.clone());
-            app.manage(Arc::new(extensions::Extensions::new(data_dir.clone())));
+            app.manage(Arc::new(extensions::Extensions::new(
+                data_dir.clone(),
+                instance.app_url.clone(),
+            )));
+            // до создания окна: его события сразу приходят сюда
+            app.manage(Arc::new(memory::MemorySaver::new(memory::Settings::load(
+                &data_dir,
+            ))));
+            memory::MemorySaver::start(app.handle());
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -254,6 +273,12 @@ pub fn run() {
             desktop::set_tray_labels,
             extensions::extensions_styles,
             extensions::set_plugin_menu,
+            extensions::extensions_overview,
+            extensions::extensions_set_theme,
+            extensions::extensions_set_theme_value,
+            extensions::extensions_reset_theme,
+            extensions::extensions_set_plugin,
+            extensions::extensions_open,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

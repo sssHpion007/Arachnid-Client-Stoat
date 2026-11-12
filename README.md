@@ -16,8 +16,9 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 |---|---|
 | Своя рамка окна | рамка for-web (`customFrame`), кнопки «Свернуть / Развернуть / Закрыть» — команды Rust; перетаскивание по `-webkit-app-region` |
 | Трей | значок с меню «Версия», «Расширения», «Показать / Скрыть», «Выйти»; закрытие окна прячет его в трей («Сворачивать в трей») |
-| Темы и QuickCSS | `themes/*.css` включаются флажками в трее и применяются сразу, `quickcss.css` действует всегда ([docs/extensions.md](docs/extensions.md)) |
-| Плагины | `plugins/*.js` в формате Avia Client, включаются флажками в трее; меню плагинов `window.AviaMenu` — в трее |
+| Темы и QuickCSS | `themes/*.css`: тема выбирается в «Оформлении» (или в трее) и применяется сразу; свои настройки темы (палитры, цвета, размеры в формате UserCSS) показываются вместо встроенных цветов Stoat; `quickcss.css` действует всегда ([docs/extensions.md](docs/extensions.md)) |
+| Плагины | `plugins/*.js` в формате Avia Client: раздел настроек «Arachnid Client → Плагины» с переключателями и действиями плагинов (`window.AviaMenu`), то же в трее |
+| Экономия памяти | пока окно свёрнуто или в трее, WebView2 переводится в экономный режим (`MemoryUsageTargetLevel`), клиент продолжает работать ([docs/desktop.md](docs/desktop.md#память)) |
 | Автозапуск | «Запускать вместе с компьютером» и «Запускать свёрнутым в трей» |
 | Discord RPC | статус «Chatting with others», как у Stoat for Desktop |
 | Проверка орфографии | вкл./выкл. из раздела «ПК»; подсказки и «Добавить в словарь» — в контекстном меню WebView2 |
@@ -30,6 +31,8 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 
 Раздел настроек «ПК» и версия оболочки в настройках — родные страницы for-web:
 он показывает их, когда находит договор `window.native` / `window.desktopConfig`.
+Оболочка добавляет к ним категорию «Arachnid Client» с разделом «Плагины», выбор
+темы в «Оформлении» и подпись «Arachnid Client» внизу списка настроек.
 Подробнее — [docs/desktop.md](docs/desktop.md).
 
 ## Структура
@@ -37,8 +40,11 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 ```
 apps/desktop/src-tauri/   оболочка: окно, мост к веб-клиенту, трей, Discord RPC
   src/bridge.js           window.native и window.desktopConfig для for-web
+  src/settings.js         раздел «Плагины», выбор темы и подпись в настройках
   src/desktop.rs          окно, настройки «ПК», трей, автозапуск, команды моста
   src/extensions.rs       темы, QuickCSS, плагины, меню плагинов в трее
+  src/usercss.rs          настройки тем в формате UserCSS
+  src/memory.rs           экономия памяти WebView2 в фоне
   src/instance.rs         адрес веб-клиента из config.toml
 bootstrap/                скачиваемые установщики: bootstrap.sh, bootstrap.ps1
 docs/                     документация
