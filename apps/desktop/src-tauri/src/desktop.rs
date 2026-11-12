@@ -27,7 +27,7 @@ use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
-use crate::{CmdResult, CommandError, extensions, icon};
+use crate::{CmdResult, CommandError, extensions, icon, media};
 
 /// Метка главного окна (как в `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
@@ -48,6 +48,13 @@ const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
 /// Раздел «Плагины», выбор темы в «Внешнем виде» и подпись Arachnid Client в
 /// настройках веб-клиента; выполняется после моста.
 const SETTINGS_SCRIPT: &str = include_str!("settings.js");
+
+/// Значения Arachnid Client для настроек веб-клиента (набор эмодзи Twemoji),
+/// записываются до того, как for-web их прочитает.
+const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
+
+/// Разделы и «Часто используемые» в окне выбора эмодзи, как в Discord.
+const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
 /// Приложение Discord, от имени которого показывается статус (`discordRpc.ts`).
 const DISCORD_CLIENT_ID: &str = "872068124005007420";
@@ -108,7 +115,8 @@ impl Default for DesktopConfig {
             start_minimised_to_tray: false,
             spellchecker: true,
             hardware_acceleration: true,
-            discord_rpc: true,
+            // как и автозапуск: статус в Discord включает сам пользователь
+            discord_rpc: false,
             window_state: WindowState::default(),
         }
     }
@@ -404,6 +412,8 @@ pub fn create_main_window(
         .data_directory(desktop.dir.join(WEBVIEW_DIR))
         .initialization_script(bridge_script(&config, instance))
         .initialization_script(SETTINGS_SCRIPT)
+        .initialization_script(DEFAULTS_SCRIPT)
+        .initialization_script(EMOJI_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {
             let allowed = guard.owns(url);
@@ -435,6 +445,7 @@ pub fn create_main_window(
 
     let window = builder.build()?;
     icon::apply_window(&window);
+    media::allow_for_client(&window, instance);
 
     // положение — в физических пикселях, как и сохранено
     if state.width >= 300 && state.height >= 300 && on_screen(&window, state) {
@@ -798,8 +809,10 @@ pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Ar
 mod tests {
     use super::*;
 
+    /// Как в Stoat for Desktop, кроме Discord RPC: он выключен до явного
+    /// включения пользователем.
     #[test]
-    fn defaults_match_stoat_for_desktop() {
+    fn defaults_of_first_launch() {
         let config = DesktopConfig::default();
         assert!(config.first_launch);
         assert!(config.custom_frame);
@@ -807,13 +820,13 @@ mod tests {
         assert!(!config.start_minimised_to_tray);
         assert!(config.spellchecker);
         assert!(config.hardware_acceleration);
-        assert!(config.discord_rpc);
+        assert!(!config.discord_rpc);
     }
 
     #[test]
     fn missing_fields_take_defaults() {
-        let config: DesktopConfig = serde_json::from_str(r#"{"discordRpc":false}"#).unwrap();
-        assert!(!config.discord_rpc);
+        let config: DesktopConfig = serde_json::from_str(r#"{"discordRpc":true}"#).unwrap();
+        assert!(config.discord_rpc);
         assert!(config.custom_frame);
         assert_eq!(config.window_state, WindowState::default());
     }
@@ -860,8 +873,10 @@ mod tests {
         assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
-        // в разделе настроек подставлять нечего: он берёт всё у моста
-        assert!(!SETTINGS_SCRIPT.contains("__ARACHNID_"));
+        // в остальных скриптах подставлять нечего: они берут всё у моста
+        for script in [SETTINGS_SCRIPT, DEFAULTS_SCRIPT, EMOJI_SCRIPT] {
+            assert!(!script.contains("__ARACHNID_"));
+        }
     }
 
     #[test]

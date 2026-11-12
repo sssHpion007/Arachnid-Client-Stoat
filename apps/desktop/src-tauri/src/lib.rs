@@ -21,6 +21,7 @@ mod desktop;
 mod extensions;
 mod icon;
 mod instance;
+mod media;
 mod memory;
 mod usercss;
 
