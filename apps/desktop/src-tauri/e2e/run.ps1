@@ -57,9 +57,9 @@ function Annotate([string]$Level, [string]$Title, [string[]]$Lines) {
   Write-Host "::$Level title=$Title::$text"
 }
 $serverLog = @()
-if (Test-Path (Join-Path $out "server.log")) {
-  $serverLog = @(Get-Content (Join-Path $out "server.log") | Where-Object { $_ -notmatch "^\[http\]" })
-}
+if (Test-Path (Join-Path $out "server.log")) { $serverLog += Get-Content (Join-Path $out "server.log") }
+if (Test-Path (Join-Path $work "server.err.txt")) { $serverLog += Get-Content (Join-Path $work "server.err.txt") }
+if ($serverLog.Count -eq 0) { $serverLog = @("(сервер ничего не записал)") }
 $clientLog = @(Get-ChildItem -Path (Join-Path $data "logs") -File -ErrorAction SilentlyContinue |
   ForEach-Object { Get-Content $_.FullName })
 Annotate "notice" "e2e: страница" $serverLog

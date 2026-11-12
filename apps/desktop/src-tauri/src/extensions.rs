@@ -663,6 +663,7 @@ fn notify_page(app: &AppHandle) {
 pub fn on_page_load(window: WebviewWindow, payload: PageLoadPayload<'_>) {
     let app = window.app_handle();
     let extensions = app.state::<Arc<Extensions>>().inner().clone();
+    tracing::info!(url = %payload.url(), event = ?payload.event(), "страница");
     if payload.event() == PageLoadEvent::Started {
         // код прошлой страницы выгружен вместе с ней
         extensions.set_running(Vec::new());
