@@ -1,4 +1,4 @@
-// Настройки веб-клиента: раздел «Плагины», выбор темы в «Оформлении» и
+// Настройки веб-клиента: раздел «Плагины», выбор темы в «Внешнем виде» и
 // подпись Arachnid Client.
 //
 // for-web открыт с сервера Stoat, его исходники здесь не меняются. Поэтому
@@ -7,12 +7,16 @@
 // пользователя, дополняет их. Опоры выбраны так, чтобы не зависеть от языка
 // интерфейса и от сгенерированных имён классов:
 //
-// * настройки пользователя — боковая панель `.settings_sidebar` с подписью
-//   «Stoat for Desktop» (for-web выводит её без перевода, когда есть
-//   window.native); она заменяется на «Arachnid Client»;
-// * место для раздела — после категории с пунктом «ПК» (значок
-//   desktop_windows);
-// * «Оформление» — страница, которая начинается с приветствия «Welcome to
+// * настройки пользователя — боковая панель `.settings_sidebar` с пунктом
+//   «ПК» (значок desktop_windows) или с подписью «Stoat for Desktop»
+//   (for-web выводит её без перевода, когда есть window.native); подпись
+//   заменяется на «Arachnid Client»;
+// * место для раздела — в «Настройках клиента» сразу после «Внешнего вида»,
+//   перед «Уведомлениями»: там, где у for-web закомментирован свой пункт
+//   plugins. «Внешний вид» узнаётся по значку palette (контур и четыре
+//   кружка), а если значок изменится — по месту: второй пункт категории с
+//   «ПК»;
+// * «Внешний вид» — страница, которая начинается с приветствия «Welcome to
 //   the new appearance menu…» (без перевода), за ним блок «Colours».
 //
 // Если for-web изменится и опоры пропадут, настройки останутся как есть:
@@ -92,6 +96,12 @@
   const WELCOME = "Welcome to the new appearance menu";
   /** Значок пункта «ПК» в боковой панели */
   const DESKTOP_ICON = "desktop_windows";
+  /**
+   * Значок «extension» из @material-design-icons/svg (outlined), как у
+   * закомментированного пункта plugins в for-web.
+   */
+  const EXTENSION_PATH =
+    "M10.5 4.5c.28 0 .5.22.5.5v2h6v6h2c.28 0 .5.22.5.5s-.22.5-.5.5h-2v6h-2.12c-.68-1.75-2.39-3-4.38-3s-3.7 1.25-4.38 3H4v-2.12c1.75-.68 3-2.39 3-4.38 0-1.99-1.24-3.7-2.99-4.38L4 7h6V5c0-.28.22-.5.5-.5m0-2A2.5 2.5 0 0 0 8 5H4c-1.1 0-1.99.9-1.99 2v3.8h.29c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-.3c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7v.3H17c1.1 0 2-.9 2-2v-4a2.5 2.5 0 0 0 0-5V7c0-1.1-.9-2-2-2h-4a2.5 2.5 0 0 0-2.5-2.5z";
 
   // ─────────────────────────────── элементы ───────────────────────────────
 
@@ -123,7 +133,7 @@
   // Повторяют компоненты for-web (CategoryButton, FloatingSelect, Text) и
   // берут цвета из переменных Material 3 — подходят к любой теме.
   const STYLE = `
-.settings_sidebar[data-arachnid-sidebar-page] a.button[aria-selected="true"]:not([data-arachnid-entry]) {
+.settings_sidebar a.button[data-arachnid-muted] {
   background: unset !important;
 }
 .settings_sidebar a.button[data-arachnid-entry][aria-selected="true"] {
@@ -584,7 +594,9 @@
     const panel = h("div", { class: "arachnid-page", dataset: { arachnidPanel: "" } });
     column.append(panel);
     column.dataset.arachnidContentPage = "plugins";
-    sidebar.dataset.arachnidSidebarPage = "plugins";
+    // подсветка открытой страницы for-web — класс варианта Panda, а не
+    // атрибут: она гасится, пока открыт раздел
+    for (const link of selectedLinks(sidebar)) link.setAttribute("data-arachnid-muted", "");
     entry.setAttribute("aria-selected", "true");
 
     // for-web перешёл на другую страницу (новый блок в колонке) — раздел
@@ -612,7 +624,9 @@
     page.observer.disconnect();
     page.panel.remove();
     delete page.column.dataset.arachnidContentPage;
-    delete page.sidebar.dataset.arachnidSidebarPage;
+    for (const link of page.sidebar.querySelectorAll("[data-arachnid-muted]")) {
+      link.removeAttribute("data-arachnid-muted");
+    }
     page.entry.setAttribute("aria-selected", "false");
     page = null;
   }
@@ -628,17 +642,34 @@
     return null;
   }
 
+  /** Пункты боковой панели for-web (без нашего) */
+  function sidebarLinks(sidebar) {
+    return [...sidebar.querySelectorAll("a.button")].filter((link) => !link.hasAttribute("data-arachnid-entry"));
+  }
+
   /**
-   * Настройки пользователя (а не сервера или канала): в подвале панели
-   * подпись «Stoat for Desktop <версия>». Она заменяется на Arachnid Client.
+   * Класс обычного, невыбранного пункта. for-web отмечает открытую страницу
+   * классом варианта Panda (атрибут aria-selected до разметки не доходит),
+   * поэтому обычный класс — тот, что у большинства пунктов.
    */
-  function isUserSettings(sidebar) {
-    if (sidebar.querySelector("[data-arachnid-footer]")) return true;
-    const node = findText(sidebar, STOAT_DESKTOP);
-    if (!node) return false;
-    node.data = node.data.replace(STOAT_DESKTOP, BRAND);
-    node.parentElement?.setAttribute("data-arachnid-footer", "");
-    return true;
+  function plainClass(sidebar) {
+    const counts = new Map();
+    for (const link of sidebarLinks(sidebar)) counts.set(link.className, (counts.get(link.className) ?? 0) + 1);
+    let best = null;
+    let most = 0;
+    for (const [name, count] of counts) {
+      if (count > most) {
+        best = name;
+        most = count;
+      }
+    }
+    return best;
+  }
+
+  /** Пункты for-web, отмеченные как открытая страница */
+  function selectedLinks(sidebar) {
+    const plain = plainClass(sidebar);
+    return plain === null ? [] : sidebarLinks(sidebar).filter((link) => link.className !== plain);
   }
 
   /** Пункт «ПК»: ссылка боковой панели со значком desktop_windows */
@@ -649,73 +680,113 @@
     return null;
   }
 
+  /** Значок palette из @material-design-icons: контур и четыре кружка */
+  function isPaletteIcon(svg) {
+    return svg.querySelectorAll("circle").length === 4 && svg.querySelectorAll("path").length === 1;
+  }
+
   /**
-   * Категория «Arachnid Client» с пунктом «Плагины» после категории с
-   * пунктом «ПК». Элементы копируются с соседних, поэтому выглядят так же,
-   * как пункты for-web, и следуют теме.
+   * «Внешний вид»: пункт со значком palette; если значок не узнан — второй
+   * пункт категории с «ПК» (порядок for-web: голос, внешний вид,
+   * уведомления, язык, ПК).
+   */
+  function findAppearanceEntry(sidebar) {
+    for (const svg of sidebar.querySelectorAll("a.button svg")) {
+      const link = svg.closest("a.button");
+      if (!link.hasAttribute("data-arachnid-entry") && isPaletteIcon(svg)) return link;
+    }
+    const entries = findDesktopEntry(sidebar)?.parentElement;
+    if (!entries) return null;
+    const links = [...entries.children].filter(
+      (child) => child.matches("a.button") && !child.hasAttribute("data-arachnid-entry"),
+    );
+    return links.length >= 3 ? links[1] : null;
+  }
+
+  /**
+   * Настройки пользователя (а не сервера или канала): в них есть пункт «ПК»,
+   * а в подвале панели — подпись «Stoat for Desktop <версия>». Подпись
+   * заменяется на Arachnid Client.
+   */
+  function isUserSettings(sidebar) {
+    const node = findText(sidebar, STOAT_DESKTOP);
+    if (node) {
+      node.data = node.data.replace(STOAT_DESKTOP, BRAND);
+      node.parentElement?.setAttribute("data-arachnid-footer", "");
+    }
+    return Boolean(node || sidebar.querySelector("[data-arachnid-footer]") || findDesktopEntry(sidebar));
+  }
+
+  /** Пункт «Плагины»: копия «Внешнего вида» со значком extension */
+  function createEntry(sidebar, template) {
+    const entry = template.cloneNode(true);
+    entry.className = plainClass(sidebar) ?? template.className;
+    entry.removeAttribute("id");
+    entry.removeAttribute("href");
+    entry.removeAttribute("data-arachnid-muted");
+    entry.setAttribute("aria-selected", "false");
+    entry.setAttribute("role", "button");
+    entry.dataset.arachnidEntry = "plugins";
+
+    const svg = entry.querySelector("svg");
+    let label;
+    if (svg) {
+      svg.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg", "path"));
+      svg.firstChild.setAttribute("d", EXTENSION_PATH);
+      svg.setAttribute("viewBox", "0 0 24 24");
+      label = svg.nextElementSibling;
+    } else {
+      // значок шрифтом Material Symbols
+      const symbol = entry.querySelector(".material-symbols-outlined");
+      if (symbol) symbol.textContent = "extension";
+      label = symbol?.nextElementSibling;
+    }
+    // подпись — самый вложенный элемент (OverflowingText)
+    while (label?.firstElementChild) label = label.firstElementChild;
+    (label ?? entry).textContent = text.plugins;
+
+    entry.addEventListener("click", (event) => {
+      event.preventDefault();
+      openPage(sidebar, entry);
+    });
+    return entry;
+  }
+
+  /**
+   * Пункт «Плагины» в «Настройках клиента» между «Внешним видом» и
+   * «Уведомлениями». Он копирует разметку соседнего пункта, поэтому
+   * выглядит как пункт for-web и следует теме.
    */
   function ensureEntry(sidebar) {
-    const desktopEntry = findDesktopEntry(sidebar);
-    const entries = desktopEntry?.parentElement;
-    const category = entries?.parentElement;
-    if (!category) return;
+    const appearanceEntry = findAppearanceEntry(sidebar);
+    if (!appearanceEntry) return;
 
-    let ours = sidebar.querySelector("[data-arachnid-category]");
-    if (!ours) {
-      ours = category.cloneNode(false);
-      ours.dataset.arachnidCategory = "";
-      const title = category.firstElementChild;
-      if (title && title !== entries) {
-        const copy = title.cloneNode(false);
-        copy.textContent = BRAND;
-        ours.append(copy);
-      }
-      const plain =
-        [...sidebar.querySelectorAll("a.button")].find((link) => link.getAttribute("aria-selected") !== "true") ??
-        desktopEntry;
-      const entry = desktopEntry.cloneNode(true);
-      entry.className = plain.className;
-      entry.removeAttribute("href");
-      entry.setAttribute("aria-selected", "false");
-      entry.setAttribute("role", "button");
-      entry.dataset.arachnidEntry = "plugins";
-      const symbol = entry.querySelector(".material-symbols-outlined");
-      if (symbol) {
-        symbol.textContent = "extension";
-        const label = symbol.nextElementSibling;
-        (label?.firstElementChild ?? label ?? entry).textContent = text.plugins;
-      }
-      entry.addEventListener("click", (event) => {
-        event.preventDefault();
-        openPage(sidebar, entry);
-      });
-      ours.append(h("div", { class: entries.className }, entry));
-    }
-    // for-web мог перерисовать категории: раздел остаётся после «ПК»
-    if (ours.previousElementSibling !== category) category.after(ours);
+    let entry = sidebar.querySelector("a.button[data-arachnid-entry]");
+    if (!entry) entry = createEntry(sidebar, appearanceEntry);
+    // for-web мог перерисовать список: пункт остаётся после «Внешнего вида»
+    if (appearanceEntry.nextElementSibling !== entry) appearanceEntry.after(entry);
 
     if (!sidebar.dataset.arachnidListening) {
       sidebar.dataset.arachnidListening = "";
       // повторный щелчок по странице, которую for-web считает открытой:
-      // она не перерисуется, поэтому раздел закрывается сам
+      // она не перерисуется, поэтому раздел закрывается сам; остальные
+      // страницы for-web заменят раздел сами
       sidebar.addEventListener(
         "click",
         (event) => {
           const link = event.target instanceof Element ? event.target.closest("a.button") : null;
-          if (page && link && !link.hasAttribute("data-arachnid-entry") && link.getAttribute("aria-selected") === "true") {
-            closePage();
-          }
+          if (page && link && link.hasAttribute("data-arachnid-muted")) closePage();
         },
         true,
       );
     }
   }
 
-  // ───────────────────────────── «Оформление» ─────────────────────────────
+  // ───────────────────────────── «Внешний вид» ─────────────────────────────
   /** Обработанная страница: { root, picker, colours, block } */
   let appearance = null;
 
-  /** Найти «Оформление» в колонке страницы настроек */
+  /** Найти «Внешний вид» в колонке страницы настроек */
   function findAppearance(column) {
     for (const wrapper of column.children) {
       const root = wrapper.firstElementChild;
