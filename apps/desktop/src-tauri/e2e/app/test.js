@@ -12,8 +12,10 @@
 //    без отметки клиента — как у тех, кто уже пользовался клиентом;
 // 2. такие настройки получили Twemoji, остальное в них не тронуто; затем
 //    набор выбирается вручную;
-// 3. выбранный вручную набор остаётся; окно выбора эмодзи получает разделы,
-//    и его прокрутка не заставляет клиент искать окно по всему документу;
+// 3. выбранный вручную набор остаётся; окно выбора эмодзи получает разделы
+//    в колонке и заголовки разделов в сетке, отрисованы только видимые
+//    строки, щелчок по эмодзи доходит до ячейки for-web, а прокрутка не
+//    заставляет клиент искать окно по всему документу;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки.
 (async () => {
@@ -111,7 +113,9 @@
    * Окно выбора эмодзи, как его строит EmojiPicker for-web: поле поиска, за
    * ним ряд из колонки серверов и сетки. Списки — @minht11/solid-virtual-
    * container: ячейки по 40 px со сдвигом transform, отрисованы только
-   * видимые. В сетке — строка заголовка «Default» и 1785 стандартных эмодзи.
+   * видимые. В сетке — строка заголовка «Default» и 1785 стандартных эмодзи;
+   * при поиске — найденные эмодзи из `NAMES` (поиск подстроки, как у
+   * for-web). Щелчки по ячейкам записываются в `picked`.
    */
   function emojiPicker() {
     const h = (tag, style, ...children) => {
@@ -138,26 +142,43 @@
       h("div", "display:flex;flex-grow:1;min-height:0", rail, column),
     );
     const codes = ["1f600", "1f602", "1f60d", "1f618", "1f923", "1f44d", "1f525", "1f389"];
+    const NAMES = [["😀", "smile"], ["😂", "joy"], ["🏁", "chequered-flag"]];
+    const picked = [];
     let turn = 0;
+    const cell = (column, row, alt, code) => {
+      const img = h("img", "width:100%;height:100%");
+      img.className = "emoji";
+      img.alt = alt;
+      img.src = emoji("twemoji", code);
+      const element = h("div", `position:absolute;width:40px;height:40px;transform:translate(${column * 40}px, ${row * 40}px)`, img);
+      element.addEventListener("click", () => picked.push(alt));
+      return element;
+    };
     /** Перерисовка, как при прокрутке: Show keyed for-web пересоздаёт картинки */
     function render() {
       turn++;
+      const filter = input.value.toLowerCase();
+      if (filter) {
+        const found = NAMES.filter(([, name]) => name.includes(filter));
+        gridList.style.height = `${Math.ceil(found.length / columns) * 40}px`;
+        gridList.replaceChildren(...found.map(([alt], i) => cell(i % columns, Math.floor(i / columns), alt, codes[i])));
+        return;
+      }
+      gridList.style.height = `${rows * 40}px`;
       const first = Math.floor(grid.scrollTop / 40);
       const cells = [];
       for (let row = first; row < Math.min(rows, first + 18); row++) {
         for (let column = 0; column < columns; column++) {
-          const img = h("img", "width:100%;height:100%");
-          img.className = "emoji";
-          img.alt = String.fromCodePoint(0x1f600 + ((row + column + turn) % 40));
-          img.src = emoji("twemoji", codes[(row * columns + column + turn) % codes.length]);
-          const cell = h("div", `position:absolute;width:40px;height:40px;transform:translate(${column * 40}px, ${row * 40}px)`, img);
-          cells.push(cell);
+          const alt = String.fromCodePoint(0x1f600 + ((row + column + turn) % 40));
+          cells.push(cell(column, row, alt, codes[(row * columns + column + turn) % codes.length]));
         }
       }
       gridList.replaceChildren(...cells);
     }
+    // поиск for-web перестраивает список сразу, в обработчике ввода
+    input.addEventListener("input", render);
     render();
-    return { base, input, rail, grid, render };
+    return { base, input, rail, grid, gridList, render, picked };
   }
   const packState = async (id) => (await invoke("emoji_packs")).packs.find((pack) => pack.id === id);
 
@@ -277,12 +298,60 @@
       });
       await check("окно эмодзи: дополнено один раз", railButtons().length === 9, railButtons().length);
 
+      // Стандартные эмодзи — свой список с заголовками разделов: в нём
+      // отрисованы только видимые строки (300 px — 8 строк) и по 4 строки
+      // запаса, сколько ни листать.
+      const standard = picker.grid.querySelector("[data-arachnid-emoji-standard]");
+      const headings = () => Array.from(standard?.querySelectorAll('[role="heading"]') ?? [], (title) => title.textContent);
+      const rendered = { rows: standard?.children.length, images: standard?.querySelectorAll("img").length };
+      await check(
+        "окно эмодзи: отрисованы только видимые строки",
+        rendered.rows > 0 && rendered.rows <= 8 + 1 + 4 * 2 && rendered.images <= rendered.rows * 9,
+        rendered,
+      );
+      const top = (element) => element.getBoundingClientRect().top - picker.grid.getBoundingClientRect().top;
+      picker.grid.scrollTop = 0;
+      picker.render();
+      await frame();
+      await frame();
+      const firstTitle = standard?.querySelector('[role="heading"]');
+      await check(
+        "окно эмодзи: стандартные эмодзи начинаются с заголовка «Люди»",
+        ["Люди", "People"].includes(firstTitle?.textContent) && Math.abs(top(firstTitle)) < 1 && picker.gridList.getBoundingClientRect().height === 0,
+        { headings: headings(), top: firstTitle && top(firstTitle) },
+      );
+      const images = Array.from(standard?.querySelectorAll("img[src]") ?? []);
+      await check(
+        "окно эмодзи: картинки тем же набором, что у for-web",
+        images.length > 0 && images.every((image) => image.src.includes("/emoji/twemoji/")),
+        images[0]?.src,
+      );
+
+      // Щелчок по своей ячейке доходит до ячейки for-web (через поиск), а
+      // окно возвращается к прежнему виду.
+      picker.grid.scrollTop = 40;
+      await frame();
+      await frame();
+      const joy = Array.from(standard?.querySelectorAll("img") ?? []).find((image) => image.alt === "😂");
+      joy?.parentElement.click();
+      await frame();
+      await check(
+        "окно эмодзи: щелчок по эмодзи — выбор в for-web",
+        picker.picked.includes("😂") && picker.input.value === "" && !standard.hidden && picker.grid.scrollTop === 40,
+        { picked: picker.picked, filter: picker.input.value, scroll: picker.grid.scrollTop },
+      );
+
       const flags = picker.rail.querySelector('.arachnid-emoji-rail-button[title="Flags"], .arachnid-emoji-rail-button[title="Флаги"]');
       flags.click();
       await frame();
       picker.render();
       await waitFor(() => flags.hasAttribute("data-active"), 2000, 50);
       await check("окно эмодзи: переход к флагам и подсветка раздела", flags.hasAttribute("data-active"), picker.grid.scrollTop);
+      const flagsTitle = Array.from(standard.querySelectorAll('[role="heading"]')).find((title) => ["Флаги", "Flags"].includes(title.textContent));
+      await check("окно эмодзи: заголовок «Флаги» вверху сетки", Boolean(flagsTitle) && Math.abs(top(flagsTitle)) < 1, {
+        headings: headings(),
+        top: flagsTitle && top(flagsTitle),
+      });
 
       // закрыть и открыть снова — новое окно тоже получает разделы
       picker.base.remove();

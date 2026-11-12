@@ -54,8 +54,13 @@ const SETTINGS_SCRIPT: &str = include_str!("settings.js");
 /// записываются до того, как for-web их прочитает.
 const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 
-/// Разделы и «Часто используемые» в окне выбора эмодзи, как в Discord.
+/// Разделы с заголовками и «Часто используемые» в окне выбора эмодзи, как в
+/// Discord.
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
+
+/// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
+/// 0.16.3) для разделов в `emoji.js`.
+const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
 
 /// Скачивание и удаление наборов эмодзи в шторке выбора набора.
 const EMOJI_PACKS_SCRIPT: &str = include_str!("emoji_packs.js");
@@ -364,6 +369,11 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
         .replace("__ARACHNID_VERSIONS__", &js_literal(&Versions::current()))
 }
 
+/// Скрипт окна выбора эмодзи со списком стандартных эмодзи for-web.
+fn emoji_script() -> String {
+    EMOJI_SCRIPT.replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
+}
+
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
 fn js_literal<T: Serialize + ?Sized>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "null".into())
@@ -429,7 +439,7 @@ pub fn create_main_window(
         .initialization_script(bridge_script(&config, instance))
         .initialization_script(SETTINGS_SCRIPT)
         .initialization_script(DEFAULTS_SCRIPT)
-        .initialization_script(EMOJI_SCRIPT)
+        .initialization_script(emoji_script())
         .initialization_script(EMOJI_PACKS_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {
@@ -895,14 +905,26 @@ mod tests {
         assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
+        assert!(!emoji_script().contains("__ARACHNID_"), "осталась метка в emoji.js");
         // в остальных скриптах подставлять нечего: они берут всё у моста
-        for script in [
-            SETTINGS_SCRIPT,
-            DEFAULTS_SCRIPT,
-            EMOJI_SCRIPT,
-            EMOJI_PACKS_SCRIPT,
-        ] {
+        for script in [SETTINGS_SCRIPT, DEFAULTS_SCRIPT, EMOJI_PACKS_SCRIPT] {
             assert!(!script.contains("__ARACHNID_"));
+        }
+    }
+
+    #[test]
+    fn emoji_categories_match_mapping() {
+        let mapping: Vec<Vec<String>> = serde_json::from_str(EMOJI_MAPPING).unwrap();
+        assert!(mapping.iter().all(|entry| entry.len() >= 2), "у эмодзи нет имени");
+        let pattern = regex::Regex::new(r#"start: (\d+), first: "([^"]+)""#).unwrap();
+        let categories: Vec<(usize, &str)> = pattern
+            .captures_iter(EMOJI_SCRIPT)
+            .map(|found| (found[1].parse().unwrap(), found.get(2).unwrap().as_str()))
+            .collect();
+        assert_eq!(categories.len(), 8);
+        assert_eq!(categories[0].0, 0);
+        for (start, first) in categories {
+            assert_eq!(mapping[start][0], first, "раздел с {start}");
         }
     }
 
