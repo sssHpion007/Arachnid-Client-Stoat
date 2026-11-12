@@ -22,7 +22,7 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 | Плагины | `plugins/*.js` в формате Avia Client: раздел настроек «Плагины» (между «Внешним видом» и «Уведомлениями») с переключателями и действиями плагинов (`window.AviaMenu`), то же в трее |
 | Экономия памяти | пока окно свёрнуто или в трее, WebView2 переводится в экономный режим (`MemoryUsageTargetLevel`), клиент продолжает работать ([docs/desktop.md](docs/desktop.md#память)) |
 | Автозапуск | «Запускать вместе с компьютером» и «Запускать свёрнутым в трей» |
-| Выбор эмодзи | стандартные эмодзи разбиты на разделы с заголовками, как в Discord («Люди», «Природа», «Еда и напитки», …, «Флаги»), разделы в колонке слева, быстрый переход к стандартным эмодзи и «Часто используемые»; набор эмодзи по умолчанию — Twemoji, он встроен в клиент и показывается сразу, без загрузки с static.stoat.chat |
+| Выбор эмодзи | стандартные эмодзи разбиты на разделы с заголовками с тем же составом, что в Discord («Люди», «Природа», «Еда и напитки», «Занятия», …, «Флаги»), разделы в колонке слева, быстрый переход к стандартным эмодзи и «Часто используемые»; набор эмодзи по умолчанию — Twemoji, он встроен в клиент и показывается сразу, без загрузки с static.stoat.chat |
 | Наборы эмодзи | Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix и Noto скачиваются и удаляются прямо в шторке выбора набора («Внешний вид» → «Emoji Pack»: размер, кольцо загрузки с процентами, отмена, удаление) и затем тоже показываются без загрузки с сервера; Fluent Color и Fluent Flat в Windows 11 уже есть в системном шрифте Segoe UI Emoji — тогда они помечены «В системе» и не скачиваются (Fluent 3D в Windows нет, он скачивается) |
 | Discord RPC | статус «Chatting with others», как у Stoat for Desktop; выключен, пока его не включат в разделе «ПК» |
 | Проверка орфографии | вкл./выкл. из раздела «ПК»; подсказки и «Добавить в словарь» — в контекстном меню WebView2 |
@@ -47,7 +47,8 @@ apps/desktop/src-tauri/   оболочка: окно, мост к веб-кли�
   src/settings.js         раздел «Плагины», выбор темы и подпись в настройках
   src/defaults.js         значения по умолчанию для настроек for-web (Twemoji)
   src/emoji.js            разделы с заголовками и «Часто используемые» в выборе эмодзи
-  src/emoji_mapping.json  список стандартных эмодзи for-web (emojiMapping.json) для разделов
+  src/emoji_mapping.json  список стандартных эмодзи for-web (emojiMapping.json)
+  src/emoji_categories.json  эмодзи for-web по разделам Discord (собирает tools/emoji_categories.mjs)
   src/emoji_packs.js      скачивание и удаление наборов эмодзи в шторке выбора набора
   src/desktop.rs          окно, настройки «ПК», трей, автозапуск, команды моста
   src/extensions.rs       темы, QuickCSS, плагины, меню плагинов в трее
@@ -59,6 +60,7 @@ apps/desktop/src-tauri/   оболочка: окно, мост к веб-кли�
   src/system_emoji.rs     Fluent Color и Flat из шрифта Segoe UI Emoji без скачивания (Windows 11)
   src/http.rs             скачивание по HTTPS через WinHTTP (Windows)
   emoji/                  twemoji.bin, сборка наборов (fetch.mjs, pack.mjs) и лицензия графики
+  tools/                  разделы эмодзи как у Discord (emoji_categories.mjs, discord_categories.json)
   e2e/                    проверка собранного exe в настоящем WebView2 (CI: windows.yml)
   src/instance.rs         адрес веб-клиента из config.toml
 bootstrap/                скачиваемые установщики: bootstrap.sh, bootstrap.ps1

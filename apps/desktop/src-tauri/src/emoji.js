@@ -7,8 +7,9 @@
 // Stoat, поэтому окно дополняется так же, как раздел настроек (settings.js):
 // скрипт находит открытое окно и дополняет его.
 //
-// * Стандартные эмодзи разбиты на разделы Discord с заголовками: люди,
-//   природа, еда, путешествия, занятия, предметы, символы, флаги. Список
+// * Стандартные эмодзи разбиты на разделы с заголовками так же, как в
+//   Discord: люди, природа, еда, занятия, путешествия, предметы, символы,
+//   флаги — с тем же составом и порядком эмодзи в разделах. Список
 //   for-web строится внутри компонента (элементы с заголовками там есть, но
 //   стандартные эмодзи добавляются одним куском), поэтому эту часть сетки
 //   показывает сам скрипт: список for-web обрезается перед заголовком
@@ -40,12 +41,15 @@
 //   ячейки по 40 px, сдвинутые `transform: translate(x, y)`, отрисованы
 //   только видимые; высота списка — свойство `height` его стиля;
 // * в сетке подряд идут эмодзи серверов, заголовок «Default», выровненный
-//   до целой строки, и стандартные эмодзи — emojiMapping.json for-web. Копия
-//   этого файла (`emoji_mapping.json`, stoat-for-web 0.16.3) подставляется в
-//   скрипт клиентом: по ней строятся разделы и считается, где в списке for-web
-//   кончаются эмодзи серверов. Разделы — группы Unicode в порядке этого файла
-//   (emoji-metadata, emoji_17_0_ordering); начало раздела — номер его первого
-//   эмодзи;
+//   до целой строки, и стандартные эмодзи — emojiMapping.json for-web. Копию
+//   этого файла (`emoji_mapping.json`, stoat-for-web 0.16.3) клиент
+//   подставляет в скрипт: по ней считается, где в списке for-web кончаются
+//   эмодзи серверов, и берутся имена эмодзи;
+// * разделы — `emoji_categories.json`, его тоже подставляет клиент: эмодзи
+//   for-web, распределённые по разделам Discord и в его порядке (собирает
+//   tools/emoji_categories.mjs из выгрузки Discord). Эмодзи Discord, которых
+//   нет у for-web (например, 👩 и 👨 — у for-web только 🧑), не показываются:
+//   выбор идёт через ячейку for-web;
 // * картинка эмодзи — тот же адрес, что у UnicodeEmoji for-web; набор
 //   эмодзи — из отрисованной картинки for-web, а пока её нет — из настроек
 //   for-web в IndexedDB (как в defaults.js).
@@ -74,11 +78,21 @@
   const MAPPING = __ARACHNID_EMOJI_MAPPING__;
   const EMOJI_COUNT = MAPPING.length;
   /**
-   * Имена каждого эмодзи — у первого его вхождения: поиск for-web идёт по
+   * Первое вхождение каждого эмодзи и его имена: поиск for-web идёт по
    * списку без повторов (EMOJI_MAP_DEDUPE), где остаются первые вхождения.
    */
+  const FIRST = new Map();
   const NAMES = new Map();
-  for (const [emoji, ...names] of MAPPING) if (!NAMES.has(emoji)) NAMES.set(emoji, names);
+  MAPPING.forEach(([emoji, ...names], index) => {
+    if (FIRST.has(emoji)) return;
+    FIRST.set(emoji, index);
+    NAMES.set(emoji, names);
+  });
+  /**
+   * Разделы Discord: `{ раздел: [эмодзи…] }` в порядке Discord. Подставляет
+   * клиент (desktop.rs).
+   */
+  const GROUPS = __ARACHNID_EMOJI_CATEGORIES__;
   /** Строк запаса над и под видимой частью своего списка */
   const OVERSCAN_ROWS = 4;
   /** Не больше стольких строк в «Часто используемых» */
@@ -90,22 +104,22 @@
   const WEB_DEFAULT_PACK = "fluent-3d";
 
   /**
-   * Разделы Discord: номер первого эмодзи в emojiMapping.json и сам эмодзи
-   * (их сверяет тест в desktop.rs). «Люди» у Discord — смайлики вместе с
-   * людьми и жестами.
+   * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
+   * emojiMapping.json. «Люди» у Discord — смайлики вместе с людьми, жестами
+   * и одеждой.
    */
   const CATEGORIES = [
-    { id: "people", icon: "emoji_people", start: 0, first: "😀" },
-    { id: "nature", icon: "emoji_nature", start: 366, first: "💐" },
-    { id: "food", icon: "emoji_food_beverage", start: 591, first: "🍓" },
-    { id: "travel", icon: "emoji_transportation", start: 723, first: "🛑" },
-    { id: "activities", icon: "emoji_events", start: 845, first: "🎉" },
-    { id: "objects", icon: "emoji_objects", start: 962, first: "📱" },
-    { id: "symbols", icon: "emoji_symbols", start: 1229, first: "🔴" },
-    { id: "flags", icon: "flag", start: 1515, first: "🏁" },
-  ].map((category, index, all) => ({
+    { id: "people", icon: "emoji_people" },
+    { id: "nature", icon: "emoji_nature" },
+    { id: "food", icon: "emoji_food_beverage" },
+    { id: "activity", icon: "emoji_events" },
+    { id: "travel", icon: "emoji_transportation" },
+    { id: "objects", icon: "emoji_objects" },
+    { id: "symbols", icon: "emoji_symbols" },
+    { id: "flags", icon: "flag" },
+  ].map((category) => ({
     ...category,
-    end: all[index + 1]?.start ?? EMOJI_COUNT,
+    indices: (GROUPS[category.id] ?? []).map((emoji) => FIRST.get(emoji)).filter((index) => index !== undefined),
   }));
 
   // Как и остальные добавления клиента — на языке системы.
@@ -118,7 +132,7 @@
         nature: "Природа",
         food: "Еда и напитки",
         travel: "Путешествия и места",
-        activities: "Занятия",
+        activity: "Занятия",
         objects: "Предметы",
         symbols: "Символы",
         flags: "Флаги",
@@ -130,7 +144,7 @@
         nature: "Nature",
         food: "Food & Drink",
         travel: "Travel & Places",
-        activities: "Activities",
+        activity: "Activities",
         objects: "Objects",
         symbols: "Symbols",
         flags: "Flags",
@@ -403,7 +417,7 @@
   function shapeFor(columns) {
     let row = 0;
     const sections = CATEGORIES.map((category) => {
-      const section = { category, header: row, rows: Math.ceil((category.end - category.start) / columns) };
+      const section = { category, header: row, rows: Math.ceil(category.indices.length / columns) };
       row += 1 + section.rows;
       return section;
     });
@@ -673,11 +687,11 @@
         element.firstChild.textContent = text[section.category.id];
         return;
       }
-      const start = section.category.start + (row - section.header - 1) * shape.columns;
+      const start = (row - section.header - 1) * shape.columns;
       for (let column = 0; column < shape.columns; column++) {
         const button = element.children[column];
-        const index = start + column;
-        button.hidden = index >= section.category.end;
+        const index = section.category.indices[start + column];
+        button.hidden = index === undefined;
         if (button.hidden) continue;
         const [emoji, name] = MAPPING[index];
         const image = button.firstChild;

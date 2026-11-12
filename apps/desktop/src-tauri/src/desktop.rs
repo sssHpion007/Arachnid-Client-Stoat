@@ -59,8 +59,11 @@ const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
-/// 0.16.3) для разделов в `emoji.js`.
+/// 0.16.3) для `emoji.js`.
 const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
+
+/// Эмодзи for-web по разделам Discord (собирает `tools/emoji_categories.mjs`).
+const EMOJI_CATEGORIES: &str = include_str!("emoji_categories.json");
 
 /// Скачивание и удаление наборов эмодзи в шторке выбора набора.
 const EMOJI_PACKS_SCRIPT: &str = include_str!("emoji_packs.js");
@@ -369,9 +372,11 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
         .replace("__ARACHNID_VERSIONS__", &js_literal(&Versions::current()))
 }
 
-/// Скрипт окна выбора эмодзи со списком стандартных эмодзи for-web.
+/// Скрипт окна выбора эмодзи со списком эмодзи for-web и разделами.
 fn emoji_script() -> String {
-    EMOJI_SCRIPT.replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
+    EMOJI_SCRIPT
+        .replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
+        .replace("__ARACHNID_EMOJI_CATEGORIES__", EMOJI_CATEGORIES)
 }
 
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
@@ -839,6 +844,8 @@ pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Ar
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     /// Как в Stoat for Desktop, кроме Discord RPC: он выключен до явного
@@ -916,22 +923,26 @@ mod tests {
     }
 
     #[test]
-    fn emoji_categories_match_mapping() {
+    fn emoji_categories_cover_mapping() {
         let mapping: Vec<Vec<String>> = serde_json::from_str(EMOJI_MAPPING).unwrap();
         assert!(
             mapping.iter().all(|entry| entry.len() >= 2),
             "у эмодзи нет имени"
         );
-        let pattern = regex::Regex::new(r#"start: (\d+), first: "([^"]+)""#).unwrap();
-        let categories: Vec<(usize, &str)> = pattern
-            .captures_iter(EMOJI_SCRIPT)
-            .map(|found| (found[1].parse().unwrap(), found.get(2).unwrap().as_str()))
-            .collect();
-        assert_eq!(categories.len(), 8);
-        assert_eq!(categories[0].0, 0);
-        for (start, first) in categories {
-            assert_eq!(mapping[start][0], first, "раздел с {start}");
+        let groups: BTreeMap<&str, Vec<&str>> = serde_json::from_str(EMOJI_CATEGORIES).unwrap();
+        // разделы — те, что знает emoji.js
+        assert_eq!(groups.len(), 8);
+        for name in groups.keys() {
+            let known = EMOJI_SCRIPT.contains(&format!(r#"id: "{name}""#));
+            assert!(known, "раздела {name} нет в emoji.js");
         }
+        // каждый эмодзи for-web — ровно в одном разделе, и только они
+        let mut unique: Vec<&str> = mapping.iter().map(|entry| entry[0].as_str()).collect();
+        unique.sort_unstable();
+        unique.dedup();
+        let mut placed: Vec<&str> = groups.values().flatten().copied().collect();
+        placed.sort_unstable();
+        assert_eq!(placed, unique);
     }
 
     #[test]

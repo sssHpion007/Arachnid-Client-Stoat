@@ -353,6 +353,17 @@
         top: flagsTitle && top(flagsTitle),
       });
 
+      // Состав разделов — как у Discord: «Символы» начинаются с сердец (в
+      // группах Unicode сердца — среди смайликов).
+      const symbols = picker.rail.querySelector('.arachnid-emoji-rail-button[title="Symbols"], .arachnid-emoji-rail-button[title="Символы"]');
+      symbols.click();
+      await frame();
+      await frame();
+      const firstRow = Array.from(standard.querySelectorAll(".arachnid-emoji-cell:not([hidden]) img"))
+        .filter((image) => Math.abs(top(image.parentElement) - 40) < 1)
+        .map((image) => image.alt);
+      await check("окно эмодзи: разделы как в Discord (сердца — в «Символах»)", firstRow[0] === "🩷" && firstRow[1] === "❤️", firstRow);
+
       // закрыть и открыть снова — новое окно тоже получает разделы
       picker.base.remove();
       await frame();
