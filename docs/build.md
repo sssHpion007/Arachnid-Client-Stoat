@@ -35,6 +35,11 @@ cargo tauri build
 
 ## Автоматическая сборка
 
+`.github/workflows/windows.yml` собирает архив для Windows (exe, `config.toml`,
+`README.txt`, папки `themes/` и `plugins/`) при каждой отправке `main` и рабочих
+веток `arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в
+`main`: архив лежит в артефактах запуска на вкладке Actions 30 дней.
+
 `.github/workflows/release.yml` собирает три платформы и прикладывает
 `bootstrap.sh`/`bootstrap.ps1` к релизу. Запуск:
 

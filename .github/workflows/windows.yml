@@ -3,10 +3,18 @@ name: windows
 # Быстрая сборка только под Windows: нужен один архив, который можно
 # распаковать и запустить. Без тегов, без релизов, без macOS/Linux —
 # чтобы проверка изменений занимала минуты, а не полчаса.
+#
+# Тестовая сборка делается прямо из рабочей ветки (arena/…), без слияния в
+# main: ветка отправляется на GitHub, когда нужна сборка для проверки.
 on:
   push:
-    branches: [main]
+    branches: [main, "arena/**"]
   workflow_dispatch:
+
+# новая отправка той же ветки отменяет недоделанную сборку
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
