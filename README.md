@@ -1,3 +1,5 @@
+<p align="center"><img src="apps/desktop/src-tauri/icons/256x256.png" width="128" height="128" alt="Arachnid Client"></p>
+
 # Arachnid Client
 
 Настольный клиент [Stoat](https://stoat.chat/) (бывший Revolt) на Tauri 2 и Rust.
