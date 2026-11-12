@@ -273,6 +273,8 @@
   position: fixed; inset: 0; z-index: 999; box-sizing: border-box; padding: 80px;
   display: grid; place-items: center;
   background: rgba(0, 0, 0, 0.32); background: rgba(from var(--md-sys-color-scrim) r g b / 0.32);
+  /* клиент за окном размыт; появляется и исчезает вместе с подложкой */
+  backdrop-filter: blur(8px);
   animation: arachnid-fade 0.1s forwards;
 }
 @media (max-width: 768px) { .arachnid-scrim { padding: 30px; } }
