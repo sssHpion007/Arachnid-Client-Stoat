@@ -7,7 +7,8 @@
 //! релиза с другого адреса) WinHTTP выполняет сам.
 //!
 //! Сессия WinHTTP одна на процесс: соединения с сервером (и рукопожатия TLS)
-//! переиспользуются между запросами — картинки эмодзи с сервера идут сотнями.
+//! переиспользуются между запросами — картинки эмодзи с сервера идут сотнями,
+//! а по HTTP/2 одновременные запросы идут по одному соединению.
 
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -106,6 +107,14 @@ fn session() -> Result<Arc<Session>, Error> {
             0,
         ))?;
         wh::WinHttpSetTimeouts(handle.0, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS, TIMEOUT_MS)?;
+        // HTTP/2 (Windows 10 1607+): одновременные запросы к одному серверу
+        // идут по одному соединению; где его нет — HTTP/1.1
+        let option = wh::WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL;
+        let http2 = wh::WINHTTP_PROTOCOL_FLAG_HTTP2.to_ne_bytes();
+        let raw = Some(handle.0.cast_const());
+        if let Err(error) = wh::WinHttpSetOption(raw, option, Some(http2.as_slice())) {
+            tracing::debug!(%error, "HTTP/2 в WinHTTP недоступен");
+        }
         Arc::new(Session(handle))
     };
     *shared = Some(Arc::clone(&session));
