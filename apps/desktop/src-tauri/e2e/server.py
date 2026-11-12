@@ -75,6 +75,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # консоль Windows по умолчанию в cp1252, а журнал по-русски
+    sys.stdout.reconfigure(encoding="utf-8")
     OUT.mkdir(parents=True, exist_ok=True)
     log(f"сервер проверки: http://127.0.0.1:{PORT}/app/")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
