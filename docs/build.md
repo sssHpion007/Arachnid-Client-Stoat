@@ -8,7 +8,9 @@
 - **macOS**: Xcode Command Line Tools
 
 Node.js не нужен: интерфейс (for-web) загружается с сервера инстанса и в
-сборку не входит.
+сборку не входит. Встроенный набор Twemoji (`apps/desktop/src-tauri/emoji/twemoji.bin`)
+лежит в репозитории готовым; Node.js понадобится, только чтобы пересобрать его
+из jdecked/twemoji (`emoji/pack.mjs`, команды — в начале файла).
 
 ## Клиент (Tauri)
 

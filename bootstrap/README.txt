@@ -19,3 +19,7 @@ Arachnid Client — портативная установка
 
 Клиент читает config.toml рядом с собой (portable-режим), поэтому путь
 нигде не зашит и официальный Stoat не задействован.
+
+Эмодзи Twemoji встроены в клиент: графика © Twitter, Inc. и другие
+участники, лицензия CC-BY 4.0 (https://creativecommons.org/licenses/by/4.0/),
+https://github.com/jdecked/twemoji.

@@ -23,6 +23,7 @@ mod icon;
 mod instance;
 mod media;
 mod memory;
+mod twemoji;
 mod usercss;
 
 /// Проблема, которую нужно сообщить странице.
