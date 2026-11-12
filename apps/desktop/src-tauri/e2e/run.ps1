@@ -63,14 +63,10 @@ if ($serverLog.Count -eq 0) { $serverLog = @("(сервер ничего не з
 $clientLog = @(Get-ChildItem -Path (Join-Path $data "logs") -File -ErrorAction SilentlyContinue |
   ForEach-Object { Get-Content $_.FullName })
 # ВРЕМЕННО: образцы картинок отдельными аннотациями
-$samples = @($serverLog | Where-Object { $_ -like "*SVG *" })
-$serverLog = @($serverLog | Where-Object { $_ -notlike "*SVG *" })
-$chunk = @(); $size = 0; $n = 0
-foreach ($line in $samples) {
-  if ($size + $line.Length -gt 25000 -and $chunk.Count -gt 0) { $n++; Annotate "notice" "svg $n" $chunk; $chunk = @(); $size = 0 }
-  $chunk += $line; $size += $line.Length
-}
-if ($chunk.Count -gt 0) { $n++; Annotate "notice" "svg $n" $chunk }
+$samples = @($serverLog | Where-Object { $_ -like "*SAMPLE*" })
+$serverLog = @($serverLog | Where-Object { $_ -notlike "*SAMPLE*" })
+$n = 0
+foreach ($line in $samples) { $n++; Annotate "warning" "sample $n" @($line) }
 Annotate "notice" "e2e: страница" $serverLog
 Annotate "notice" "e2e: журнал клиента" ($clientLog | Select-Object -Last 80)
 
