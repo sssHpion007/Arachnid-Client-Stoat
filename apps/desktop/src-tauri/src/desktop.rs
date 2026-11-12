@@ -905,7 +905,10 @@ mod tests {
         assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
-        assert!(!emoji_script().contains("__ARACHNID_"), "осталась метка в emoji.js");
+        assert!(
+            !emoji_script().contains("__ARACHNID_"),
+            "осталась метка в emoji.js"
+        );
         // в остальных скриптах подставлять нечего: они берут всё у моста
         for script in [SETTINGS_SCRIPT, DEFAULTS_SCRIPT, EMOJI_PACKS_SCRIPT] {
             assert!(!script.contains("__ARACHNID_"));
@@ -915,7 +918,10 @@ mod tests {
     #[test]
     fn emoji_categories_match_mapping() {
         let mapping: Vec<Vec<String>> = serde_json::from_str(EMOJI_MAPPING).unwrap();
-        assert!(mapping.iter().all(|entry| entry.len() >= 2), "у эмодзи нет имени");
+        assert!(
+            mapping.iter().all(|entry| entry.len() >= 2),
+            "у эмодзи нет имени"
+        );
         let pattern = regex::Regex::new(r#"start: (\d+), first: "([^"]+)""#).unwrap();
         let categories: Vec<(usize, &str)> = pattern
             .captures_iter(EMOJI_SCRIPT)
