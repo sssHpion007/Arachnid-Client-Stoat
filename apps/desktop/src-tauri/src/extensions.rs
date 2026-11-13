@@ -231,7 +231,7 @@ struct Builtin {
 const BUILTINS: &[Builtin] = &[Builtin {
     id: "builtin:qol",
     name: "Quality of Life",
-    description: "Окно эмодзи с разделами и «Часто используемыми», крупные эмодзи в реакциях",
+    description: "Разделы в окне эмодзи, крупные эмодзи в реакциях, значки ролей целиком",
     enabled_by_default: true,
     code: desktop::emoji_script,
 }];

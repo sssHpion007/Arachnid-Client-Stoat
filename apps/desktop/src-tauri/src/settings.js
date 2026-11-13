@@ -47,7 +47,7 @@
         core: (api) => `Ядро клиента всегда включено · API плагинов ${api}`,
         builtin: "Встроенный",
         builtinDescription: {
-          "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, и крупные эмодзи в реакциях.",
+          "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, крупные эмодзи в реакциях и значки ролей целиком.",
         },
         network: (hosts) => `Доступ в сеть: ${hosts}`,
         needsGrant: "Ждёт разрешения на доступ в сеть",
@@ -96,7 +96,7 @@
         core: (api) => `The client core is always on · Plugin API ${api}`,
         builtin: "Built-in",
         builtinDescription: {
-          "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, and larger emoji in reactions.",
+          "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, larger emoji in reactions and uncropped role icons.",
         },
         network: (hosts) => `Network access: ${hosts}`,
         needsGrant: "Waiting for network permission",

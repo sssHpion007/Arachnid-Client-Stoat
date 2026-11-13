@@ -18,7 +18,7 @@
 //    заставляет клиент искать окно по всему документу;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
-//    плашки, плашка той же высоты.
+//    плашки, плашка той же высоты; значки ролей видны целиком.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -226,6 +226,48 @@
     return { base, pill, emoji: emojiImage, other: otherImage };
   }
 
+  /**
+   * Значки ролей, как у for-web: заголовок группы роли в списке участников
+   * (MemberSidebar.tsx: картинка, имя роли, « – число») и Avatar 16 px в
+   * обёртке подсказки рядом с ником (Message.tsx, Avatar.tsx). Для сравнения
+   * — картинка без имени и числа, значок сервера 16 px в ссылке
+   * (anchors.tsx) и большой значок сервера.
+   */
+  function roleIconsMock() {
+    const icon = "/icons/e2e-role";
+    const avatar = (size, src) =>
+      `<svg style="width: ${size}px; height: ${size}px;" viewBox="0 0 32 32"><g>` +
+      `<foreignObject x="0" y="0" width="32" height="32"><div class="e2e-shape">` +
+      `<img class="e2e-avatar" src="${src}" draggable="false"></div></foreignObject></g></svg>`;
+    const base = document.createElement("div");
+    base.style.cssText = "position:fixed;left:0;top:0";
+    base.innerHTML = `<style>@layer utilities {
+  .e2e-title { display: flex; align-items: center; gap: 6px; }
+  .e2e-role-icon { width: 16px; height: 16px; border-radius: 8px; object-fit: cover; }
+  .e2e-shape { overflow: hidden; width: 100%; height: 100%; border-radius: 12px; }
+  .e2e-avatar { width: 100%; height: 100%; object-fit: cover; }
+}</style>
+<div class="e2e-title" id="e2e-member"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span><span> – 1</span></div>
+<div class="e2e-title" id="e2e-lonely"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span></div>
+<div id="e2e-message"><div>Ник</div><div><div>${avatar(16, icon)}</div></div></div>
+<p id="e2e-link"><a href="#">${avatar(16, "/icons/e2e-server")}Сервер</a></p>
+<div id="e2e-server"><div>${avatar(42, "/icons/e2e-server")}</div></div>`;
+    const find = (selector) => base.querySelector(selector);
+    return {
+      base,
+      parts: {
+        memberIcon: find("#e2e-member img"),
+        lonelyIcon: find("#e2e-lonely img"),
+        messageIcon: find("#e2e-message img"),
+        messageShape: find("#e2e-message .e2e-shape"),
+        linkIcon: find("#e2e-link img"),
+        linkShape: find("#e2e-link .e2e-shape"),
+        serverIcon: find("#e2e-server img"),
+        serverShape: find("#e2e-server .e2e-shape"),
+      },
+    };
+  }
+
   const packState = async (id) => (await invoke("emoji_packs")).packs.find((pack) => pack.id === id);
   const FOLDER = "e2e-folder";
   const pluginInfo = async (file) => (await invoke("extensions_overview")).plugins.find((plugin) => plugin.file === file);
@@ -426,6 +468,35 @@
       const other = box(reactions.other).width;
       await check("реакции: другие картинки эмодзи не тронуты", Math.abs(other - 16.8) < 0.5, other);
       reactions.base.remove();
+
+      // значки ролей: заголовок группы в списке участников и рядом с ником
+      const icons = roleIconsMock();
+      document.body.append(icons.base);
+      const look = (element) => {
+        const style = getComputedStyle(element);
+        return `${style.objectFit} ${style.borderTopLeftRadius}`;
+      };
+      const iconLooks = Object.fromEntries(Object.entries(icons.parts).map(([name, element]) => [name, look(element)]));
+      await check(
+        "значок роли в заголовке группы — целиком, без скругления",
+        iconLooks.memberIcon === "contain 0px",
+        iconLooks,
+      );
+      await check(
+        "значок роли у ника — целиком, без скругления",
+        iconLooks.messageIcon.startsWith("contain") && iconLooks.messageShape.endsWith(" 0px"),
+        iconLooks,
+      );
+      await check(
+        "значки серверов и другие картинки не тронуты",
+        iconLooks.lonelyIcon === "cover 8px" &&
+          iconLooks.linkIcon.startsWith("cover") &&
+          iconLooks.linkShape.endsWith(" 12px") &&
+          iconLooks.serverIcon.startsWith("cover") &&
+          iconLooks.serverShape.endsWith(" 12px"),
+        iconLooks,
+      );
+      icons.base.remove();
 
       // окно выбора эмодзи
       const picker = emojiPicker();

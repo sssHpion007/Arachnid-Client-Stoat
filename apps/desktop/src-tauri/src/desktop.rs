@@ -55,8 +55,9 @@ const SETTINGS_SCRIPT: &str = include_str!("settings.js");
 const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 
 /// Разделы с заголовками и «Часто используемые» в окне выбора эмодзи, как в
-/// Discord, и крупные эмодзи в реакциях: встроенный плагин «Quality of Life»
-/// (`extensions.rs`), его можно выключить в разделе «Плагины».
+/// Discord, крупные эмодзи в реакциях и значки ролей без обрезки: встроенный
+/// плагин «Quality of Life» (`extensions.rs`), его можно выключить в разделе
+/// «Плагины».
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
