@@ -20,7 +20,14 @@
 //    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
 //    плашки, плашка той же высоты; значки ролей видны целиком, во всю
 //    высоту и с шириной по пропорциям картинки; заголовок группы участников
-//    помещается в строку списка, с зазором до карточки участника.
+//    помещается в строку списка, с зазором до карточки участника;
+// 4. избранные GIF: клиент находит GIF по ссылке на файл и на страницу с
+//    og:image, страницу без GIF не принимает; окно GIF получает плитку
+//    «Избранное», кнопка «+» добавляет GIF по ссылке с описанием и превью
+//    WebP, поиск идёт по словам описания, перетаскивание меняет порядок,
+//    щелчок отправляет ссылку через API Stoat в открытый канал, над
+//    результатами Gifbox — ряд «Из избранного», а их видео не играют сами;
+//    меню избранного убирает GIF вместе с превью.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -281,6 +288,80 @@
         messageSvg: find("#e2e-message svg"),
         linkSvg: find("#e2e-link svg"),
         serverSvg: find("#e2e-server svg"),
+      },
+    };
+  }
+
+  /**
+   * Окно GIF, как его строит for-web (CompositionMediaPicker.tsx,
+   * GifPicker.tsx): в Container — ряд кнопок «GIFs/Emoji» (.CompositionButton)
+   * и Stack из поля поиска в SearchArea и прокрутки с сеткой категорий
+   * (role=list). `search` показывает результаты Gifbox — Masonry из плиток с
+   * видео, `categories` — снова сетку.
+   */
+  function gifPicker() {
+    const base = document.createElement("div");
+    base.style.cssText = "position:fixed;right:0;bottom:0;width:400px;height:400px";
+    base.innerHTML = `<div class="e2e-container" style="width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden">
+<div class="CompositionButton"><button>GIFs</button><button>Emoji</button></div>
+<div class="e2e-stack" style="min-height:0;flex-grow:1;display:flex;flex-direction:column">
+<div class="e2e-search" style="display:flex"><input placeholder="Search for GIFs..."></div>
+</div></div>`;
+    const container = base.firstElementChild;
+    const stack = container.querySelector(".e2e-stack");
+    const input = stack.querySelector("input");
+    const scroller = () => {
+      const element = document.createElement("div");
+      element.style.cssText = "flex-grow:1;min-height:0;overflow-y:auto";
+      return element;
+    };
+    const grid = document.createElement("div");
+    grid.setAttribute("role", "list");
+    grid.style.cssText = "display:grid;grid-template-columns:repeat(2,1fr)";
+    for (const title of ["Trending GIFs", "cat"]) {
+      const tile = document.createElement("div");
+      tile.setAttribute("role", "listitem");
+      tile.textContent = title;
+      tile.style.aspectRatio = "16 / 10";
+      grid.append(tile);
+    }
+    const categoriesView = scroller();
+    categoriesView.append(grid);
+    stack.append(categoriesView);
+    let current = categoriesView;
+    const show = (element) => {
+      current.replaceWith(element);
+      current = element;
+    };
+    return {
+      base,
+      container,
+      stack,
+      input,
+      grid,
+      search(value) {
+        input.value = value;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        const masonry = document.createElement("div");
+        masonry.setAttribute("role", "list");
+        masonry.style.columnCount = "2";
+        const tile = document.createElement("div");
+        tile.setAttribute("role", "listitem");
+        const video = document.createElement("video");
+        video.muted = true;
+        video.loop = true;
+        video.autoplay = true;
+        video.src = "/e2e/missing.webm";
+        tile.append(video);
+        masonry.append(tile);
+        const results = scroller();
+        results.append(masonry);
+        show(results);
+        return masonry;
+      },
+      categories() {
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        show(categoriesView);
       },
     };
   }
@@ -817,6 +898,220 @@
       await check("задача страницы не дорожает после 1000 эмодзи (мс на задачу)", after < 1, hops, {
         measured: true,
       });
+      return next();
+    }
+
+    if (step === 4) {
+      const origin = location.origin;
+      const gif = `${origin}/e2e/cat.gif`;
+      const page = `${origin}/e2e/page`;
+      const favorites = async () => (await invoke("favorite_gifs_list")).favorites;
+      const failed = (error) => ({ failed: error });
+
+      const listing = await invoke("favorite_gifs_list");
+      await check(
+        "избранные GIF: сначала пусто, превью — из файлов клиента",
+        listing.favorites.length === 0 && listing.base.endsWith("/favorite-gifs/"),
+        listing,
+      );
+      const direct = await invoke("favorite_gifs_resolve", { url: gif }).catch(failed);
+      await check("ссылка на GIF: файл — она сама", direct.media === gif && direct.kind === "image", direct);
+      const found = await invoke("favorite_gifs_resolve", { url: page }).catch(failed);
+      await check("страница с og:image: найдена её GIF", found.media === gif && found.kind === "image", found);
+      const plain = await invoke("favorite_gifs_resolve", { url: `${origin}/e2e/plain` }).then(
+        (value) => ({ value }),
+        (error) => error,
+      );
+      await check("страница без GIF не принимается", typeof plain?.message === "string" && !plain.value, plain);
+
+      const picker = gifPicker();
+      document.getElementById("floating").append(picker.base);
+      const category = await waitFor(() => picker.grid.querySelector(":scope > .arachnid-gifs-category"), 5000, 50);
+      await check(
+        "окно GIF: «Избранное» — первая плитка категорий",
+        category && picker.grid.firstElementChild === category,
+        picker.grid.firstElementChild?.className,
+      );
+      category?.click();
+      const view = picker.container.querySelector(":scope > .arachnid-gifs-view");
+      await check(
+        "плитка открывает избранное вместо окна Gifbox",
+        view && !view.hidden && getComputedStyle(picker.stack).display === "none",
+        { view: Boolean(view), hidden: view?.hidden },
+      );
+
+      // «+»: ссылка, описание, превью
+      async function addByLink(url, description) {
+        view.querySelector(".arachnid-gifs-bar > :last-child").click();
+        const dialog = await waitFor(() => document.querySelector(".arachnid-gifs-dialog"), 2000, 50);
+        const [link, about] = dialog.querySelectorAll(".arachnid-gifs-field");
+        const confirm = dialog.querySelector(".arachnid-gifs-dialog-actions > :last-child");
+        link.value = url;
+        link.dispatchEvent(new Event("input", { bubbles: true }));
+        about.value = description;
+        await waitFor(() => !confirm.disabled || dialog.querySelector("[data-error]"), 20000, 100);
+        const state = {
+          ready: !confirm.disabled,
+          shown: Boolean(dialog.querySelector(".arachnid-gifs-dialog-preview img")),
+          status: dialog.querySelector(".arachnid-gifs-dialog-preview").textContent,
+        };
+        confirm.click();
+        await waitFor(() => !dialog.isConnected, 10000, 50);
+        return state;
+      }
+      const first = await addByLink(page, "Рыжий кот машет лапой");
+      await check("окно «+»: по ссылке на страницу видна сама GIF", first.ready && first.shown, first);
+      const one = await waitFor(async () => {
+        const list = await favorites();
+        return list.length === 1 && list[0].preview > 0 ? list : null;
+      }, 10000);
+      const cat = one?.[0];
+      await check(
+        "GIF добавлена: ссылка, файл, размеры, описание и превью",
+        cat?.url === page &&
+          cat.media === gif &&
+          cat.kind === "image" &&
+          cat.width === 60 &&
+          cat.height === 40 &&
+          cat.description === "Рыжий кот машет лапой",
+        cat,
+      );
+      const previewSrc = cat ? `${listing.base}${cat.id}.webp?v=${cat.preview}` : "";
+      const preview = await fetch(previewSrc).then(
+        async (response) => ({
+          status: response.status,
+          type: response.headers.get("content-type"),
+          size: (await response.arrayBuffer()).byteLength,
+        }),
+        (error) => ({ error: String(error) }),
+      );
+      await check(
+        "превью — WebP в несколько килобайт",
+        preview.status === 200 && preview.type === "image/webp" && preview.size > 0 && preview.size < 16384,
+        preview,
+        { measured: true },
+      );
+
+      const second = await addByLink(`${gif}?pes`, "Пёс");
+      await check("окно «+»: ссылка прямо на GIF", second.ready && second.shown, second);
+      const two = await waitFor(async () => {
+        const list = await favorites();
+        return list.length === 2 && list.every((item) => item.preview > 0) ? list : null;
+      }, 10000);
+      await check("новая GIF — первой", two?.[0].url === `${gif}?pes` && two[1].url === page, two);
+
+      const grid = view.querySelector(".arachnid-gifs-grid");
+      const tileOf = (id) => grid.querySelector(`.arachnid-gifs-tile[data-id="${id}"]`);
+      await waitFor(() => grid.querySelectorAll(".arachnid-gifs-tile").length === 2, 3000, 50);
+      const still = tileOf(cat.id)?.querySelector(".arachnid-gifs-still");
+      await waitFor(() => still?.complete, 3000, 50);
+      await check("плитка показывает превью", still?.naturalWidth === 60, still?.naturalWidth);
+
+      const search = view.querySelector(".arachnid-gifs-bar .arachnid-gifs-field");
+      const searchFor = async (value) => {
+        search.value = value;
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+        await frame();
+        return Array.from(grid.querySelectorAll(".arachnid-gifs-tile"), (tile) => tile.dataset.id);
+      };
+      const byWords = await searchFor("лапой КОТ");
+      const byLink = await searchFor("pes");
+      const none = await searchFor("кот пёс");
+      const emptyShown = !view.querySelector(".arachnid-gifs-empty").hidden;
+      await searchFor("");
+      await check(
+        "поиск: каждое слово — в описании или ссылке",
+        byWords.join() === cat.id && byLink.join() === two[0].id && none.length === 0 && emptyShown,
+        { byWords, byLink, none, emptyShown },
+      );
+
+      // перетаскивание: первую GIF — на место второй
+      const pointer = (target, type, x, y) =>
+        target.dispatchEvent(
+          new PointerEvent(type, { bubbles: true, cancelable: true, button: 0, isPrimary: true, clientX: x, clientY: y }),
+        );
+      const center = (element) => {
+        const rect = element.getBoundingClientRect();
+        return [rect.left + rect.width / 2, rect.top + rect.height / 2];
+      };
+      const [fromX, fromY] = center(tileOf(cat.id));
+      const [toX, toY] = center(tileOf(two[0].id));
+      pointer(tileOf(cat.id), "pointerdown", fromX, fromY);
+      pointer(document.body, "pointermove", (fromX + toX) / 2, (fromY + toY) / 2);
+      pointer(document.body, "pointermove", toX, toY);
+      pointer(document.body, "pointerup", toX, toY);
+      const moved = await waitFor(async () => {
+        const list = await favorites();
+        return list[0]?.id === cat.id ? list : null;
+      }, 3000);
+      await check("перетаскивание меняет порядок", moved, (await favorites()).map((item) => item.url));
+
+      // щелчок отправляет ссылку в открытый канал
+      const channel = "01J2E2E0000000000000000000";
+      history.pushState(null, "", `/app/channel/${channel}`);
+      localStorage.setItem("auth", JSON.stringify({ session: { token: "e2e-session" } }));
+      await frame();
+      const [sendX, sendY] = center(tileOf(cat.id));
+      pointer(tileOf(cat.id), "pointerdown", sendX, sendY);
+      pointer(tileOf(cat.id), "pointerup", sendX, sendY);
+      const sent = await waitFor(async () => {
+        const list = await (await fetch("/e2e/sent")).json();
+        return list.length > 0 ? list : null;
+      }, 5000);
+      const message = sent?.[0];
+      await check(
+        "щелчок отправляет ссылку через API Stoat в открытый канал",
+        sent?.length === 1 &&
+          message.path === `/api/channels/${channel}/messages` &&
+          message.body.content === page &&
+          !message.body.replies &&
+          message.token === "e2e-session" &&
+          /^[0-9A-HJKMNP-TV-Z]{26}$/.test(message.idempotency ?? ""),
+        sent,
+      );
+      const counted = await waitFor(async () => (await favorites()).find((item) => item.id === cat.id)?.sent === 1, 3000);
+      await check("отправка засчитана", counted, await favorites());
+      localStorage.removeItem("auth");
+      history.pushState(null, "", "/app/");
+
+      // ряд «Из избранного» над результатами Gifbox
+      view.querySelector(".arachnid-gifs-bar > :first-child").click();
+      await check("«Назад» возвращает окно Gifbox", view.hidden && getComputedStyle(picker.stack).display !== "none");
+      const masonry = picker.search("кот");
+      await frame();
+      const row = await waitFor(() => picker.stack.querySelector(".arachnid-gifs-row"), 3000, 50);
+      const video = masonry.querySelector("video");
+      await check(
+        "над результатами Gifbox — ряд «Из избранного», их видео не играют сами",
+        row?.nextElementSibling === masonry &&
+          Array.from(row.querySelectorAll(".arachnid-gifs-tile"), (tile) => tile.dataset.id).join() === cat.id &&
+          video.dataset.arachnidGifs !== undefined &&
+          !video.autoplay,
+        { row: Boolean(row), autoplay: video.autoplay },
+      );
+
+      // меню избранного: «Убрать из избранного» — последний пункт
+      picker.input.value = "";
+      picker.categories();
+      await frame();
+      category.click();
+      await waitFor(() => tileOf(two[0].id), 3000, 50);
+      const [menuX, menuY] = center(tileOf(two[0].id));
+      tileOf(two[0].id).dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: menuX, clientY: menuY }),
+      );
+      const favoritesMenu = document.querySelector(".arachnid-gifs-menu");
+      const items = favoritesMenu ? favoritesMenu.querySelectorAll(".arachnid-gifs-menu-item") : [];
+      await check("меню избранного: пять пунктов", items.length === 5, items.length);
+      items[items.length - 1]?.click();
+      const left = await waitFor(async () => {
+        const list = await favorites();
+        return list.length === 1 ? list : null;
+      }, 3000);
+      const gone = await fetch(`${listing.base}${two[0].id}.webp`).then((response) => response.status);
+      await check("GIF убрана вместе с превью", left?.[0].id === cat.id && gone === 404, { left, gone });
+
+      picker.base.remove();
       return finish();
     }
   } catch (error) {

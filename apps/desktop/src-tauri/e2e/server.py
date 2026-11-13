@@ -6,6 +6,10 @@ http://127.0.0.1:8765/app/ — его клиент открывает как с�
 присылает ход проверки на /log и итог на /result (result.json рядом с
 сервером).
 
+Для избранных GIF — GIF, страница с ней в og:image, страница без GIF,
+/.well-known/stoat с адресом API и сам API отправки сообщений: отправленное
+отдаёт /e2e/sent.
+
     python server.py <папка для result.json и server.log>
 """
 
@@ -24,11 +28,23 @@ FILES = {
     "/app/sw.js": (HERE / "app" / "sw.js", "text/javascript; charset=utf-8"),
     # значок роли 40×32, как картинка autumn с тегом icons
     "/icons/e2e-wide": (HERE / "app" / "wide-icon.svg", "image/svg+xml"),
+    # GIF 60×40 из трёх кадров
+    "/e2e/cat.gif": (HERE / "app" / "cat.gif", "image/gif"),
     "/app/localforage.js": (
         HERE / "node_modules" / "localforage" / "dist" / "localforage.js",
         "text/javascript; charset=utf-8",
     ),
 }
+
+
+# страница с GIF в теге Open Graph, как у Tenor и Giphy
+PAGES = {
+    "/e2e/page": '<html><head><meta property="og:title" content="Кот">'
+    '<meta property="og:image" content="/e2e/cat.gif"></head><body>кот</body></html>',
+    "/e2e/plain": "<html><head><title>Без GIF</title></head><body>текст</body></html>",
+}
+# отправленные сообщения: путь, тело и заголовки сессии
+SENT: list[dict] = []
 
 
 def log(line: str) -> None:
@@ -45,12 +61,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/app/")
             self.end_headers()
             return
+        if path in PAGES:
+            self.reply(PAGES[path].encode("utf-8"), "text/html; charset=utf-8")
+            return
+        if path == "/.well-known/stoat":
+            api = f"http://127.0.0.1:{PORT}/api"
+            self.reply(json.dumps({"api": api}).encode("utf-8"), "application/json")
+            return
+        if path == "/e2e/sent":
+            self.reply(json.dumps(SENT).encode("utf-8"), "application/json")
+            return
         entry = FILES.get(path)
         if entry is None:
             self.send_error(404)
             return
         file, content_type = entry
-        body = file.read_bytes()
+        self.reply(file.read_bytes(), content_type)
+
+    def reply(self, body: bytes, content_type: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -66,6 +94,17 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/result":
             (OUT / "result.json").write_text(body, encoding="utf-8")
             log("[page] итог записан")
+        elif self.path.startswith("/api/channels/") and self.path.endswith("/messages"):
+            SENT.append(
+                {
+                    "path": self.path,
+                    "body": json.loads(body),
+                    "token": self.headers.get("X-Session-Token"),
+                    "idempotency": self.headers.get("Idempotency-Key"),
+                }
+            )
+            self.reply(json.dumps({"_id": "01J0000000000000000000SENT"}).encode("utf-8"), "application/json")
+            return
         else:
             self.send_error(404)
             return

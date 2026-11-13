@@ -21,6 +21,7 @@ mod desktop;
 mod emoji_packs;
 mod emoji_raster;
 mod extensions;
+mod favorite_gifs;
 #[cfg(windows)]
 mod http;
 mod icon;
@@ -88,6 +89,15 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-emoji-pack-download",
     "allow-emoji-pack-cancel",
     "allow-emoji-pack-delete",
+    "allow-favorite-gifs-list",
+    "allow-favorite-gifs-add",
+    "allow-favorite-gifs-describe",
+    "allow-favorite-gifs-remove",
+    "allow-favorite-gifs-move",
+    "allow-favorite-gifs-sent",
+    "allow-favorite-gifs-set-preview",
+    "allow-favorite-gifs-resolve",
+    "allow-favorite-gifs-download",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -277,6 +287,9 @@ pub fn run() {
             // до создания окна: оно отдаёт картинки эмодзи из этих наборов
             let emoji_dir = data_dir.join(emoji_packs::DIR);
             app.manage(Arc::new(emoji_packs::EmojiPacks::new(emoji_dir)));
+            // избранные GIF «Quality of Life»: список и превью
+            let gifs_dir = data_dir.join(favorite_gifs::DIR);
+            app.manage(Arc::new(favorite_gifs::FavoriteGifs::new(gifs_dir)));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -320,6 +333,15 @@ pub fn run() {
             emoji_packs::emoji_pack_download,
             emoji_packs::emoji_pack_cancel,
             emoji_packs::emoji_pack_delete,
+            favorite_gifs::favorite_gifs_list,
+            favorite_gifs::favorite_gifs_add,
+            favorite_gifs::favorite_gifs_describe,
+            favorite_gifs::favorite_gifs_remove,
+            favorite_gifs::favorite_gifs_move,
+            favorite_gifs::favorite_gifs_sent,
+            favorite_gifs::favorite_gifs_set_preview,
+            favorite_gifs::favorite_gifs_resolve,
+            favorite_gifs::favorite_gifs_download,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

@@ -31,6 +31,15 @@ const COMMANDS: &[&str] = &[
     "emoji_pack_download",
     "emoji_pack_cancel",
     "emoji_pack_delete",
+    "favorite_gifs_list",
+    "favorite_gifs_add",
+    "favorite_gifs_describe",
+    "favorite_gifs_remove",
+    "favorite_gifs_move",
+    "favorite_gifs_sent",
+    "favorite_gifs_set_preview",
+    "favorite_gifs_resolve",
+    "favorite_gifs_download",
 ];
 
 fn main() {

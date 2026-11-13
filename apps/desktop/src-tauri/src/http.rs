@@ -1,7 +1,8 @@
 //! Загрузка файлов по HTTPS средствами Windows (WinHTTP).
 //!
-//! Нужна для скачиваемых наборов эмодзи (`emoji_packs.rs`) и запросов
-//! плагинов с разрешением на сеть (`plugin_host.rs`). WinHTTP — часть
+//! Нужна для скачиваемых наборов эмодзи (`emoji_packs.rs`), запросов
+//! плагинов с разрешением на сеть (`plugin_host.rs`) и ссылок избранных GIF
+//! (`favorite_gifs.rs`). WinHTTP — часть
 //! системы: не тянет в клиент отдельный HTTP-стек с TLS и сам берёт прокси из
 //! настроек Windows (`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`), так что загрузка
 //! идёт тем же путём, что и у браузера. Переадресации (GitHub отдаёт файлы
@@ -259,6 +260,74 @@ pub fn request(
             status,
             headers,
             body: data,
+        })
+    }
+}
+
+/// Ответ на запрос по ссылке пользователя.
+pub struct Fetched {
+    /// Заголовки: имя в нижнем регистре и значение
+    pub headers: Vec<(String, String)>,
+    /// Тело — не больше предела
+    pub body: Vec<u8>,
+    /// Тело прочитано целиком (не упёрлось в предел)
+    pub complete: bool,
+}
+
+/// GET по ссылке, которую дал пользователь (избранные GIF): переадресации
+/// WinHTTP выполняет сам, ответ — только 200. `limit` по заголовкам ответа
+/// решает, сколько байт тела прочитать: тело длиннее обрезается
+/// (`complete: false`), 0 — тело не читается вовсе.
+pub fn fetch(
+    url: &Url,
+    headers: &str,
+    limit: impl FnOnce(&[(String, String)]) -> usize,
+) -> Result<Fetched, Error> {
+    let target = Target::of(url)?;
+    let verb = HSTRING::from("GET");
+    let extra: Vec<u16> = headers.encode_utf16().collect();
+    let session = session()?;
+    // SAFETY: строки живут до конца функции; запрос закрывается раньше
+    // соединения, сессию держит Arc
+    unsafe {
+        let (_connection, request) = open(&session, &verb, &target)?;
+        let headers = (!extra.is_empty()).then_some(extra.as_slice());
+        wh::WinHttpSendRequest(request.0, headers, None, 0, 0, 0)?;
+        wh::WinHttpReceiveResponse(request.0, std::ptr::null_mut())?;
+
+        let status = query_number::<u32>(&request, STATUS)?;
+        if status != 200 {
+            return Err(Error::Status(status));
+        }
+        let headers = parse_headers(&raw_headers(&request)?);
+        let limit = limit(&headers);
+        let mut body = Vec::new();
+        let mut complete = true;
+        if limit == 0 {
+            return Ok(Fetched {
+                headers,
+                body,
+                complete,
+            });
+        }
+        let read = read_body(&request, |chunk| {
+            let room = limit - body.len();
+            if chunk.len() > room {
+                body.extend_from_slice(&chunk[..room]);
+                return Err(StopReason::TooLarge);
+            }
+            body.extend_from_slice(chunk);
+            Ok(())
+        });
+        match read {
+            Ok(()) => {}
+            Err(Error::Stopped(StopReason::TooLarge)) => complete = false,
+            Err(error) => return Err(error),
+        }
+        Ok(Fetched {
+            headers,
+            body,
+            complete,
         })
     }
 }

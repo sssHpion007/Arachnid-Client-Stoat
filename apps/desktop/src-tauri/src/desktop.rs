@@ -60,6 +60,10 @@ const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 /// «Плагины».
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
+/// Избранные GIF в окне выбора GIF: та же «Quality of Life» (`emoji.js` и
+/// этот скрипт выполняются вместе).
+const GIFS_SCRIPT: &str = include_str!("gifs.js");
+
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
 /// 0.16.3) для `emoji.js`.
 const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
@@ -375,10 +379,16 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
 }
 
 /// Скрипт окна выбора эмодзи со списком эмодзи for-web и разделами.
-pub(crate) fn emoji_script() -> String {
+fn emoji_script() -> String {
     EMOJI_SCRIPT
         .replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
         .replace("__ARACHNID_EMOJI_CATEGORIES__", EMOJI_CATEGORIES)
+}
+
+/// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
+/// ролей (`emoji.js`), избранные GIF (`gifs.js`).
+pub(crate) fn qol_script() -> String {
+    format!("{}\n{GIFS_SCRIPT}", emoji_script())
 }
 
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
@@ -918,7 +928,12 @@ mod tests {
             "осталась метка в emoji.js"
         );
         // в остальных скриптах подставлять нечего: они берут всё у моста
-        for script in [SETTINGS_SCRIPT, DEFAULTS_SCRIPT, EMOJI_PACKS_SCRIPT] {
+        for script in [
+            SETTINGS_SCRIPT,
+            DEFAULTS_SCRIPT,
+            EMOJI_PACKS_SCRIPT,
+            GIFS_SCRIPT,
+        ] {
             assert!(!script.contains("__ARACHNID_"));
         }
     }

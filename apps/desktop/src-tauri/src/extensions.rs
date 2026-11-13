@@ -20,9 +20,10 @@
 //! плагинов — [`crate::plugin_host`]. Файлы из папок страница получает по
 //! адресам `http://arachnid.localhost/<plugins|themes>/<id>/<путь>` (в Linux
 //! и macOS — `arachnid://localhost/…`); относительные `url()` в стилях папок
-//! ведут туда же. Ядро клиента (мост, настройки, наборы эмодзи) не
-//! выключается; встроенные плагины (`builtin:*`) — выключаются, как и
-//! остальные.
+//! ведут туда же. По той же схеме отдаются превью избранных GIF
+//! (`/favorite-gifs/<id>.webp`, [`crate::favorite_gifs`]). Ядро клиента
+//! (мост, настройки, наборы эмодзи) не выключается; встроенные плагины
+//! (`builtin:*`) — выключаются, как и остальные.
 //!
 //! Тема может описать свои настройки (палитры, цвета, размеры) в заголовке
 //! UserCSS (см. [`crate::usercss`]); пока тема выбрана, «Внешний вид»
@@ -56,6 +57,7 @@ use tauri::{AppHandle, Manager, State, WebviewWindow};
 use url::Url;
 
 use crate::desktop::{self, TrayLabels};
+use crate::favorite_gifs::{self, FavoriteGifs};
 use crate::instance::Instance;
 use crate::manifest::{self, PluginManifest};
 use crate::plugin_host::{self, FetchRequest, FetchResponse, NativeHost, Storage};
@@ -80,9 +82,9 @@ pub const ASSET_SCHEME: &str = "arachnid";
 /// Начало адресов файлов: так WebView2 (Windows) и WebKit (Linux, macOS)
 /// показывают свою схему странице.
 #[cfg(windows)]
-const ASSET_BASE: &str = "http://arachnid.localhost/";
+pub(crate) const ASSET_BASE: &str = "http://arachnid.localhost/";
 #[cfg(not(windows))]
-const ASSET_BASE: &str = "arachnid://localhost/";
+pub(crate) const ASSET_BASE: &str = "arachnid://localhost/";
 /// Больше этого файл из папки не отдаётся.
 const MAX_ASSET_SIZE: u64 = 64 * 1024 * 1024;
 /// Сколько файлов папки проверять на изменения и как глубоко.
@@ -231,9 +233,9 @@ struct Builtin {
 const BUILTINS: &[Builtin] = &[Builtin {
     id: "builtin:qol",
     name: "Quality of Life",
-    description: "Разделы в окне эмодзи, крупные эмодзи в реакциях, значки ролей целиком",
+    description: "Разделы в окне эмодзи, избранные GIF, крупные реакции, значки ролей целиком",
     enabled_by_default: true,
-    code: desktop::emoji_script,
+    code: desktop::qol_script,
 }];
 
 fn builtin(id: &str) -> Option<&'static Builtin> {
@@ -1403,12 +1405,26 @@ pub fn asset_protocol(
     let path = request.uri().path().to_owned();
     // чтение с диска — не в главном потоке
     tauri::async_runtime::spawn_blocking(move || {
-        let response = match app.try_state::<Arc<Extensions>>() {
-            Some(extensions) => extensions.asset(&path),
-            None => asset_response(503, "text/plain", Vec::new()),
+        let response = match path.strip_prefix(favorite_gifs::ASSET_PREFIX) {
+            Some(file) => favorite_gif_preview(&app, file),
+            None => match app.try_state::<Arc<Extensions>>() {
+                Some(extensions) => extensions.asset(&path),
+                None => asset_response(503, "text/plain", Vec::new()),
+            },
         };
         responder.respond(response);
     });
+}
+
+/// Превью избранной GIF (`favorite_gifs.rs`).
+fn favorite_gif_preview(app: &AppHandle, file: &str) -> tauri::http::Response<Vec<u8>> {
+    let preview = app
+        .try_state::<Arc<FavoriteGifs>>()
+        .and_then(|gifs| gifs.preview(file));
+    match preview {
+        Some(body) => asset_response(200, "image/webp", body),
+        None => asset_response(404, "text/plain", b"not found".to_vec()),
+    }
 }
 
 fn write_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
