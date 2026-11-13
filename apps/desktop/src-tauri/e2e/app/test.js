@@ -28,9 +28,8 @@
 //    WebP, поиск идёт по словам описания, перетаскивание меняет порядок,
 //    щелчок отправляет ссылку через API Stoat в открытый канал, над
 //    результатами Gifbox — ряд «Из избранного», а их видео не играют сами;
-//    меню избранного убирает GIF вместе с превью; сессию, названную
-//    for-web, мост переименовывает в «Arachnid Client», а своё имя сессии
-//    не трогает.
+//    меню избранного убирает GIF вместе с превью; вход создаёт сессию с
+//    именем «Arachnid Client» (имя, заданное не for-web, остаётся).
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -1128,31 +1127,28 @@
 
       picker.base.remove();
 
-      // имя сессии: придуманное for-web меняется на «Arachnid Client», своё — нет
-      const renamed = async () => (await fetch("/e2e/renamed")).json();
-      const signIn = (id) =>
-        localStorage.setItem(
-          "auth",
-          JSON.stringify({ session: { _id: id, token: `token-${id}`, userId: "01J2E2E00000000000000USER1", valid: true }, saved: [] }),
-        );
-      signIn("01J2E2E0000000000000SESS01");
-      const named = await waitFor(async () => {
-        const list = await renamed();
-        return list.length > 0 ? list : null;
-      }, 12000);
+      // имя сессии: вход for-web (stoat-api: fetch, тело — строка JSON)
+      const login = (body) =>
+        fetch(`${origin}/api/auth/session/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).then((response) => response.json());
+      await login({ email: "e2e@example.com", password: "секрет", friendly_name: "Stoat for Web (edge-chromium on Windows 10)" });
+      await login({ mfa_ticket: "ticket", mfa_response: { totp_code: "123456" }, friendly_name: "Stoat for Web (Unknown Device)" });
+      await login({ email: "e2e@example.com", password: "секрет", friendly_name: "Мой ноутбук" });
+      const logins = await (await fetch("/e2e/logins")).json();
       await check(
-        "сессия for-web переименована в «Arachnid Client»",
-        named?.length === 1 &&
-          named[0].id === "01J2E2E0000000000000SESS01" &&
-          named[0].body.friendly_name === "Arachnid Client" &&
-          named[0].token === "token-01J2E2E0000000000000SESS01",
-        named,
+        "вход: сессия сразу называется «Arachnid Client», остальное в запросе то же",
+        logins.length === 3 &&
+          logins[0].friendly_name === "Arachnid Client" &&
+          logins[0].email === "e2e@example.com" &&
+          logins[0].password === "секрет" &&
+          logins[1].friendly_name === "Arachnid Client" &&
+          logins[1].mfa_response?.totp_code === "123456" &&
+          logins[2].friendly_name === "Мой ноутбук",
+        logins,
       );
-      signIn("01J2E2E0000000000000SESS02");
-      await sleep(7000);
-      const own = await renamed();
-      await check("своё имя сессии не тронуто", own.length === 1, own);
-      localStorage.removeItem("auth");
       return finish();
     }
   } catch (error) {

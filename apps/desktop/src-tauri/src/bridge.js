@@ -444,88 +444,46 @@
 
   // ───────────────────────────── имя сессии ─────────────────────────────
   // for-web называет сессию при входе сам — «Stoat for Web (edge-chromium on
-  // Windows 10)» (Controller.ts), и так она видна в «Сессиях» Stoat на других
-  // устройствах. Сессию этого клиента мост переименовывает в «Arachnid
-  // Client» тем же запросом, что и переименование сессии в Stoat
-  // (PATCH /auth/session/:id). Имя, которое дал сам пользователь, не
-  // трогается — только то, что придумал for-web.
-  //
-  // Сессию for-web держит в localStorage `auth` (копия хранилища состояния,
-  // state/index.tsx); вход и смена аккаунта страницу не перезагружают,
-  // поэтому копия сверяется раз в несколько секунд — сравнение строки.
+  // Windows 10)» (Controller.ts): это поле friendly_name запроса
+  // POST /auth/session/login (и его повтора с кодом MFA). Под этим именем
+  // сессия и видна в «Сессиях» Stoat. Мост ставит в этом поле «Arachnid
+  // Client», поэтому сессия сразу создаётся с нужным именем. Запрос уходит
+  // через fetch (stoat-api), поэтому мост, который выполняется раньше
+  // скриптов страницы, оборачивает fetch; остальные запросы проходят как
+  // есть. Имя, которое задано не for-web, не меняется.
   const SESSION_NAME = "Arachnid Client";
   const GENERATED_NAME = /^(Stoat|Revolt) for Web\b/;
-  const SESSION_CHECK = 5000;
-  const SESSION_RETRY = 60000;
-  let seenAuth = null;
-  /** Сессия, которую уже проверили: `{ id, retryAt }` */
-  let checkedSession = null;
+  const LOGIN_PATH = /\/auth\/session\/login$/;
+  const pageFetch = window.fetch;
 
-  /**
-   * Адрес API: у stoat.chat — api.stoat.chat (env.ts for-web), у своего
-   * сервера — из /.well-known/stoat, как for-web узнаёт API инстанса.
-   */
-  let apiUrl = null;
-  async function stoatApi() {
-    if (apiUrl) return apiUrl;
-    if (location.hostname === "stoat.chat") return (apiUrl = "https://api.stoat.chat");
+  /** Параметры запроса входа с именем сессии; другие запросы — те же */
+  function namedLogin(input, init) {
+    if (typeof init?.body !== "string" || String(init.method ?? "GET").toUpperCase() !== "POST") return init;
+    let url;
     try {
-      const response = await fetch(`${location.origin}/.well-known/stoat`);
-      const value = response.ok ? (await response.json())?.api : null;
-      if (typeof value === "string" && /^https?:\/\//.test(value)) return (apiUrl = value.replace(/\/+$/, ""));
+      url = new URL(input instanceof Request ? input.url : String(input), location.href);
     } catch {
-      // нет описания инстанса — API на том же сервере
+      return init;
     }
-    return `${location.origin}/api`;
+    if (!LOGIN_PATH.test(url.pathname)) return init;
+    let data;
+    try {
+      data = JSON.parse(init.body);
+    } catch {
+      return init;
+    }
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return init;
+    const name = data.friendly_name;
+    if (typeof name === "string" && !GENERATED_NAME.test(name)) return init;
+    return { ...init, body: JSON.stringify({ ...data, friendly_name: SESSION_NAME }) };
   }
 
-  async function nameSession(session) {
-    const api = await stoatApi();
-    const headers = { "X-Session-Token": session.token };
-    const listed = await fetch(`${api}/auth/session/all`, { headers });
-    if (!listed.ok) throw new Error(`HTTP ${listed.status}`);
-    const own = (await listed.json()).find((item) => item?._id === session._id);
-    if (!own || typeof own.name !== "string" || !GENERATED_NAME.test(own.name)) return;
-    const renamed = await fetch(`${api}/auth/session/${encodeURIComponent(session._id)}`, {
-      method: "PATCH",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ friendly_name: SESSION_NAME }),
-    });
-    if (!renamed.ok) throw new Error(`HTTP ${renamed.status}`);
+  if (typeof pageFetch === "function") {
+    window.fetch = function fetch(input, init) {
+      const args = arguments.length > 1 ? [input, namedLogin(input, init)] : [input];
+      return Reflect.apply(pageFetch, window, args);
+    };
   }
-
-  function checkSession() {
-    let raw = null;
-    try {
-      raw = localStorage.getItem("auth");
-    } catch {
-      return;
-    }
-    const retry = checkedSession && checkedSession.retryAt <= Date.now();
-    if (raw === seenAuth && !retry) return;
-    seenAuth = raw;
-    let session = null;
-    try {
-      session = JSON.parse(raw ?? "null")?.session;
-    } catch {
-      // не JSON — сессии нет
-    }
-    if (typeof session?._id !== "string" || typeof session.token !== "string" || !session.token) {
-      checkedSession = null;
-      return;
-    }
-    if (checkedSession?.id === session._id && !retry) return;
-    const checked = { id: session._id, retryAt: Infinity };
-    checkedSession = checked;
-    nameSession(session).catch((error) => {
-      // сеть или сервер — ещё раз позже
-      checked.retryAt = Date.now() + SESSION_RETRY;
-      console.warn("[Arachnid] имя сессии", error);
-    });
-  }
-
-  checkSession();
-  setInterval(checkSession, SESSION_CHECK);
 
   // ───────────────────────────── меню трея ─────────────────────────────
   // Подписи как в Stoat for Desktop; на русской системе — по-русски.

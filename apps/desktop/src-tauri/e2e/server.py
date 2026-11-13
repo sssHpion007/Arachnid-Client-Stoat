@@ -45,13 +45,8 @@ PAGES = {
 }
 # отправленные сообщения: путь, тело и заголовки сессии
 SENT: list[dict] = []
-# сессии аккаунта (GET /auth/session/all): имя, которое дал for-web, и своё
-SESSIONS = [
-    {"_id": "01J2E2E0000000000000SESS01", "name": "Stoat for Web (edge-chromium on Windows 10)"},
-    {"_id": "01J2E2E0000000000000SESS02", "name": "Мой ноутбук"},
-]
-# переименования сессий: id, тело и токен
-RENAMED: list[dict] = []
+# тела запросов входа (POST /auth/session/login)
+LOGINS: list[dict] = []
 
 
 def log(line: str) -> None:
@@ -86,11 +81,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/e2e/sent":
             self.reply(json.dumps(SENT).encode("utf-8"), "application/json")
             return
-        if path == "/api/auth/session/all":
-            self.reply(json.dumps(SESSIONS).encode("utf-8"), "application/json")
-            return
-        if path == "/e2e/renamed":
-            self.reply(json.dumps(RENAMED).encode("utf-8"), "application/json")
+        if path == "/e2e/logins":
+            self.reply(json.dumps(LOGINS).encode("utf-8"), "application/json")
             return
         entry = FILES.get(path)
         if entry is None:
@@ -115,6 +107,11 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/result":
             (OUT / "result.json").write_text(body, encoding="utf-8")
             log("[page] итог записан")
+        elif self.path == "/api/auth/session/login":
+            LOGINS.append(json.loads(body))
+            reply = {"result": "Success", "_id": "01J2E2E0000000000000SESS01", "token": "e2e-token"}
+            self.reply(json.dumps(reply).encode("utf-8"), "application/json")
+            return
         elif self.path.startswith("/api/channels/") and self.path.endswith("/messages"):
             SENT.append(
                 {
@@ -131,18 +128,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.send_response(204)
         self.end_headers()
-
-    def do_PATCH(self) -> None:
-        length = int(self.headers.get("Content-Length", "0"))
-        body = json.loads(self.rfile.read(length).decode("utf-8"))
-        prefix = "/api/auth/session/"
-        session = next((item for item in SESSIONS if self.path == prefix + item["_id"]), None)
-        if session is None:
-            self.send_error(404)
-            return
-        session["name"] = body.get("friendly_name", session["name"])
-        RENAMED.append({"id": session["_id"], "body": body, "token": self.headers.get("X-Session-Token")})
-        self.reply(json.dumps(session).encode("utf-8"), "application/json")
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002
         log(f"[http] {self.address_string()} {format % args}")
