@@ -28,7 +28,9 @@
 //    WebP, поиск идёт по словам описания, перетаскивание меняет порядок,
 //    щелчок отправляет ссылку через API Stoat в открытый канал, над
 //    результатами Gifbox — ряд «Из избранного», а их видео не играют сами;
-//    меню избранного убирает GIF вместе с превью.
+//    меню избранного убирает GIF вместе с превью; сессию, названную
+//    for-web, мост переименовывает в «Arachnid Client», а своё имя сессии
+//    не трогает.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -1125,6 +1127,32 @@
       await check("GIF убрана вместе с превью", left?.[0].id === cat.id && gone === 404, { left, gone });
 
       picker.base.remove();
+
+      // имя сессии: придуманное for-web меняется на «Arachnid Client», своё — нет
+      const renamed = async () => (await fetch("/e2e/renamed")).json();
+      const signIn = (id) =>
+        localStorage.setItem(
+          "auth",
+          JSON.stringify({ session: { _id: id, token: `token-${id}`, userId: "01J2E2E00000000000000USER1", valid: true }, saved: [] }),
+        );
+      signIn("01J2E2E0000000000000SESS01");
+      const named = await waitFor(async () => {
+        const list = await renamed();
+        return list.length > 0 ? list : null;
+      }, 12000);
+      await check(
+        "сессия for-web переименована в «Arachnid Client»",
+        named?.length === 1 &&
+          named[0].id === "01J2E2E0000000000000SESS01" &&
+          named[0].body.friendly_name === "Arachnid Client" &&
+          named[0].token === "token-01J2E2E0000000000000SESS01",
+        named,
+      );
+      signIn("01J2E2E0000000000000SESS02");
+      await sleep(7000);
+      const own = await renamed();
+      await check("своё имя сессии не тронуто", own.length === 1, own);
+      localStorage.removeItem("auth");
       return finish();
     }
   } catch (error) {
