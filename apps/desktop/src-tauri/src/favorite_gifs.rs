@@ -908,7 +908,10 @@ mod tests {
     #[test]
     fn media_links_are_requested_as_media() {
         let accept = |raw: &str| accept_for(&Url::parse(raw).unwrap());
-        assert_eq!(accept("https://media1.tenor.com/m/abc/cat.gif"), MEDIA_HEADERS);
+        assert_eq!(
+            accept("https://media1.tenor.com/m/abc/cat.gif"),
+            MEDIA_HEADERS
+        );
         assert_eq!(accept("https://media.tenor.com/abc/cat.mp4"), MEDIA_HEADERS);
         assert_eq!(accept("https://tenor.com/view/cat-gif-1"), PAGE_HEADERS);
         assert!(MEDIA_HEADERS.starts_with("Accept: image/"));
