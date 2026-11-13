@@ -18,7 +18,8 @@
 //    заставляет клиент искать окно по всему документу;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
-//    плашки, плашка той же высоты; значки ролей видны целиком.
+//    плашки, плашка той же высоты; значки ролей видны целиком, во всю
+//    высоту и с шириной по пропорциям картинки.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -231,10 +232,11 @@
    * (MemberSidebar.tsx: картинка, имя роли, « – число») и Avatar 16 px в
    * обёртке подсказки рядом с ником (Message.tsx, Avatar.tsx). Для сравнения
    * — картинка без имени и числа, значок сервера 16 px в ссылке
-   * (anchors.tsx) и большой значок сервера.
+   * (anchors.tsx) и большой значок сервера. Картинка везде одна — 40×32,
+   * как файл autumn с тегом icons.
    */
   function roleIconsMock() {
-    const icon = "/icons/e2e-role";
+    const icon = "/icons/e2e-wide";
     const avatar = (size, src) =>
       `<svg style="width: ${size}px; height: ${size}px;" viewBox="0 0 32 32"><g>` +
       `<foreignObject x="0" y="0" width="32" height="32"><div class="e2e-shape">` +
@@ -250,8 +252,8 @@
 <div class="e2e-title" id="e2e-member"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span><span> – 1</span></div>
 <div class="e2e-title" id="e2e-lonely"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span></div>
 <div id="e2e-message"><div>Ник</div><div><div>${avatar(16, icon)}</div></div></div>
-<p id="e2e-link"><a href="#">${avatar(16, "/icons/e2e-server")}Сервер</a></p>
-<div id="e2e-server"><div>${avatar(42, "/icons/e2e-server")}</div></div>`;
+<p id="e2e-link"><a href="#">${avatar(16, icon)}Сервер</a></p>
+<div id="e2e-server"><div>${avatar(42, icon)}</div></div>`;
     const find = (selector) => base.querySelector(selector);
     return {
       base,
@@ -264,6 +266,9 @@
         linkShape: find("#e2e-link .e2e-shape"),
         serverIcon: find("#e2e-server img"),
         serverShape: find("#e2e-server .e2e-shape"),
+        messageSvg: find("#e2e-message svg"),
+        linkSvg: find("#e2e-link svg"),
+        serverSvg: find("#e2e-server svg"),
       },
     };
   }
@@ -472,11 +477,14 @@
       // значки ролей: заголовок группы в списке участников и рядом с ником
       const icons = roleIconsMock();
       document.body.append(icons.base);
+      const iconImages = Array.from(icons.base.querySelectorAll("img"));
+      await waitFor(() => iconImages.every((img) => img.complete) && icons.parts.messageSvg.hasAttribute("data-arachnid-role-icon"), 5000, 50);
       const look = (element) => {
         const style = getComputedStyle(element);
         return `${style.objectFit} ${style.borderTopLeftRadius}`;
       };
-      const iconLooks = Object.fromEntries(Object.entries(icons.parts).map(([name, element]) => [name, look(element)]));
+      const styled = ["memberIcon", "lonelyIcon", "messageIcon", "messageShape", "linkIcon", "linkShape", "serverIcon", "serverShape"];
+      const iconLooks = Object.fromEntries(styled.map((name) => [name, look(icons.parts[name])]));
       await check(
         "значок роли в заголовке группы — целиком, без скругления",
         iconLooks.memberIcon === "contain 0px",
@@ -495,6 +503,31 @@
           iconLooks.serverIcon.startsWith("cover") &&
           iconLooks.serverShape.endsWith(" 12px"),
         iconLooks,
+      );
+      // картинка 40×32: во всю высоту 16 px — значит, 20 px в ширину
+      const size = (element) => {
+        const rect = element.getBoundingClientRect();
+        return `${Math.round(rect.width * 10) / 10}x${Math.round(rect.height * 10) / 10}`;
+      };
+      const iconSizes = {
+        member: size(icons.parts.memberIcon),
+        message: size(icons.parts.messageSvg),
+        viewBox: icons.parts.messageSvg.getAttribute("viewBox"),
+        object: icons.parts.messageSvg.querySelector("foreignObject").getAttribute("width"),
+        lonely: size(icons.parts.lonelyIcon),
+        link: size(icons.parts.linkSvg),
+        server: size(icons.parts.serverSvg),
+      };
+      await check("значок роли в заголовке группы — во всю высоту, ширина по картинке", iconSizes.member === "20x16", iconSizes);
+      await check(
+        "значок роли у ника — во всю высоту, ширина по картинке",
+        iconSizes.message === "20x16" && iconSizes.viewBox === "0 0 40 32" && iconSizes.object === "40",
+        iconSizes,
+      );
+      await check(
+        "значки серверов и другие картинки — прежнего размера",
+        iconSizes.lonely === "16x16" && iconSizes.link === "16x16" && iconSizes.server === "42x42",
+        iconSizes,
       );
       icons.base.remove();
 

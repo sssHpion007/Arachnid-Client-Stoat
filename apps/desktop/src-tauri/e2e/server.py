@@ -22,6 +22,8 @@ FILES = {
     "/app/": (HERE / "app" / "index.html", "text/html; charset=utf-8"),
     "/app/test.js": (HERE / "app" / "test.js", "text/javascript; charset=utf-8"),
     "/app/sw.js": (HERE / "app" / "sw.js", "text/javascript; charset=utf-8"),
+    # значок роли 40×32, как картинка autumn с тегом icons
+    "/icons/e2e-wide": (HERE / "app" / "wide-icon.svg", "image/svg+xml"),
     "/app/localforage.js": (
         HERE / "node_modules" / "localforage" / "dist" / "localforage.js",
         "text/javascript; charset=utf-8",

@@ -72,20 +72,29 @@
 //   картинка эмодзи `img.emoji` (UnicodeEmoji и CustomEmoji for-web).
 //
 // Значок роли — картинка, которую загрузил сервер (autumn, тег icons:
-// `<autumn>/icons/<id>`), в квадрате 16 px: в заголовке группы роли в списке
-// участников (MemberSidebar.tsx, RoleIcon) и рядом с ником в сообщении
-// (Message.tsx, Avatar с формой rounded-square). for-web растягивает
-// картинку на весь квадрат (object-fit: cover) и скругляет углы, поэтому
-// неквадратный значок обрезается по краям. Скрипт показывает картинку
-// целиком (contain) и снимает скругление: значки ролей — обычно картинки с
-// прозрачным фоном, как эмодзи, и скругление срезало бы их края. Опоры:
+// `<autumn>/icons/<id>`; пропорции autumn сохраняет), в квадрате 16 px: в
+// заголовке группы роли в списке участников (MemberSidebar.tsx, RoleIcon) и
+// рядом с ником в сообщении (Message.tsx, Avatar с формой rounded-square).
+// for-web растягивает картинку на весь квадрат (object-fit: cover) и
+// скругляет углы, поэтому неквадратный значок обрезается по краям. А если
+// просто вписать её в квадрат (contain), широкий значок станет ниже и уже
+// соседнего текста. Поэтому значок — во всю высоту (16 px), а ширина — по
+// пропорциям картинки (не больше трёх высот, шире — вписывается), как в
+// Discord; скругление снято: значки ролей — обычно картинки с прозрачным
+// фоном, как эмодзи, и скругление срезало бы их края.
 //
-// * заголовок группы — картинка значка, за которой ровно два span: имя роли
-//   и « – число»;
-// * сообщение — Avatar размером 16 px (svg со стилем `width: 16px`) прямо в
-//   обёртке подсказки (div): форма (div внутри foreignObject) и картинка
-//   значка в ней. Значок сервера в ссылке-приглашении — тоже Avatar 16 px с
-//   картинкой icons, но он лежит прямо в ссылке (a или span) и не меняется.
+// * Заголовок группы — обычная картинка: ширину по пропорциям даёт CSS
+//   (`width: auto`). Опора — картинка значка, за которой ровно два span: имя
+//   роли и « – число».
+// * Рядом с ником — Avatar: svg со стилем `width: 16px` и viewBox 0 0 32 32,
+//   внутри foreignObject 32×32 с формой (div) и картинкой. Размер svg задан
+//   числом, а viewBox из CSS не поменять, поэтому, когда картинка
+//   загрузилась, скрипт ставит ширину svg, viewBox и ширину foreignObject по
+//   её пропорциям и помечает svg (`data-arachnid-role-icon`: стиль больше не
+//   `width: 16px`, а пометка оставляет его своим). Опора — Avatar 16 px прямо в
+//   обёртке подсказки (div). Значок сервера в ссылке-приглашении — тоже
+//   Avatar 16 px с картинкой icons, но он лежит прямо в ссылке (a или span) и
+//   не меняется.
 //
 // Блок над списком for-web меняет его отступ от начала прокрутки, а список
 // замеряет отступ только при смене ширины. Расхождение до пяти строк
@@ -147,8 +156,17 @@
   const ICON = 'img[src*="/icons/"]';
   /** Значок в заголовке группы роли: за ним имя роли и « – число» */
   const MEMBER_ROLE_ICON = `${ICON}:first-child:has(+ span + span:last-child)`;
-  /** Форма Avatar значка роли рядом с ником (Avatar 16 px в обёртке подсказки) */
-  const MESSAGE_ROLE_ICON = `div > svg[style*="width: 16px"] > g > foreignObject > div:has(> ${ICON})`;
+  /** Пометка svg значка роли, которому скрипт уже задал ширину */
+  const ROLE_ICON_MARK = "data-arachnid-role-icon";
+  /**
+   * Форма Avatar значка роли рядом с ником: Avatar 16 px (или уже
+   * помеченный скриптом) прямо в обёртке подсказки
+   */
+  const MESSAGE_ROLE_ICON = `div > svg:is([style*="width: 16px"], [${ROLE_ICON_MARK}]) > g > foreignObject > div:has(> ${ICON})`;
+  /** Высота значка роли — как у for-web (Avatar size 16, RoleIcon 16 px) */
+  const ROLE_ICON_SIZE = 16;
+  /** Значок роли шире стольких высот вписывается, а не растягивает строку */
+  const ROLE_ICON_MAX_RATIO = 3;
 
   /**
    * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
@@ -390,6 +408,8 @@ ${REACTION} > img.emoji {
   height: ${REACTION_EMOJI};
 }
 ${MEMBER_ROLE_ICON} {
+  width: auto;
+  max-width: ${ROLE_ICON_SIZE * ROLE_ICON_MAX_RATIO}px;
   object-fit: contain;
   border-radius: 0;
 }
@@ -1021,6 +1041,46 @@ ${MESSAGE_ROLE_ICON} > img {
     };
   }
 
+  // ─────────────────────────── значки ролей ───────────────────────────
+  /**
+   * Значок роли рядом с ником — по пропорциям картинки: svg Avatar шириной
+   * `16 × пропорция` px, viewBox и foreignObject — `32 × пропорция` единиц
+   * (в высоту по-прежнему 32), чтобы картинка была во всю высоту.
+   */
+  function fitRoleIcon(img) {
+    if (!img.naturalWidth || !img.naturalHeight) return;
+    const object = img.parentElement?.parentElement;
+    const svg = object?.parentElement?.parentElement;
+    if (object?.localName !== "foreignObject" || svg?.localName !== "svg") return;
+    const ratio = Math.min(img.naturalWidth / img.naturalHeight, ROLE_ICON_MAX_RATIO);
+    const units = Math.round(32 * ratio * 100) / 100;
+    svg.setAttribute(ROLE_ICON_MARK, "");
+    svg.setAttribute("viewBox", `0 0 ${units} 32`);
+    object.setAttribute("width", String(units));
+    svg.style.setProperty("width", `${(ROLE_ICON_SIZE * units) / 32}px`);
+  }
+
+  const MESSAGE_ROLE_ICON_IMAGE = `${MESSAGE_ROLE_ICON} > img`;
+
+  /**
+   * Картинки не всплывают с событием load, но проходят через document при
+   * перехвате: так значок подгоняется, как только загрузился (и после смены
+   * картинки), без наблюдения за каждым новым сообщением.
+   */
+  function onImageLoad(event) {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || !img.src.includes("/icons/")) return;
+    if (img.matches(MESSAGE_ROLE_ICON_IMAGE)) fitRoleIcon(img);
+  }
+
+  function watchRoleIcons() {
+    document.addEventListener("load", onImageLoad, true);
+    // уже загруженные до запуска плагина
+    for (const img of document.querySelectorAll(MESSAGE_ROLE_ICON_IMAGE)) {
+      if (img.complete) fitRoleIcon(img);
+    }
+  }
+
   // ─────────────────────────── наблюдение ───────────────────────────
   // Поле поиска for-web — mdui-text-field (TextField.tsx). Solid задаёт ему
   // подсказку свойством, а атрибутом она становится позже, при отрисовке
@@ -1100,6 +1160,7 @@ ${MESSAGE_ROLE_ICON} > img {
 
   function start() {
     ensureStyle();
+    watchRoleIcons();
     new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
     added.push(document.body);
     scan();
