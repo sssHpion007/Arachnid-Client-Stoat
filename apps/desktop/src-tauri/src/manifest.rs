@@ -207,8 +207,7 @@ pub fn parse_plugin(dir: &Path, text: &str) -> Result<PluginManifest, String> {
 
 /// Прочитать `theme.toml` папки `dir`.
 pub fn parse_theme(dir: &Path, text: &str) -> Result<ThemeManifest, String> {
-    let raw: RawTheme =
-        toml::from_str(text).map_err(|error| toml_error(THEME_MANIFEST, &error))?;
+    let raw: RawTheme = toml::from_str(text).map_err(|error| toml_error(THEME_MANIFEST, &error))?;
     let Some(main) = file_field(dir, "main", raw.main, DEFAULT_THEME_CSS)? else {
         return Err(format!("в папке нет {DEFAULT_THEME_CSS}"));
     };
@@ -304,12 +303,14 @@ fn hosts(raw: Vec<String>) -> Result<Vec<String>, String> {
 /// Подходит ли адрес под разрешённые.
 pub fn host_allowed(patterns: &[String], host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
-    patterns.iter().any(|pattern| match pattern.strip_prefix("*.") {
-        Some(domain) => host
-            .strip_suffix(domain)
-            .is_some_and(|rest| rest.len() > 1 && rest.ends_with('.')),
-        None => *pattern == host,
-    })
+    patterns
+        .iter()
+        .any(|pattern| match pattern.strip_prefix("*.") {
+            Some(domain) => host
+                .strip_suffix(domain)
+                .is_some_and(|rest| rest.len() > 1 && rest.ends_with('.')),
+            None => *pattern == host,
+        })
 }
 
 fn settings(raw: Vec<RawSetting>) -> Result<Vec<Setting>, String> {
