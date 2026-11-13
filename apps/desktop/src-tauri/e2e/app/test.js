@@ -17,7 +17,8 @@
 //    строки, щелчок по эмодзи доходит до ячейки for-web, а прокрутка не
 //    заставляет клиент искать окно по всему документу;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
-//    удаляется кнопками шторки.
+//    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
+//    плашки, плашка той же высоты.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -185,6 +186,46 @@
     render();
     return { base, input, rail, grid, gridList, render, picked };
   }
+  /**
+   * Реакции под сообщением, как у for-web (Reactions.tsx): список, в нём
+   * обёртки подсказок с плашками (картинка эмодзи и счётчик) и кнопка «+»
+   * (`class="add"`). Для сравнения — такой же блок без кнопки «+».
+   */
+  function reactionsMock() {
+    const style = document.createElement("style");
+    style.textContent = `@layer utilities {
+  .e2e-reactions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .e2e-reaction { position: relative; display: flex; flex-direction: row; gap: 8px; padding: 8px; border-radius: 12px; font-weight: 600; }
+  .e2e-reaction img { width: 1.2em; height: 1.2em; object-fit: contain; }
+  .e2e-emoji { display: inline-block; width: 1.4em; height: 1.4em; margin: 0 0.05em 0 0.1em; vertical-align: -0.3em; }
+}`;
+    const h = (tag, className, ...children) => {
+      const element = document.createElement(tag);
+      if (className) element.className = className;
+      element.append(...children);
+      return element;
+    };
+    const image = () => {
+      const img = h("img", "emoji e2e-emoji");
+      img.alt = "👍";
+      img.src = emoji("twemoji", "1f44d");
+      return img;
+    };
+    const ripple = () => {
+      const element = h("div");
+      element.style.cssText = "position:absolute;inset:0";
+      return element;
+    };
+    const emojiImage = image();
+    const pill = h("div", "e2e-reaction", ripple(), emojiImage, " 3");
+    const otherImage = image();
+    const list = h("div", "e2e-reactions", h("div", null, pill), h("div", null, h("div", "e2e-reaction add", "+")));
+    const lonely = h("div", "e2e-reactions", h("div", null, h("div", "e2e-reaction", otherImage, " 1")));
+    const base = h("div", null, style, list, lonely);
+    base.style.cssText = "position:fixed;left:0;top:0;font-size:14px;line-height:1.5";
+    return { base, pill, emoji: emojiImage, other: otherImage };
+  }
+
   const packState = async (id) => (await invoke("emoji_packs")).packs.find((pack) => pack.id === id);
   const FOLDER = "e2e-folder";
   const pluginInfo = async (file) => (await invoke("extensions_overview")).plugins.find((plugin) => plugin.file === file);
@@ -364,6 +405,27 @@
         chosen?.["appearance:unicode_emoji"] === "fluent-3d",
         chosen,
       );
+
+      // Реакции: разметка и стили Reactions.tsx for-web. Стили for-web — в
+      // слое, как у Panda, строка 1.5 — как сброс стилей Panda, текст 14 px.
+      // стиль встроенного плагина появляется, когда клиент его выполнит
+      await waitFor(() => document.getElementById("arachnid-emoji-style"), 5000, 50);
+      const reactions = reactionsMock();
+      document.body.append(reactions.base);
+      const box = (element) => element.getBoundingClientRect();
+      const emojiBox = box(reactions.emoji);
+      const pillBox = box(reactions.pill);
+      const reactionShape = {
+        emoji: emojiBox.height,
+        pill: pillBox.height,
+        offset: emojiBox.top + emojiBox.height / 2 - (pillBox.top + pillBox.height / 2),
+      };
+      await check("реакции: эмодзи 1.4em (19.6 px)", Math.abs(emojiBox.width - 19.6) < 0.5, reactionShape);
+      await check("реакции: эмодзи по центру плашки", Math.abs(reactionShape.offset) < 0.5, reactionShape);
+      await check("реакции: высота плашки как у Stoat (37 px)", Math.abs(pillBox.height - 37) < 0.5, reactionShape);
+      const other = box(reactions.other).width;
+      await check("реакции: другие картинки эмодзи не тронуты", Math.abs(other - 16.8) < 0.5, other);
+      reactions.base.remove();
 
       // окно выбора эмодзи
       const picker = emojiPicker();

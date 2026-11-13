@@ -1,5 +1,5 @@
 // Разделы с заголовками и «Часто используемые» в окне выбора эмодзи, как в
-// Discord.
+// Discord, и крупные эмодзи в реакциях.
 //
 // У for-web (EmojiPicker.tsx) слева от сетки — колонка с серверами, а все
 // стандартные эмодзи идут одним списком под заголовком «Default», без
@@ -54,6 +54,23 @@
 //   эмодзи — из отрисованной картинки for-web, а пока её нет — из настроек
 //   for-web в IndexedDB (как в defaults.js).
 //
+// Реакции под сообщением (Reactions.tsx for-web) — плашки с эмодзи и
+// счётчиком. Эмодзи в них — 1.2em: при 14 px текста это около 17 px на
+// плашке высотой 37 px (отступы по 8 px и строка 1.5 — сброс стилей Panda),
+// заметно мельче, чем в Discord. Плашка — flex-строка без выравнивания по
+// вертикали, поэтому эмодзи прижат к верху строки текста и стоит примерно на
+// 2 px выше середины. Скрипт делает эмодзи размером с эмодзи в тексте
+// сообщений (`--emoji-size` Stoat — 1.4em; в плашке он не задан, поэтому
+// размер записан числом) и ставит его по центру. 1.4em меньше строки (1.5),
+// так что плашка не растёт: отступы, скругление, цвета и счётчик остаются как
+// у Stoat. Стили for-web лежат в слоях (@layer) Panda, а стиль скрипта — вне
+// слоёв, поэтому перекрывает их без !important. Опоры:
+//
+// * список реакций — блок, где среди детей есть кнопка «+» (`class="add"`,
+//   for-web задаёт этот класс явно);
+// * реакция — обёртка подсказки (div) с плашкой, у которой прямой ребёнок —
+//   картинка эмодзи `img.emoji` (UnicodeEmoji и CustomEmoji for-web).
+//
 // Блок над списком for-web меняет его отступ от начала прокрутки, а список
 // замеряет отступ только при смене ширины. Расхождение до пяти строк
 // (200 px) он перекрывает запасом отрисовки (overscan по умолчанию — 180 px,
@@ -62,7 +79,8 @@
 //
 // Это встроенный плагин «Quality of Life» (extensions.rs): он выполняется
 // после загрузки страницы, как плагины из папки, и выключается в разделе
-// «Плагины». Работает только там, где bridge.js создал window.__arachnidDesktop
+// «Плагины» (страница перезагружается — стили реакций уходят вместе с ним).
+// Работает только там, где bridge.js создал window.__arachnidDesktop
 // (страница веб-клиента из config.toml).
 (() => {
   "use strict";
@@ -104,6 +122,10 @@
   const VIRTUAL_LIST = '[class*="virtual-container-"]';
   /** Набор for-web по умолчанию (Settings.ts) */
   const WEB_DEFAULT_PACK = "fluent-3d";
+  /** Плашка реакции (Reactions.tsx): обёртка подсказки → плашка с img.emoji */
+  const REACTION = "div:has(> div > .add) > div > div:has(> img.emoji)";
+  /** Эмодзи в реакции — как --emoji-size Stoat для эмодзи в тексте */
+  const REACTION_EMOJI = "1.4em";
 
   /**
    * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
@@ -223,7 +245,8 @@
 
   // Цвета — переменные Material 3 for-web, подходят к любой теме. Заголовки,
   // ячейки и полоса предпросмотра повторяют свои элементы for-web
-  // (EmojiOption, EmojiPreviewBar, PreviewEmoji, PreviewName).
+  // (EmojiOption, EmojiPreviewBar, PreviewEmoji, PreviewName); в конце —
+  // реакции (см. начало файла).
   const STYLE = `
 .arachnid-emoji-rail {
   display: flex;
@@ -336,6 +359,13 @@
   color: var(--colour-foreground);
 }
 [data-arachnid-emoji-hidden] { display: none !important; }
+${REACTION} {
+  align-items: center;
+}
+${REACTION} > img.emoji {
+  width: ${REACTION_EMOJI};
+  height: ${REACTION_EMOJI};
+}
 `;
 
   function ensureStyle() {
@@ -454,7 +484,6 @@
   function enhance(picker) {
     const { input, rail, railList, grid, gridList, preview } = picker;
     input.dataset.arachnidEmoji = "";
-    ensureStyle();
 
     /**
      * Ширина содержимого сетки — её же for-web берёт у ResizeObserver для
@@ -1037,6 +1066,7 @@
   }
 
   function start() {
+    ensureStyle();
     new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
     added.push(document.body);
     scan();
