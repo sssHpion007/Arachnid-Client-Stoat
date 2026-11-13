@@ -86,6 +86,15 @@
 // * Заголовок группы — обычная картинка: ширину по пропорциям даёт CSS
 //   (`width: auto`). Опора — картинка значка, за которой ровно два span: имя
 //   роли и « – число».
+// * Сам заголовок группы — строка виртуального списка участников, как и
+//   карточка участника: все строки по 42 px. for-web даёт заголовку отступ
+//   28 px сверху и 0 снизу, а значок — 16 px: заголовок выходит за строку на
+//   2 px, и карточка участника под ним закрывает низ значка, а между
+//   заголовком и карточкой нет зазора. Скрипт укладывает заголовок в 42 px:
+//   20 px сверху, 16 px — значок и название (по центру друг друга, с
+//   значком и без), 6 px зазора до карточки. Опора — строка списка
+//   @minht11/solid-virtual-container, в которой блок из названия и « –
+//   число» (и, может быть, значка перед ними).
 // * Рядом с ником — Avatar: svg со стилем `width: 16px` и viewBox 0 0 32 32,
 //   внутри foreignObject 32×32 с формой (div) и картинкой. Размер svg задан
 //   числом, а viewBox из CSS не поменять, поэтому, когда картинка
@@ -163,6 +172,15 @@
    * помеченный скриптом) прямо в обёртке подсказки
    */
   const MESSAGE_ROLE_ICON = `div > svg:is([style*="width: 16px"], [${ROLE_ICON_MARK}]) > g > foreignObject > div:has(> ${ICON})`;
+  /**
+   * Заголовок группы в списке участников (CategoryTitle): строка
+   * виртуального списка — название и « – число», перед ними может быть значок
+   */
+  const MEMBER_GROUP = `${VIRTUAL_LIST} > div > div:is(:has(> span:first-child + span:last-child), :has(> img:first-child + span + span:last-child))`;
+  /** Строка списка участников (itemSize в MemberSidebar.tsx) */
+  const MEMBER_ROW = 42;
+  /** Зазор между заголовком группы и карточкой участника под ним */
+  const MEMBER_GROUP_GAP = 6;
   /** Высота значка роли — как у for-web (Avatar size 16, RoleIcon 16 px) */
   const ROLE_ICON_SIZE = 16;
   /** Значок роли шире стольких высот вписывается, а не растягивает строку */
@@ -406,6 +424,12 @@ ${REACTION} {
 ${REACTION} > img.emoji {
   width: ${REACTION_EMOJI};
   height: ${REACTION_EMOJI};
+}
+${MEMBER_GROUP} {
+  box-sizing: border-box;
+  height: ${MEMBER_ROW}px;
+  padding-top: ${MEMBER_ROW - ROLE_ICON_SIZE - MEMBER_GROUP_GAP}px;
+  padding-bottom: ${MEMBER_GROUP_GAP}px;
 }
 ${MEMBER_ROLE_ICON} {
   width: auto;

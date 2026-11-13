@@ -19,7 +19,8 @@
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
 //    плашки, плашка той же высоты; значки ролей видны целиком, во всю
-//    высоту и с шириной по пропорциям картинки.
+//    высоту и с шириной по пропорциям картинки; заголовок группы участников
+//    помещается в строку списка, с зазором до карточки участника.
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -244,12 +245,18 @@
     const base = document.createElement("div");
     base.style.cssText = "position:fixed;left:0;top:0";
     base.innerHTML = `<style>@layer utilities {
-  .e2e-title { display: flex; align-items: center; gap: 6px; }
+  .e2e-title { padding: 28px 14px 0; display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 14px; }
+  .e2e-card { height: 42px; background: #333; }
   .e2e-role-icon { width: 16px; height: 16px; border-radius: 8px; object-fit: cover; }
   .e2e-shape { overflow: hidden; width: 100%; height: 100%; border-radius: 12px; }
   .e2e-avatar { width: 100%; height: 100%; object-fit: cover; }
 }</style>
-<div class="e2e-title" id="e2e-member"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span><span> – 1</span></div>
+<div class="virtual-container-e2e" style="position:relative;width:240px;height:${42 * 4}px">
+<div style="position:absolute;top:0;width:100%"><div class="e2e-title" id="e2e-member"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span><span> – 1</span></div></div>
+<div style="position:absolute;top:42px;width:100%"><div id="e2e-card"><div class="e2e-card"></div></div></div>
+<div style="position:absolute;top:84px;width:100%"><div class="e2e-title" id="e2e-online"><span>Online</span><span> – 1</span></div></div>
+<div style="position:absolute;top:126px;width:100%"><div><div class="e2e-card"></div></div></div>
+</div>
 <div class="e2e-title" id="e2e-lonely"><img class="e2e-role-icon" src="${icon}" alt=""><span>Админ</span></div>
 <div id="e2e-message"><div>Ник</div><div><div>${avatar(16, icon)}</div></div></div>
 <p id="e2e-link"><a href="#">${avatar(16, icon)}Сервер</a></p>
@@ -266,6 +273,11 @@
         linkShape: find("#e2e-link .e2e-shape"),
         serverIcon: find("#e2e-server img"),
         serverShape: find("#e2e-server .e2e-shape"),
+        memberTitle: find("#e2e-member"),
+        memberName: find("#e2e-member span"),
+        onlineTitle: find("#e2e-online"),
+        onlineName: find("#e2e-online span"),
+        card: find("#e2e-card"),
         messageSvg: find("#e2e-message svg"),
         linkSvg: find("#e2e-link svg"),
         serverSvg: find("#e2e-server svg"),
@@ -529,6 +541,29 @@
         iconSizes.lonely === "16x16" && iconSizes.link === "16x16" && iconSizes.server === "42x42",
         iconSizes,
       );
+      // заголовок группы — в своей строке (42 px), зазор 6 px до карточки
+      const rect = (name) => icons.parts[name].getBoundingClientRect();
+      const title = rect("memberTitle");
+      const roleIcon = rect("memberIcon");
+      const online = rect("onlineTitle");
+      const middle = (name, of) => {
+        const box = rect(name);
+        return Math.round((box.top + box.height / 2 - of.top) * 10) / 10;
+      };
+      const group = {
+        title: Math.round(title.height * 10) / 10,
+        online: Math.round(online.height * 10) / 10,
+        iconTop: Math.round((roleIcon.top - title.top) * 10) / 10,
+        gap: Math.round((rect("card").top - roleIcon.bottom) * 10) / 10,
+        nameMiddle: middle("memberName", title),
+        onlineMiddle: middle("onlineName", online),
+      };
+      await check(
+        "заголовок группы участников — в строке списка, значок не под карточкой",
+        group.title === 42 && group.online === 42 && group.iconTop >= 0 && group.gap === 6,
+        group,
+      );
+      await check("заголовки групп со значком и без — название на одной высоте", group.nameMiddle === group.onlineMiddle, group);
       icons.base.remove();
 
       // окно выбора эмодзи
