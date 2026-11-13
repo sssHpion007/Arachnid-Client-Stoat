@@ -632,8 +632,7 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
         Some(_) => 0,
         None => MAX_PAGE,
     };
-    let fetched = crate::http::fetch(&url, REQUEST_HEADERS, limit)
-        .map_err(network_error)?;
+    let fetched = crate::http::fetch(&url, REQUEST_HEADERS, limit).map_err(network_error)?;
     let mime = content_type(&fetched.headers);
     let binary = mime.is_empty() || mime.ends_with("octet-stream");
     let by_path = if binary { kind_of_path(&url) } else { None };
@@ -647,16 +646,15 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
         return Err(format!("по ссылке не GIF и не страница ({mime})"));
     }
     let html = String::from_utf8_lossy(&fetched.body);
-    page_media(&html, &url)
-        .ok_or_else(|| "на странице нет GIF, видео или картинки".to_owned())
+    page_media(&html, &url).ok_or_else(|| "на странице нет GIF, видео или картинки".to_owned())
 }
 
 /// Скачать файл для превью.
 #[cfg(windows)]
 pub fn download(raw: &str) -> Result<Vec<u8>, String> {
     let url = parse_url(raw)?;
-    let fetched = crate::http::fetch(&url, REQUEST_HEADERS, |_| MAX_MEDIA)
-        .map_err(network_error)?;
+    let fetched =
+        crate::http::fetch(&url, REQUEST_HEADERS, |_| MAX_MEDIA).map_err(network_error)?;
     if !fetched.complete {
         return Err("файл больше 48 МБ".into());
     }

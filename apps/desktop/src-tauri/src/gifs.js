@@ -1901,7 +1901,14 @@
   // следит скрипт. Поле поиска — mdui-text-field: Solid задаёт подсказку
   // свойством, а атрибутом она становится позже, поэтому проверяется
   // свойство.
+  //
+  // Окно GIF появляется целиком — новым блоком в #floating (Portal for-web) —
+  // или содержимым окна при переключении «Emoji → GIFs»: тогда блок встаёт
+  // за рядом кнопок .CompositionButton. Только в таких блоках и ищется поле:
+  // остальные добавления (строки окна эмодзи при прокрутке, меню) по
+  // документу не ищутся.
   const FIELDS = "mdui-text-field, input";
+  let floating = null;
   let added = [];
   let queued = false;
 
@@ -1939,17 +1946,27 @@
 
   const OWN = ".arachnid-gifs-view, .arachnid-gifs-row, .arachnid-gifs-category";
 
+  /** Может ли в добавленном блоке быть новое окно GIF */
+  function mayHoldPicker(target, node) {
+    return (
+      target === floating ||
+      target.parentElement === floating ||
+      node.previousElementSibling?.classList.contains("CompositionButton") === true
+    );
+  }
+
   function observe(records) {
+    const open = pickers.size > 0;
     let wanted = false;
     for (const record of records) {
       // свои плитки меняются при прокрутке — окно от этого не меняется
-      if (record.target.closest?.(OWN)) continue;
-      if (pickers.size > 0) wanted = true;
+      if (open && record.target.closest(OWN)) continue;
+      if (open) wanted = true;
       for (const node of record.addedNodes) {
-        if (node.nodeType !== Node.ELEMENT_NODE || node.closest(OWN)) continue;
-        // autoplay сработал бы раньше следующего кадра
-        if (pickers.size > 0) {
-          const videos = node instanceof HTMLVideoElement ? [node] : node.querySelectorAll("video");
+        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+        if (open && !node.closest(OWN)) {
+          // autoplay сработал бы раньше следующего кадра
+          const videos = node instanceof HTMLVideoElement ? [node] : node.getElementsByTagName("video");
           for (const video of videos) {
             if (video.closest(".CompositionButton ~ *")) quietVideo(video);
           }
@@ -1962,8 +1979,10 @@
             insertChatItem(menu, element);
           }
         }
-        added.push(node);
-        wanted = true;
+        if (mayHoldPicker(record.target, node)) {
+          added.push(node);
+          wanted = true;
+        }
       }
     }
     if (wanted) queueScan();
@@ -1974,9 +1993,9 @@
     watchGifbox();
     addEventListener("contextmenu", onContextMenuCapture, true);
     addEventListener("click", rememberPointer, true);
-    const root = document.getElementById("floating") ?? document.body;
-    new MutationObserver(observe).observe(root, { childList: true, subtree: true });
-    added.push(root);
+    floating = document.getElementById("floating") ?? document.body;
+    new MutationObserver(observe).observe(floating, { childList: true, subtree: true });
+    added.push(floating);
     scan();
     void load();
   }
