@@ -56,9 +56,14 @@ const MAX_SIDE: u32 = 16384;
 const MAX_MEDIA: usize = 48 * 1024 * 1024;
 /// Столько читается от страницы: теги Open Graph — в её начале.
 const MAX_PAGE: usize = 2 * 1024 * 1024;
-/// Заголовки запросов по ссылкам пользователя.
-const REQUEST_HEADERS: &str =
+/// Заголовки запроса страницы — как у перехода по ссылке в браузере.
+const PAGE_HEADERS: &str =
     "Accept: text/html,application/xhtml+xml,image/*,video/*;q=0.9,*/*;q=0.8\r\n";
+/// Заголовки запроса файла — как у `<img>` и `<video>` страницы. Tenor
+/// (`media1.tenor.com/m/…`) и Giphy по ссылке на GIF отдают HTML-страницу
+/// тому, кто предпочитает HTML, а картинке на странице — сам файл.
+const MEDIA_HEADERS: &str =
+    "Accept: image/avif,image/webp,image/apng,image/*,video/*;q=0.9,*/*;q=0.8\r\n";
 
 /// Что воспроизводит плитка.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -478,6 +483,15 @@ fn kind_of_path(url: &Url) -> Option<Kind> {
     }
 }
 
+/// Как запрашивать ссылку: по ней файл (по расширению) — как файл, иначе
+/// как страницу. Если вместо файла всё же пришла страница, она разбирается.
+fn accept_for(url: &Url) -> &'static str {
+    match kind_of_path(url) {
+        Some(_) => MEDIA_HEADERS,
+        None => PAGE_HEADERS,
+    }
+}
+
 /// Тип без параметров (`text/html; charset=utf-8` → `text/html`).
 fn content_type(headers: &[(String, String)]) -> String {
     let value = headers
@@ -632,7 +646,7 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
         Some(_) => 0,
         None => MAX_PAGE,
     };
-    let fetched = crate::http::fetch(&url, REQUEST_HEADERS, limit).map_err(network_error)?;
+    let fetched = crate::http::fetch(&url, accept_for(&url), limit).map_err(network_error)?;
     let mime = content_type(&fetched.headers);
     let binary = mime.is_empty() || mime.ends_with("octet-stream");
     let by_path = if binary { kind_of_path(&url) } else { None };
@@ -653,8 +667,8 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
 #[cfg(windows)]
 pub fn download(raw: &str) -> Result<Vec<u8>, String> {
     let url = parse_url(raw)?;
-    let fetched =
-        crate::http::fetch(&url, REQUEST_HEADERS, |_| MAX_MEDIA).map_err(network_error)?;
+    let fetched = crate::http::fetch(&url, MEDIA_HEADERS, |_| MAX_MEDIA);
+    let fetched = fetched.map_err(network_error)?;
     if !fetched.complete {
         return Err("файл больше 48 МБ".into());
     }
@@ -889,5 +903,14 @@ mod tests {
         assert_eq!(path_kind("https://x.com/a.WEBM?b"), Some(Kind::Video));
         assert_eq!(path_kind("https://x.com/a.gif"), Some(Kind::Image));
         assert_eq!(path_kind("https://x.com/view/a"), None);
+    }
+
+    #[test]
+    fn media_links_are_requested_as_media() {
+        let accept = |raw: &str| accept_for(&Url::parse(raw).unwrap());
+        assert_eq!(accept("https://media1.tenor.com/m/abc/cat.gif"), MEDIA_HEADERS);
+        assert_eq!(accept("https://media.tenor.com/abc/cat.mp4"), MEDIA_HEADERS);
+        assert_eq!(accept("https://tenor.com/view/cat-gif-1"), PAGE_HEADERS);
+        assert!(MEDIA_HEADERS.starts_with("Accept: image/"));
     }
 }

@@ -61,6 +61,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/app/")
             self.end_headers()
             return
+        if path == "/e2e/negotiated.gif":
+            # как media1.tenor.com/m/… и Giphy: переходу по ссылке — страница,
+            # картинке на странице — сам файл
+            if "text/html" in self.headers.get("Accept", ""):
+                self.reply(PAGES["/e2e/plain"].encode("utf-8"), "text/html; charset=utf-8")
+            else:
+                self.reply((HERE / "app" / "cat.gif").read_bytes(), "image/gif")
+            return
         if path in PAGES:
             self.reply(PAGES[path].encode("utf-8"), "text/html; charset=utf-8")
             return
