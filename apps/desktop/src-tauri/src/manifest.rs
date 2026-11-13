@@ -260,7 +260,9 @@ fn file_field(
         return Ok(dir.join(default).is_file().then(|| default.to_owned()));
     };
     let Some(path) = relative_path(&value) else {
-        return Err(format!("{field} = \"{value}\": путь должен вести внутрь папки"));
+        return Err(format!(
+            "{field} = \"{value}\": путь должен вести внутрь папки"
+        ));
     };
     if !dir.join(path).is_file() {
         return Err(format!("{field} = \"{value}\": такого файла нет"));
@@ -363,7 +365,11 @@ fn setting(raw: RawSetting) -> Result<Setting, String> {
         Some(toml::Value::Boolean(value)) => Some(if value { "1" } else { "0" }.to_owned()),
         Some(toml::Value::Integer(value)) => Some(value.to_string()),
         Some(toml::Value::Float(value)) => Some(value.to_string()),
-        Some(_) => return Err(format!("настройка {name}: default — строка, число или флаг")),
+        Some(_) => {
+            return Err(format!(
+                "настройка {name}: default — строка, число или флаг"
+            ));
+        }
         None => None,
     };
     let mut setting = Setting {

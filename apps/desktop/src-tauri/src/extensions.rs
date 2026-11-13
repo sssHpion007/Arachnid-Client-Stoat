@@ -821,7 +821,9 @@ impl Extensions {
     /// Стили плагина-папки: настройки — переменными CSS, `url()` — в его папку.
     fn plugin_style(&self, id: &str, manifest: &PluginManifest, saved: &Saved) -> Option<String> {
         let style = manifest.style.as_deref()?;
-        let path = self.folder(Kind::Plugin, id).join(manifest::relative_path(style)?);
+        let path = self
+            .folder(Kind::Plugin, id)
+            .join(manifest::relative_path(style)?);
         let css = read_limited(&path)?;
         let css = match asset_url(Kind::Plugin, id, style) {
             Some(base) => rebase_urls(&css, &base),
@@ -877,7 +879,10 @@ impl Extensions {
                     "native": manifest.native.is_some(),
                     "network": saved.network(&plugin.id, manifest),
                 });
-                let main = manifest.main.as_deref().unwrap_or(manifest::PLUGIN_MANIFEST);
+                let main = manifest
+                    .main
+                    .as_deref()
+                    .unwrap_or(manifest::PLUGIN_MANIFEST);
                 Some(folder_plugin_script(&plugin.id, main, &code, &info))
             }
             Origin::Broken(_) => None,
@@ -936,7 +941,9 @@ impl Extensions {
                     running: running.contains(&plugin.id),
                     builtin: builtin(&plugin.id).is_some(),
                     folder: manifest.is_some() || error.is_some(),
-                    native: manifest.as_ref().is_some_and(|manifest| manifest.native.is_some()),
+                    native: manifest
+                        .as_ref()
+                        .is_some_and(|manifest| manifest.native.is_some()),
                     granted: manifest
                         .as_ref()
                         .is_none_or(|manifest| saved.granted(&plugin.id, manifest)),
@@ -1737,7 +1744,11 @@ pub fn on_menu(app: &AppHandle, id: &str) {
         let saved = extensions.saved();
         let value = !saved.plugin_enabled(name);
         // включить можно только готовый плагин (см. plugins_submenu)
-        if value && !extensions.plugin(name).is_some_and(|plugin| plugin.ready(&saved)) {
+        if value
+            && !extensions
+                .plugin(name)
+                .is_some_and(|plugin| plugin.ready(&saved))
+        {
             desktop::refresh_tray(app);
             return;
         }
@@ -2175,14 +2186,23 @@ mod tests {
         )
         .unwrap();
         let extensions = extensions(&dir);
-        assert!(extensions.overview().reload_needed, "встроенный ещё не запущен");
+        assert!(
+            extensions.overview().reload_needed,
+            "встроенный ещё не запущен"
+        );
         extensions.set_running(vec!["builtin:qol".into()]);
         assert!(!extensions.overview().reload_needed);
         extensions.set_plugin("klipy.js", true);
         let overview = extensions.overview();
         assert!(overview.reload_needed, "включён, но ещё не запущен");
-        let klipy = overview.plugins.iter().find(|plugin| plugin.file == "klipy.js");
-        assert_eq!(klipy.and_then(|plugin| plugin.name.as_deref()), Some("Klipy"));
+        let klipy = overview
+            .plugins
+            .iter()
+            .find(|plugin| plugin.file == "klipy.js");
+        assert_eq!(
+            klipy.and_then(|plugin| plugin.name.as_deref()),
+            Some("Klipy")
+        );
         extensions.set_running(vec!["builtin:qol".into(), "klipy.js".into()]);
         assert!(!extensions.overview().reload_needed);
         std::fs::remove_dir_all(&dir).ok();
@@ -2310,7 +2330,11 @@ mod tests {
         std::fs::create_dir_all(folder.join("img")).unwrap();
         std::fs::write(folder.join("plugin.toml"), TRANSLATE_MANIFEST).unwrap();
         std::fs::write(folder.join("main.js"), "plugin.storage.get('x');").unwrap();
-        std::fs::write(folder.join("style.css"), "a { background: url(img/flag.png) }").unwrap();
+        std::fs::write(
+            folder.join("style.css"),
+            "a { background: url(img/flag.png) }",
+        )
+        .unwrap();
         std::fs::write(folder.join("img").join("flag.png"), "png").unwrap();
         folder
     }
@@ -2331,10 +2355,18 @@ mod tests {
         assert!(script.contains(r#""assetBase":"#));
         assert!(script.contains("/plugins/translate/"));
         assert!(script.contains(r#""settings":{"lang":"en"}"#));
-        assert!(script.contains(r#""network":[]"#), "адрес ещё не подтверждён");
+        assert!(
+            script.contains(r#""network":[]"#),
+            "адрес ещё не подтверждён"
+        );
         assert!(script.ends_with("//# sourceURL=arachnid-plugins/translate/main.js\n"));
 
-        let info = extensions.overview().plugins.into_iter().find(|plugin| plugin.folder).unwrap();
+        let info = extensions
+            .overview()
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.folder)
+            .unwrap();
         assert_eq!(info.name.as_deref(), Some("Переводчик"));
         assert_eq!(info.network, ["api.example.com"]);
         assert!(!info.granted);
@@ -2373,9 +2405,19 @@ mod tests {
         extensions.set_plugin("broken", true);
         assert!(user_plugins(&extensions).is_empty());
         let overview = extensions.overview();
-        let names: Vec<&str> = overview.plugins.iter().map(|plugin| plugin.file.as_str()).collect();
+        let names: Vec<&str> = overview
+            .plugins
+            .iter()
+            .map(|plugin| plugin.file.as_str())
+            .collect();
         assert_eq!(names, ["builtin:qol", "broken"]);
-        assert!(overview.plugins[1].error.as_deref().unwrap().contains("plugin.toml"));
+        assert!(
+            overview.plugins[1]
+                .error
+                .as_deref()
+                .unwrap()
+                .contains("plugin.toml")
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2412,8 +2454,16 @@ mod tests {
         std::fs::write(folder.join("img").join("two words.png"), "png").unwrap();
         std::fs::write(dir.join("secret.txt"), "secret").unwrap();
         let extensions = extensions(&dir);
-        assert!(extensions.asset_path("/plugins/translate/img/flag.png").is_some());
-        assert!(extensions.asset_path("/plugins/translate/img/two%20words.png").is_some());
+        assert!(
+            extensions
+                .asset_path("/plugins/translate/img/flag.png")
+                .is_some()
+        );
+        assert!(
+            extensions
+                .asset_path("/plugins/translate/img/two%20words.png")
+                .is_some()
+        );
         for bad in [
             "/plugins/translate/../../secret.txt",
             "/plugins/translate/%2E%2E/%2E%2E/secret.txt",

@@ -37,8 +37,8 @@ use serde_json::{Value, json};
 use url::Url;
 use wasmi::errors::LinkerError;
 use wasmi::{
-    Caller, Config, Engine, Extern, Linker, Memory, Module, Store, StoreLimits,
-    StoreLimitsBuilder, TrapCode, TypedFunc,
+    Caller, Config, Engine, Extern, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
+    TrapCode, TypedFunc,
 };
 
 use crate::manifest;
@@ -475,7 +475,8 @@ impl NativeHost {
         };
         let mut store = Store::new(&self.engine, state);
         store.limiter(|state| &mut state.limits);
-        store.set_fuel(self.fuel).map_err(|error| error.to_string())?;
+        let fuel = store.set_fuel(self.fuel);
+        fuel.map_err(|error| error.to_string())?;
         let instance = self
             .linker
             .instantiate_and_start(&mut store, &module)
@@ -636,8 +637,8 @@ fn host_storage_get(
 ) -> Result<i64, wasmi::Error> {
     let key = read_text(&caller, key_ptr, key_len)?;
     let state = caller.data();
-    let value = state.storage.get(&state.plugin, &key).map_err(wasmi::Error::new)?;
-    let Some(value) = value else {
+    let value = state.storage.get(&state.plugin, &key);
+    let Some(value) = value.map_err(wasmi::Error::new)? else {
         return Ok(-1);
     };
     let bytes = serde_json::to_vec(&value).map_err(|error| wasmi::Error::new(error.to_string()))?;
@@ -658,7 +659,8 @@ fn host_storage_set(
         return Ok(-1);
     };
     let state = caller.data();
-    Ok(store_result(state.storage.set(&state.plugin, &key, Some(value))))
+    let result = state.storage.set(&state.plugin, &key, Some(value));
+    Ok(store_result(result))
 }
 
 /// `storage_delete(key_ptr, key_len) -> i32`: `0` — удалено (или не было).
@@ -771,11 +773,12 @@ mod tests {
     #[test]
     fn module_echoes_and_keeps_storage() {
         let (host, wasm, dir) = host_with_module("echo");
+        let call = |function: &str, input: &Value| host.call("demo", &wasm, &[], function, input);
         let input = json!({ "name": "Ava", "n": [1, 2] });
-        assert_eq!(host.call("demo", &wasm, &[], "echo", &input).unwrap(), input);
+        assert_eq!(call("echo", &input).unwrap(), input);
 
-        assert_eq!(host.call("demo", &wasm, &[], "count", &Value::Null).unwrap(), 1);
-        assert_eq!(host.call("demo", &wasm, &[], "count", &Value::Null).unwrap(), 2);
+        assert_eq!(call("count", &Value::Null).unwrap(), 1);
+        assert_eq!(call("count", &Value::Null).unwrap(), 2);
         // хранилище общее с кодом страницы
         assert_eq!(host.storage().get("demo", "count").unwrap(), Some(json!(2)));
         std::fs::remove_dir_all(&dir).ok();
@@ -784,16 +787,16 @@ mod tests {
     #[test]
     fn module_errors_are_reported() {
         let (host, wasm, dir) = host_with_module("errors");
-        assert_eq!(host.call("demo", &wasm, &[], "fail", &Value::Null), Err("boom".into()));
-        let missing = host.call("demo", &wasm, &[], "nothing", &Value::Null).unwrap_err();
+        let call = |function: &str, input: &Value| host.call("demo", &wasm, &[], function, input);
+        assert_eq!(call("fail", &Value::Null), Err("boom".into()));
+        let missing = call("nothing", &Value::Null).unwrap_err();
         assert!(missing.contains("нет функции"), "{missing}");
-        let reserved = host.call("demo", &wasm, &[], "arachnid_alloc", &Value::Null);
-        assert!(reserved.is_err());
+        assert!(call("arachnid_alloc", &Value::Null).is_err());
 
-        let spin = host.call("demo", &wasm, &[], "spin", &Value::Null).unwrap_err();
+        let spin = call("spin", &Value::Null).unwrap_err();
         assert!(spin.contains("слишком долго"), "{spin}");
         // после остановки модуль загружается заново и снова работает
-        assert_eq!(host.call("demo", &wasm, &[], "echo", &json!(1)).unwrap(), 1);
+        assert_eq!(call("echo", &json!(1)).unwrap(), 1);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -808,7 +811,8 @@ mod tests {
         assert_eq!(storage.get("a", "key").unwrap(), None);
         assert!(storage.get("a", "").is_err());
         assert!(storage.get("../evil", "key").is_err());
-        assert!(storage.set("a", "big", Some(json!("x".repeat(MAX_STORAGE)))).is_err());
+        let big = json!("x".repeat(MAX_STORAGE));
+        assert!(storage.set("a", "big", Some(big)).is_err());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -835,7 +839,10 @@ mod tests {
         assert!(header_block(&headers).is_err());
         headers.clear();
         headers.insert("Authorization".to_owned(), "Bearer t".to_owned());
-        assert_eq!(header_block(&headers).unwrap(), "Authorization: Bearer t\r\n");
+        assert_eq!(
+            header_block(&headers).unwrap(),
+            "Authorization: Bearer t\r\n"
+        );
     }
 
     #[test]

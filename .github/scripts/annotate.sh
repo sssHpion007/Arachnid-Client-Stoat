@@ -46,20 +46,22 @@ awk '
   END { flush() }
 ' "$log"
 
-# cargo fmt --check: "Diff in /path/file.rs:12:" и сама разница до следующей
+# cargo fmt --check: "Diff in /path/file.rs:12:" и сама разница до следующей.
+# Все места одного файла — одной аннотацией: аннотаций-ошибок на шаг
+# показывается не больше 10, а мест в файле бывает больше.
 awk '
   function flush() {
     if (file != "") printf "::error file=%s,line=%s::rustfmt: файл не отформатирован%s\n", file, line, diff
     file = ""
   }
   /^Diff in / {
-    flush()
     where = $0; sub(/^Diff in /, "", where); sub(/:$/, "", where)
-    line = where; sub(/.*:/, "", line); file = where; sub(/:[0-9]+$/, "", file)
-    diff = ""
+    at = where; sub(/.*:/, "", at); name = where; sub(/:[0-9]+$/, "", name)
+    if (name != file) { flush(); file = name; line = at; diff = "" }
+    diff = diff "%0A@@ " at
     next
   }
-  file != "" && length(diff) < 3500 { text = $0; gsub(/%/, "%25", text); gsub(/\r/, "", text); diff = diff "%0A" text }
+  file != "" && length(diff) < 60000 { text = $0; gsub(/%/, "%25", text); gsub(/\r/, "", text); diff = diff "%0A" text }
   END { flush() }
 ' "$log"
 
