@@ -25,8 +25,10 @@ mod extensions;
 mod http;
 mod icon;
 mod instance;
+mod manifest;
 mod media;
 mod memory;
+mod plugin_host;
 mod system_emoji;
 mod usercss;
 
@@ -76,6 +78,12 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-extensions-open",
     "allow-extensions-quick-css",
     "allow-extensions-set-quick-css",
+    "allow-extensions-set-plugin-value",
+    "allow-extensions-reset-plugin",
+    "allow-plugin-storage-get",
+    "allow-plugin-storage-set",
+    "allow-plugin-native-call",
+    "allow-plugin-fetch",
     "allow-emoji-packs",
     "allow-emoji-pack-download",
     "allow-emoji-pack-cancel",
@@ -234,6 +242,11 @@ pub fn run() {
                 .build(),
         )
         .on_window_event(desktop::on_window_event)
+        // файлы из папок тем и плагинов: картинки, шрифты, стили
+        .register_asynchronous_uri_scheme_protocol(
+            extensions::ASSET_SCHEME,
+            extensions::asset_protocol,
+        )
         .setup(|app| {
             let data_dir = resolve_data_dir(app.handle());
             tracing::info!(dir = %data_dir.display(), "каталог данных");
@@ -297,6 +310,12 @@ pub fn run() {
             extensions::extensions_open,
             extensions::extensions_quick_css,
             extensions::extensions_set_quick_css,
+            extensions::extensions_set_plugin_value,
+            extensions::extensions_reset_plugin,
+            extensions::plugin_storage_get,
+            extensions::plugin_storage_set,
+            extensions::plugin_native_call,
+            extensions::plugin_fetch,
             emoji_packs::emoji_packs,
             emoji_packs::emoji_pack_download,
             emoji_packs::emoji_pack_cancel,

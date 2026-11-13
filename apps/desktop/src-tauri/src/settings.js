@@ -42,8 +42,25 @@
         plugins: "Плагины",
         about: "Настольный клиент Stoat: темы, плагины и QuickCSS.",
         pluginsIntro:
-          "Плагины — файлы .js в папке plugins. Они выполняются на странице Stoat с теми же правами, что и сам клиент, включая доступ к аккаунту: включайте только те, которым доверяете.",
-        noPlugins: "Плагинов пока нет. Положите файл .js в папку plugins — он появится здесь.",
+          "Плагины — файлы .js или папки с plugin.toml в папке plugins. Они выполняются на странице Stoat с теми же правами, что и сам клиент, включая доступ к аккаунту: включайте только те, которым доверяете.",
+        noPlugins: "Своих плагинов пока нет. Положите файл .js или папку плагина в папку plugins — он появится здесь.",
+        core: (api) => `Ядро клиента всегда включено · API плагинов ${api}`,
+        builtin: "Встроенный",
+        builtinDescription: {
+          "builtin:qol": "Разделы и «Часто используемые» в окне выбора эмодзи, как в Discord.",
+        },
+        network: (hosts) => `Доступ в сеть: ${hosts}`,
+        needsGrant: "Ждёт разрешения на доступ в сеть",
+        broken: (error) => `Не загружен: ${error}`,
+        allow: "Разрешить",
+        cancel: "Отмена",
+        pluginSettings: (name) => `Настройки: ${name}`,
+        resetPlugin: "Сбросить настройки",
+        permissionsTitle: (name) => `Разрешить «${name}» доступ в сеть?`,
+        permissionsIntro:
+          "Плагин сможет отправлять запросы к этим адресам от имени клиента, в обход ограничений страницы:",
+        permissionsHint:
+          "Другие адреса ему недоступны. Если новая версия плагина попросит больше, клиент спросит снова.",
         reloadNeeded: "Изменения плагинов вступят в силу после перезагрузки клиента.",
         reload: "Перезагрузить",
         willStart: "Запустится после перезагрузки",
@@ -60,7 +77,8 @@
         done: "Готово",
         theme: "Тема",
         defaultTheme: "Stoat (по умолчанию)",
-        themesHint: "Свои темы — файлы .css в папке themes. У выбранной темы здесь появятся её настройки.",
+        themesHint:
+          "Свои темы — файлы .css или папки с theme.toml в папке themes. У выбранной темы здесь появятся её настройки.",
         themeSettings: "Настройки темы",
         noThemeSettings: "У этой темы нет своих настроек.",
         unsupported: (name) =>
@@ -73,8 +91,25 @@
         plugins: "Plugins",
         about: "Desktop client for Stoat: themes, plugins and QuickCSS.",
         pluginsIntro:
-          "Plugins are .js files in the plugins folder. They run on the Stoat page with the same rights as the client itself, including access to your account: only enable the ones you trust.",
-        noPlugins: "No plugins yet. Put a .js file into the plugins folder and it will show up here.",
+          "Plugins are .js files or folders with a plugin.toml in the plugins folder. They run on the Stoat page with the same rights as the client itself, including access to your account: only enable the ones you trust.",
+        noPlugins: "No plugins of your own yet. Put a .js file or a plugin folder into the plugins folder and it will show up here.",
+        core: (api) => `The client core is always on · Plugin API ${api}`,
+        builtin: "Built-in",
+        builtinDescription: {
+          "builtin:qol": "Sections and “Frequently Used” in the emoji picker, like in Discord.",
+        },
+        network: (hosts) => `Network access: ${hosts}`,
+        needsGrant: "Waiting for network permission",
+        broken: (error) => `Not loaded: ${error}`,
+        allow: "Allow",
+        cancel: "Cancel",
+        pluginSettings: (name) => `Settings: ${name}`,
+        resetPlugin: "Reset Settings",
+        permissionsTitle: (name) => `Allow “${name}” to access the network?`,
+        permissionsIntro:
+          "The plugin will be able to send requests to these addresses on behalf of the client, bypassing the page's restrictions:",
+        permissionsHint:
+          "Other addresses stay closed to it. If a newer version of the plugin asks for more, the client will ask again.",
         reloadNeeded: "Plugin changes take effect after the client reloads.",
         reload: "Reload",
         willStart: "Starts after reload",
@@ -91,7 +126,8 @@
         done: "Done",
         theme: "Theme",
         defaultTheme: "Stoat (default)",
-        themesHint: "Custom themes are .css files in the themes folder. The selected theme shows its own settings here.",
+        themesHint:
+          "Custom themes are .css files or folders with a theme.toml in the themes folder. The selected theme shows its own settings here.",
         themeSettings: "Theme Settings",
         noThemeSettings: "This theme has no settings of its own.",
         unsupported: (name) =>
@@ -288,7 +324,16 @@
 .arachnid-scrim[data-closing] .arachnid-dialog { animation: arachnid-sink 0.2s cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
 .arachnid-dialog-title { line-height: 2rem; font-size: 1.5rem; font-weight: 400; margin-block-end: 16px; }
 .arachnid-dialog-content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
-.arachnid-dialog-actions { display: flex; align-items: center; gap: 8px; margin-block-start: 24px; }
+.arachnid-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-block-start: 24px; }
+.arachnid-dialog[data-compact] { width: min(560px, 100%); height: auto; max-height: 100%; }
+.arachnid-dialog[data-compact] .arachnid-dialog-content { overflow-y: auto; font-size: 0.875rem; line-height: 1.25rem; }
+.arachnid-hosts { margin: 0; padding-inline-start: 20px; font-family: var(--fonts-monospace, monospace); overflow-wrap: anywhere; }
+.arachnid-item-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.arachnid-icon-button {
+  width: 40px; height: 40px; padding: 0; border: none; display: grid; place-items: center; cursor: pointer;
+  border-radius: var(--borderRadius-full, 9999px); background: transparent; color: inherit;
+}
+.arachnid-icon-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .arachnid-dialog-status { flex: 1; min-width: 0; }
 .arachnid-dialog-status[data-error] { color: var(--md-sys-color-error); }
 .arachnid-code {
@@ -380,6 +425,24 @@
       { type: "button", class: "arachnid-button", dataset: variant ? { variant } : undefined, onClick },
       iconName ? icon(iconName) : null,
       label,
+    );
+
+  /** Кнопка-значок внутри строки: щелчок не переключает саму строку */
+  const iconButton = (name, label, onClick) =>
+    h(
+      "button",
+      {
+        type: "button",
+        class: "arachnid-icon-button",
+        title: label,
+        "aria-label": label,
+        onClick: (event) => {
+          event.stopPropagation();
+          onClick();
+        },
+        onKeydown: (event) => event.stopPropagation(),
+      },
+      icon(name),
     );
 
   /** Открытая сейчас шторка выбора: закрывается при открытии другой */
@@ -565,22 +628,40 @@
     const menu = desktop.pluginMenu();
 
     const list = plugins.map((plugin) => {
-      const details = [
-        plugin.description,
-        [plugin.author && text.author(plugin.author), plugin.version && text.version(plugin.version), plugin.file]
-          .filter(Boolean)
-          .join(" · "),
+      const name = plugin.name ?? plugin.file;
+      const tags = [
+        plugin.builtin && text.builtin,
+        plugin.author && text.author(plugin.author),
+        plugin.version && text.version(plugin.version),
+        plugin.native && "WebAssembly",
+        !plugin.builtin && plugin.file,
       ].filter(Boolean);
-      const note =
-        plugin.enabled && !plugin.running ? text.willStart : !plugin.enabled && plugin.running ? text.willStop : null;
+      const details = [
+        (plugin.builtin && text.builtinDescription[plugin.file]) || plugin.description,
+        plugin.network.length ? text.network(plugin.network.join(", ")) : null,
+        tags.join(" · "),
+      ].filter(Boolean);
+      const waiting = plugin.enabled && !plugin.granted && !plugin.error;
+      let note = null;
+      if (plugin.error) note = text.broken(plugin.error);
+      else if (waiting) note = text.needsGrant;
+      else if (plugin.enabled && !plugin.running) note = text.willStart;
+      else if (!plugin.enabled && plugin.running) note = text.willStop;
       const box = checkbox(plugin.enabled);
+      const extra = [
+        waiting ? iconButton("lock_open", text.allow, () => askPermissions(plugin)) : null,
+        plugin.settings.length ? iconButton("settings", text.pluginSettings(name), () => openPluginSettings(plugin.file)) : null,
+      ].filter(Boolean);
       return item({
-        iconName: "extension",
-        title: plugin.name ?? plugin.file,
+        iconName: plugin.builtin ? "auto_awesome" : plugin.folder ? "folder_special" : "extension",
+        title: name,
         description: details.join("\n"),
         note,
-        action: box,
+        action: extra.length ? h("div", { class: "arachnid-item-actions" }, extra, box) : box,
         onClick: () => {
+          if (!plugin.enabled && plugin.error) return;
+          // сеть — только после согласия в окне разрешений
+          if (!plugin.enabled && !plugin.granted) return askPermissions(plugin);
           box.checked = !plugin.enabled;
           void change("extensions_set_plugin", { file: plugin.file, enabled: !plugin.enabled });
         },
@@ -611,6 +692,13 @@
           { class: "arachnid-card-text" },
           h("span", { class: "arachnid-card-title" }, `${BRAND} ${version}`),
           h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.about),
+          // ядро — первая строка раздела, его не выключить
+          h(
+            "span",
+            { class: "arachnid-label", style: { color: "inherit", display: "flex", alignItems: "center", gap: "4px" } },
+            h("span", { class: "material-symbols-outlined", style: { fontSize: "14px" }, "aria-hidden": "true" }, "lock"),
+            text.core(overview?.apiVersion ?? 1),
+          ),
         ),
       ),
       overview?.reloadNeeded
@@ -623,7 +711,8 @@
           )
         : null,
       h("span", { class: "arachnid-label" }, text.pluginsIntro),
-      list.length ? h("div", { class: "arachnid-group" }, list) : h("span", { class: "arachnid-label" }, text.noPlugins),
+      list.length ? h("div", { class: "arachnid-group" }, list) : null,
+      plugins.some((plugin) => !plugin.builtin) ? null : h("span", { class: "arachnid-label" }, text.noPlugins),
       actions.length
         ? h(
             "div",
@@ -919,6 +1008,7 @@
   /** Настройки выбранной темы — на месте блока «Colours» */
   function themeSettings(theme) {
     const title = h("span", { class: "arachnid-subtitle" }, text.themeSettings);
+    if (theme.error) return [title, h("span", { class: "arachnid-label" }, text.broken(theme.error))];
     if (!theme.supported) return [title, h("span", { class: "arachnid-label" }, text.unsupported(theme.preprocessor))];
     if (!theme.settings.length) return [title, h("span", { class: "arachnid-label" }, text.noThemeSettings)];
 
@@ -926,8 +1016,24 @@
       // поле уже показывает новое значение: перерисовывать не нужно
       void change("extensions_set_theme_value", { file: theme.file, name, value }, false);
 
-    const controls = theme.settings.map((setting) => {
-      const value = theme.values[setting.name] ?? setting.default;
+    return [
+      title,
+      ...settingControls(theme.settings, theme.values, set),
+      h(
+        "div",
+        { class: "arachnid-buttons" },
+        button(text.reset, () => void change("extensions_reset_theme", { file: theme.file }), "text", "restart_alt"),
+      ),
+    ];
+  }
+
+  /**
+   * Поля настроек темы или плагина-папки (`usercss::Setting`): флажок,
+   * выбор, ползунок, число, цвет, текст. `set(name, value)` сохраняет.
+   */
+  function settingControls(settings, values, set) {
+    return settings.map((setting) => {
+      const value = values[setting.name] ?? setting.default;
       switch (setting.kind) {
         case "checkbox": {
           const box = checkbox(value === "1", setting.label);
@@ -996,16 +1102,127 @@
           return field({ label: setting.label, value, onCommit: (next) => set(setting.name, next) });
       }
     });
+  }
 
-    return [
-      title,
-      ...controls,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.reset, () => void change("extensions_reset_theme", { file: theme.file }), "text", "restart_alt"),
-      ),
-    ];
+  // ─────────────────────────────── окна ───────────────────────────────
+  // Окно поверх клиента, как Dialog в for-web (Material 3: подложка,
+  // карточка 28px, кнопки-текст справа внизу): QuickCSS, настройки и
+  // разрешения плагинов. Закрывается по Esc, кнопкой или щелчком мимо.
+
+  let dialogs = 0;
+
+  /**
+   * Показать окно; `onClose` вызывается один раз, до анимации закрытия.
+   * `compact` — небольшое окно по содержимому. Возвращает `{ close }`.
+   */
+  function openDialog({ title, content, actions, dataset, compact, onClose }) {
+    mountStyle();
+    openSelect?.();
+    const opener = document.activeElement;
+    const titleId = `arachnid-dialog-title-${++dialogs}`;
+    let closed = false;
+
+    function close() {
+      if (closed) return;
+      closed = true;
+      onClose?.();
+      scrim.setAttribute("data-closing", "");
+      setTimeout(() => scrim.remove(), 200);
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    }
+
+    const dialog = h(
+      "div",
+      {
+        class: "arachnid-dialog",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": titleId,
+        dataset: compact ? { compact: "" } : undefined,
+      },
+      h("span", { class: "arachnid-dialog-title", id: titleId }, title),
+      h("div", { class: "arachnid-dialog-content" }, content),
+      h("div", { class: "arachnid-dialog-actions" }, actions),
+    );
+
+    // закрывает только щелчок, который и начался, и закончился на подложке:
+    // выделение текста, отпущенное за краем окна, его не закрывает
+    let pressedOutside = false;
+    const scrim = h(
+      "div",
+      {
+        class: "arachnid-scrim",
+        dataset,
+        onPointerdown: (event) => (pressedOutside = event.target === scrim),
+        onClick: (event) => {
+          if (pressedOutside && event.target === scrim) close();
+          pressedOutside = false;
+        },
+        // клавиши остаются в окне: сочетания for-web (Esc закрывает
+        // настройки) слушают document.body
+        onKeydown: (event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" && !event.isComposing) {
+            event.preventDefault();
+            close();
+          }
+        },
+        onKeyup: (event) => event.stopPropagation(),
+      },
+      dialog,
+    );
+
+    (document.getElementById("floating") ?? document.body).append(scrim);
+    return { close };
+  }
+
+  /** Настройки плагина-папки из plugin.toml */
+  function openPluginSettings(file) {
+    const plugin = overview?.plugins?.find((entry) => entry.file === file);
+    if (!plugin || !document.body) return;
+    const body = h("div", { class: "arachnid-column" });
+    const set = (name, value) => void change("extensions_set_plugin_value", { file, name, value }, false);
+    const fill = () => {
+      const current = overview?.plugins?.find((entry) => entry.file === file);
+      if (current) body.replaceChildren(...settingControls(current.settings, current.values, set));
+    };
+    const dialog = openDialog({
+      title: text.pluginSettings(plugin.name ?? file),
+      compact: true,
+      dataset: { arachnidPluginSettings: file },
+      content: body,
+      actions: [
+        button(text.resetPlugin, () => void change("extensions_reset_plugin", { file }).then(fill), "text", "restart_alt"),
+        button(text.done, () => dialog.close(), "text"),
+      ],
+    });
+    fill();
+  }
+
+  /** Спросить разрешение на сеть и включить плагин */
+  function askPermissions(plugin) {
+    if (!document.body) return;
+    const dialog = openDialog({
+      title: text.permissionsTitle(plugin.name ?? plugin.file),
+      compact: true,
+      dataset: { arachnidPermissions: plugin.file },
+      content: [
+        h("span", {}, text.permissionsIntro),
+        h("ul", { class: "arachnid-hosts" }, plugin.network.map((host) => h("li", {}, host))),
+        h("span", { class: "arachnid-label" }, text.permissionsHint),
+      ],
+      actions: [
+        button(text.cancel, () => dialog.close(), "text"),
+        button(
+          text.allow,
+          () => {
+            dialog.close();
+            void change("extensions_set_plugin", { file: plugin.file, enabled: true, grant: true });
+          },
+          "filled",
+        ),
+      ],
+    });
   }
 
   // ─────────────────────────────── QuickCSS ───────────────────────────────
@@ -1028,10 +1245,7 @@
       return;
     }
     if (!document.body) return;
-    mountStyle();
-    openSelect?.();
 
-    const opener = document.activeElement;
     // saved — текст, который сейчас в файле (null, пока не загружен)
     const state = { saved: null, timer: 0, saving: null, again: false, closed: false, lines: 0 };
 
@@ -1180,66 +1394,23 @@
       }
     }
 
-    function close() {
-      if (state.closed) return;
-      state.closed = true;
-      void save();
-      quickCss = null;
-      scrim.setAttribute("data-closing", "");
-      setTimeout(() => scrim.remove(), 200);
-      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
-    }
-
-    const titleId = "arachnid-quickcss-title";
-    const dialog = h(
-      "div",
-      { class: "arachnid-dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": titleId },
-      h("span", { class: "arachnid-dialog-title", id: titleId }, "QuickCSS"),
-      h(
-        "div",
-        { class: "arachnid-dialog-content" },
-        h("span", { class: "arachnid-label" }, text.quickCssHint),
-        h("div", { class: "arachnid-code" }, gutter, textarea),
-      ),
-      h(
-        "div",
-        { class: "arachnid-dialog-actions" },
+    const dialog = openDialog({
+      title: "QuickCSS",
+      dataset: { arachnidQuickcss: "" },
+      content: [h("span", { class: "arachnid-label" }, text.quickCssHint), h("div", { class: "arachnid-code" }, gutter, textarea)],
+      actions: [
         status,
         // внешний редактор откроет уже сохранённый текст
         button(text.openInEditor, () => void save().then(() => openFolder("quickCss")), "text", "open_in_new"),
-        button(text.done, close, "text"),
-      ),
-    );
-
-    // закрывает только щелчок, который и начался, и закончился на подложке:
-    // выделение текста, отпущенное за краем окна, его не закрывает
-    let pressedOutside = false;
-    const scrim = h(
-      "div",
-      {
-        class: "arachnid-scrim",
-        dataset: { arachnidQuickcss: "" },
-        onPointerdown: (event) => (pressedOutside = event.target === scrim),
-        onClick: (event) => {
-          if (pressedOutside && event.target === scrim) close();
-          pressedOutside = false;
-        },
-        // клавиши остаются в окне: сочетания for-web (Esc закрывает
-        // настройки) слушают document.body
-        onKeydown: (event) => {
-          event.stopPropagation();
-          if (event.key === "Escape" && !event.isComposing) {
-            event.preventDefault();
-            close();
-          }
-        },
-        onKeyup: (event) => event.stopPropagation(),
+        button(text.done, () => dialog.close(), "text"),
+      ],
+      onClose: () => {
+        state.closed = true;
+        void save();
+        quickCss = null;
       },
-      dialog,
-    );
-
-    (document.getElementById("floating") ?? document.body).append(scrim);
-    quickCss = { reload, close, focus: () => textarea.focus() };
+    });
+    quickCss = { reload, close: dialog.close, focus: () => textarea.focus() };
     updateLines();
 
     invoke("extensions_quick_css").then(

@@ -1,0 +1,25 @@
+# Плагин-папка для проверки клиента в WebView2 (e2e/app/test.js): API
+# `plugin`, стили, файлы папки, хранилище, нативный модуль и разрешения сети.
+name = "E2E Folder"
+version = "1.0.0"
+author = "Arachnid Client"
+description = "Проверка плагинов-папок"
+
+[permissions]
+# запросы в e2e не уходят: проверяется только отказ для других адресов
+network = ["example.com"]
+
+[[settings]]
+name = "flag"
+label = "Флажок"
+type = "checkbox"
+default = true
+
+[[settings]]
+name = "size"
+label = "Размер"
+type = "range"
+min = 1
+max = 10
+default = 4
+unit = "px"

@@ -55,7 +55,8 @@ const SETTINGS_SCRIPT: &str = include_str!("settings.js");
 const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
 
 /// Разделы с заголовками и «Часто используемые» в окне выбора эмодзи, как в
-/// Discord.
+/// Discord: встроенный плагин «Quality of Life» (`extensions.rs`), его можно
+/// выключить в разделе «Плагины».
 const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
@@ -373,7 +374,7 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
 }
 
 /// Скрипт окна выбора эмодзи со списком эмодзи for-web и разделами.
-fn emoji_script() -> String {
+pub(crate) fn emoji_script() -> String {
     EMOJI_SCRIPT
         .replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
         .replace("__ARACHNID_EMOJI_CATEGORIES__", EMOJI_CATEGORIES)
@@ -444,7 +445,6 @@ pub fn create_main_window(
         .initialization_script(bridge_script(&config, instance))
         .initialization_script(SETTINGS_SCRIPT)
         .initialization_script(DEFAULTS_SCRIPT)
-        .initialization_script(emoji_script())
         .initialization_script(EMOJI_PACKS_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {

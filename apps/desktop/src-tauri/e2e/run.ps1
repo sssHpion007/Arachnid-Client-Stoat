@@ -25,6 +25,9 @@ Set-Content -Encoding utf8 -Path (Join-Path $data "config.toml") -Value @"
 app_url = "http://127.0.0.1:8765/app/"
 "@
 
+# плагин-папка для проверки API плагинов: выключен, пока его не включит test.js
+Copy-Item -Recurse -Path (Join-Path $here "plugins") -Destination (Join-Path $data "plugins")
+
 $server = Start-Process -PassThru -NoNewWindow -FilePath python `
   -ArgumentList @((Join-Path $here "server.py"), $out) `
   -RedirectStandardOutput (Join-Path $work "server.out.txt") `

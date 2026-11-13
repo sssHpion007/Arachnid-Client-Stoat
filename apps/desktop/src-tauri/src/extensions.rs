@@ -1,15 +1,28 @@
 //! Расширения: темы, QuickCSS и плагины поверх веб-клиента.
 //!
-//! Устроено как у клиентских модов (Avia Client, Vencord): тема — файл CSS,
-//! плагин — файл JavaScript, который выполняется на странице веб-клиента.
-//! Всё лежит в каталоге данных, рядом с `config.toml`:
+//! Устроено как у клиентских модов (Avia Client, Vencord, BetterDiscord):
+//! тема — CSS, плагин — JavaScript, который выполняется на странице
+//! веб-клиента. Всё лежит в каталоге данных, рядом с `config.toml`:
 //!
 //! ```text
-//! themes/*.css     темы: выбирается одна, в «Внешнем виде» или в трее
-//! plugins/*.js     плагины: в разделе «Плагины» или в трее
-//! quickcss.css     свой CSS, действует всегда
-//! extensions.json  выбранная тема, её настройки и включённые плагины
+//! themes/*.css             темы одним файлом (UserCSS)
+//! themes/<id>/theme.toml   тема-папка: стили, картинки, шрифты
+//! plugins/*.js             плагины одним файлом (формат Avia Client)
+//! plugins/<id>/plugin.toml плагин-папка: код страницы, стили, модуль
+//!                          WebAssembly, файлы; настройки и разрешения
+//! plugin-data/<id>/        хранилище плагинов-папок
+//! quickcss.css             свой CSS, действует всегда
+//! extensions.json          выбранная тема, настройки, включённые плагины
+//!                          и подтверждённые разрешения
 //! ```
+//!
+//! Описание папок — [`crate::manifest`], нативные модули, хранилище и сеть
+//! плагинов — [`crate::plugin_host`]. Файлы из папок страница получает по
+//! адресам `http://arachnid.localhost/<plugins|themes>/<id>/<путь>` (в Linux
+//! и macOS — `arachnid://localhost/…`); относительные `url()` в стилях папок
+//! ведут туда же. Ядро клиента (мост, настройки, наборы эмодзи) не
+//! выключается; встроенные плагины (`builtin:*`) — выключаются, как и
+//! остальные.
 //!
 //! Тема может описать свои настройки (палитры, цвета, размеры) в заголовке
 //! UserCSS (см. [`crate::usercss`]); пока тема выбрана, «Внешний вид»
@@ -17,6 +30,8 @@
 //!
 //! Новые плагины по умолчанию выключены: плагин получает те же права, что и
 //! страница (в том числе сессию), поэтому включать его нужно осознанно.
+//! Плагин-папка, которому нужна сеть в обход ограничений страницы, называет
+//! адреса в `plugin.toml`; при включении их подтверждает пользователь.
 //!
 //! Стили применяются сразу и обновляются при сохранении файла. Плагин
 //! выполняется после загрузки страницы; выгрузить уже выполненный код
@@ -33,6 +48,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use tauri::menu::{CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::webview::{PageLoadEvent, PageLoadPayload};
 use tauri::{AppHandle, Manager, State, WebviewWindow};
@@ -41,6 +57,8 @@ use url::Url;
 
 use crate::desktop::{self, TrayLabels};
 use crate::instance::Instance;
+use crate::manifest::{self, PluginManifest};
+use crate::plugin_host::{self, FetchRequest, FetchResponse, NativeHost, Storage};
 use crate::{CmdResult, CommandError, usercss};
 
 /// Каталог тем в каталоге данных.
@@ -56,6 +74,25 @@ const STATE_FILE: &str = "extensions.json";
 const MAX_FILE_SIZE: u64 = 8 * 1024 * 1024;
 /// Как часто проверять папки на изменения.
 const WATCH_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Схема адресов файлов из папок тем и плагинов.
+pub const ASSET_SCHEME: &str = "arachnid";
+/// Начало адресов файлов: так WebView2 (Windows) и WebKit (Linux, macOS)
+/// показывают свою схему странице.
+#[cfg(windows)]
+const ASSET_BASE: &str = "http://arachnid.localhost/";
+#[cfg(not(windows))]
+const ASSET_BASE: &str = "arachnid://localhost/";
+/// Больше этого файл из папки не отдаётся.
+const MAX_ASSET_SIZE: u64 = 64 * 1024 * 1024;
+/// Сколько файлов папки проверять на изменения и как глубоко.
+const MAX_WATCHED_FILES: usize = 256;
+const MAX_WATCH_DEPTH: usize = 4;
+
+/// Версия API плагинов (`plugin` в коде плагина-папки, `plugin.toml`).
+pub const API_VERSION: u32 = 1;
+/// Начало ключей встроенных плагинов: в именах файлов и папок `:` не бывает.
+const BUILTIN_PREFIX: &str = "builtin:";
 
 /// Префиксы id пунктов меню трея.
 const MENU_THEME: &str = "ext-theme:";
@@ -89,6 +126,14 @@ impl Kind {
         }
     }
 
+    /// Манифест папки.
+    fn manifest(self) -> &'static str {
+        match self {
+            Self::Theme => manifest::THEME_MANIFEST,
+            Self::Plugin => manifest::PLUGIN_MANIFEST,
+        }
+    }
+
     fn extension(self) -> &'static str {
         match self {
             Self::Theme => "css",
@@ -107,6 +152,10 @@ struct Saved {
     theme_settings: BTreeMap<String, BTreeMap<String, String>>,
     /// Включённые плагины
     plugins: BTreeMap<String, bool>,
+    /// Значения настроек плагинов-папок: плагин → имя настройки → значение
+    plugin_settings: BTreeMap<String, BTreeMap<String, String>>,
+    /// Подтверждённые адреса сети: плагин → адреса из `[permissions] network`
+    granted: BTreeMap<String, Vec<String>>,
     /// До 0.14 темы включались флажками, по нескольку сразу: читается
     /// только для переноса
     #[serde(skip_serializing)]
@@ -133,18 +182,127 @@ impl Saved {
         saved
     }
 
+    /// Включён ли плагин; новые выключены, встроенные — включены.
     fn plugin_enabled(&self, name: &str) -> bool {
-        self.plugins.get(name).copied().unwrap_or(false)
+        self.plugins
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| builtin(name).is_some_and(|builtin| builtin.enabled_by_default))
     }
+
+    /// Адреса сети, которые плагин просит и пользователь подтвердил.
+    fn network(&self, id: &str, manifest: &PluginManifest) -> Vec<String> {
+        let granted = self.granted.get(id);
+        manifest
+            .network
+            .iter()
+            .filter(|host| granted.is_some_and(|granted| granted.contains(host)))
+            .cloned()
+            .collect()
+    }
+
+    /// Действующие значения настроек плагина-папки.
+    fn plugin_values(&self, id: &str, manifest: &PluginManifest) -> BTreeMap<String, String> {
+        manifest::effective_values(&manifest.settings, self.plugin_settings.get(id))
+    }
+
+    /// Все ли адреса, которые просит плагин, подтверждены.
+    fn granted(&self, id: &str, manifest: &PluginManifest) -> bool {
+        self.network(id, manifest).len() == manifest.network.len()
+    }
+}
+
+// ─────────────────────────────── встроенные ───────────────────────────────
+
+/// Плагин, встроенный в клиент.
+struct Builtin {
+    /// Ключ в `extensions.json`
+    id: &'static str,
+    name: &'static str,
+    description: &'static str,
+    /// Включён, пока его не выключили
+    enabled_by_default: bool,
+    /// Код для страницы
+    code: fn() -> String,
+}
+
+/// Встроенные плагины: улучшения, которые не обязательны для работы
+/// клиента и поэтому выключаются, в отличие от ядра.
+const BUILTINS: &[Builtin] = &[Builtin {
+    id: "builtin:qol",
+    name: "Quality of Life",
+    description: "Разделы и «Часто используемые» в окне выбора эмодзи, как в Discord",
+    enabled_by_default: true,
+    code: desktop::emoji_script,
+}];
+
+fn builtin(id: &str) -> Option<&'static Builtin> {
+    if !id.starts_with(BUILTIN_PREFIX) {
+        return None;
+    }
+    BUILTINS.iter().find(|builtin| builtin.id == id)
 }
 
 /// Тема или плагин в папке.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {
-    /// Имя файла, например `catppuccin.css`
+    /// Имя файла, например `catppuccin.css`, или имя папки
     pub name: String,
-    /// Время изменения и размер: по ним видно, что файл сохранили
+    /// Папка с манифестом, а не один файл
+    pub folder: bool,
+    /// Время изменения и размер (у папки — самого нового файла и всех
+    /// файлов): по ним видно, что файл сохранили
     stamp: Option<(SystemTime, u64)>,
+}
+
+/// Тема, прочитанная с диска.
+struct ThemeSource {
+    /// Описание и настройки: из заголовка UserCSS или из `theme.toml`
+    meta: usercss::Meta,
+    /// Текст стилей; `None` — не читается
+    css: Option<String>,
+    /// Адрес файла стилей темы-папки: от него считаются относительные `url()`
+    base: Option<Url>,
+    /// Почему тема-папка не читается
+    error: Option<String>,
+}
+
+/// Плагин, прочитанный с диска.
+struct PluginSource {
+    id: String,
+    about: manifest::About,
+    origin: Origin,
+}
+
+impl PluginSource {
+    /// Название для меню и журнала: у файла — имя файла, как раньше.
+    fn label(&self) -> &str {
+        match &self.origin {
+            Origin::Builtin(builtin) => builtin.name,
+            _ => &self.id,
+        }
+    }
+
+    /// Можно ли включить плагин без окна разрешений: он читается, и все
+    /// адреса сети, которые он просит, уже подтверждены.
+    fn ready(&self, saved: &Saved) -> bool {
+        match &self.origin {
+            Origin::Broken(_) => false,
+            Origin::Folder(manifest) => saved.granted(&self.id, manifest),
+            Origin::Builtin(_) | Origin::File => true,
+        }
+    }
+}
+
+/// Откуда плагин.
+enum Origin {
+    Builtin(&'static Builtin),
+    /// `plugins/*.js`
+    File,
+    /// `plugins/<id>/plugin.toml`
+    Folder(Box<PluginManifest>),
+    /// Папка с ошибкой в `plugin.toml`
+    Broken(String),
 }
 
 /// Стиль для страницы: `bridge.js` держит по элементу `<style>` на каждый.
@@ -191,8 +349,13 @@ pub struct PluginMenuAction {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ThemeInfo {
-    /// Имя файла
+    /// Имя файла или папки
     file: String,
+    /// Тема-папка
+    folder: bool,
+    /// Почему тема-папка не читается
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
     /// Название, автор, описание и настройки из заголовка
     #[serde(flatten)]
     meta: usercss::Meta,
@@ -204,20 +367,37 @@ pub struct ThemeInfo {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginInfo {
-    /// Имя файла
+    /// Имя файла, папки или `builtin:<имя>`
     file: String,
-    /// `@name`
+    /// `@name` / `name`
     name: Option<String>,
-    /// `@description`
+    /// `@description` / `description`
     description: Option<String>,
-    /// `@author`
+    /// `@author` / `author`
     author: Option<String>,
-    /// `@version`
+    /// `@version` / `version`
     version: Option<String>,
     /// Включён
     enabled: bool,
     /// Выполняется на открытой странице
     running: bool,
+    /// Встроен в клиент
+    builtin: bool,
+    /// Плагин-папка
+    folder: bool,
+    /// Есть нативный модуль
+    native: bool,
+    /// Адреса, к которым плагин просит доступ в сеть
+    network: Vec<String>,
+    /// Все эти адреса подтверждены
+    granted: bool,
+    /// Настройки из `plugin.toml`
+    settings: Vec<usercss::Setting>,
+    /// Их действующие значения
+    values: BTreeMap<String, String>,
+    /// Почему плагин-папка не читается
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 /// Всё о темах и плагинах для настроек веб-клиента (`settings.js`).
@@ -232,6 +412,10 @@ pub struct Overview {
     plugins: Vec<PluginInfo>,
     /// Включённые плагины отличаются от запущенных: нужна перезагрузка
     reload_needed: bool,
+    /// Версия клиента (ядра)
+    version: &'static str,
+    /// Версия API плагинов
+    api_version: u32,
 }
 
 /// Что открыть в проводнике или редакторе.
@@ -256,18 +440,22 @@ pub struct Extensions {
     plugin_menu: Mutex<Vec<PluginMenuEntry>>,
     /// Плагины, выполненные на открытой странице
     running: Mutex<Vec<String>>,
+    /// Нативные модули и хранилище плагинов-папок
+    host: NativeHost,
 }
 
 impl Extensions {
     /// Прочитать `extensions.json` из каталога данных.
     pub fn new(dir: PathBuf, app_url: Url) -> Self {
         let saved = Saved::load(&dir.join(STATE_FILE));
+        let storage = Arc::new(Storage::new(dir.join(plugin_host::DATA_DIR)));
         Self {
             dir,
             app_url,
             saved: Mutex::new(saved),
             plugin_menu: Mutex::new(Vec::new()),
             running: Mutex::new(Vec::new()),
+            host: NativeHost::new(storage),
         }
     }
 
@@ -314,13 +502,36 @@ impl Extensions {
         }
     }
 
-    /// Темы или плагины в папке, по имени файла.
+    /// Темы или плагины в папке: файлы и папки с манифестом, по имени.
     pub fn list(&self, kind: Kind) -> Vec<Entry> {
-        list_dir(&self.dir.join(kind.dir()), kind.extension())
+        let dir = self.dir.join(kind.dir());
+        let mut entries = list_dir(&dir, kind.extension());
+        for folder in list_folders(&dir, kind.manifest()) {
+            // ключ в extensions.json — имя: папка `x.css` рядом с файлом `x.css` спутала бы их
+            if entries
+                .iter()
+                .any(|entry| entry.name.eq_ignore_ascii_case(&folder.name))
+            {
+                tracing::warn!(name = %folder.name, "папка совпадает по имени с файлом, пропускаю");
+                continue;
+            }
+            entries.push(folder);
+        }
+        entries.sort_by_cached_key(|entry| entry.name.to_lowercase());
+        entries
+    }
+
+    fn entry(&self, kind: Kind, name: &str) -> Option<Entry> {
+        self.list(kind).into_iter().find(|entry| entry.name == name)
     }
 
     fn exists(&self, kind: Kind, name: &str) -> bool {
-        self.list(kind).iter().any(|entry| entry.name == name)
+        self.entry(kind, name).is_some()
+    }
+
+    /// Папка темы или плагина.
+    fn folder(&self, kind: Kind, name: &str) -> PathBuf {
+        self.dir.join(kind.dir()).join(name)
     }
 
     /// Выбранная тема, если её файл на месте.
@@ -341,37 +552,68 @@ impl Extensions {
         true
     }
 
+    /// Прочитать тему: файл UserCSS или папку с `theme.toml`.
+    fn load_theme(&self, entry: &Entry) -> ThemeSource {
+        let path = self.folder(Kind::Theme, &entry.name);
+        if !entry.folder {
+            let css = read_limited(&path);
+            let meta = css.as_deref().map(usercss::parse).unwrap_or_default();
+            return ThemeSource {
+                meta,
+                css,
+                base: None,
+                error: None,
+            };
+        }
+        let parsed = read_limited(&path.join(manifest::THEME_MANIFEST))
+            .ok_or_else(|| format!("{} не читается", manifest::THEME_MANIFEST))
+            .and_then(|text| manifest::parse_theme(&path, &text));
+        match parsed {
+            Ok(theme) => {
+                let css = manifest::relative_path(&theme.main)
+                    .and_then(|file| read_limited(&path.join(file)));
+                let meta = usercss::Meta {
+                    name: theme.about.name,
+                    description: theme.about.description,
+                    author: theme.about.author,
+                    version: theme.about.version,
+                    preprocessor: "default".into(),
+                    supported: true,
+                    settings: theme.settings,
+                };
+                ThemeSource {
+                    meta,
+                    css,
+                    base: asset_url(Kind::Theme, &entry.name, &theme.main),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                tracing::warn!(theme = %entry.name, %error, "тема-папка не читается");
+                ThemeSource {
+                    meta: usercss::Meta {
+                        name: Some(entry.name.clone()),
+                        ..usercss::Meta::default()
+                    },
+                    css: None,
+                    base: None,
+                    error: Some(error),
+                }
+            }
+        }
+    }
+
     /// Изменить настройку темы; `None` — вернуть значение по умолчанию.
     /// Неподходящее значение не сохраняется.
     fn set_theme_value(&self, file: &str, name: &str, value: Option<&str>) -> bool {
-        let Some(css) = self.read(Kind::Theme, file) else {
+        let Some(entry) = self.entry(Kind::Theme, file) else {
             return false;
         };
-        let meta = usercss::parse(&css);
-        let Some(setting) = meta.settings.iter().find(|setting| setting.name == name) else {
+        let theme = self.load_theme(&entry);
+        let Some(value) = checked_value(&theme.meta.settings, name, value) else {
             return false;
         };
-        let value = match value {
-            Some(value) => match setting.normalize(value) {
-                Some(value) => Some(value),
-                None => return false,
-            },
-            None => None,
-        };
-        self.update(|saved| {
-            let values = saved.theme_settings.entry(file.to_owned()).or_default();
-            match value {
-                Some(value) => {
-                    values.insert(name.to_owned(), value);
-                }
-                None => {
-                    values.remove(name);
-                }
-            }
-            if values.is_empty() {
-                saved.theme_settings.remove(file);
-            }
-        });
+        self.update(|saved| store_value(&mut saved.theme_settings, file, name, value));
         true
     }
 
@@ -382,37 +624,190 @@ impl Extensions {
         });
     }
 
-    /// Включён ли плагин.
-    pub fn plugin_enabled(&self, name: &str) -> bool {
-        self.saved().plugin_enabled(name)
-    }
-
-    /// Включить или выключить плагин и запомнить это.
+    /// Включить или выключить плагин и запомнить это. Модуль выключенного
+    /// плагина выгружается.
     pub fn set_plugin(&self, name: &str, value: bool) {
         self.update(|saved| {
             saved.plugins.insert(name.to_owned(), value);
         });
+        if !value {
+            self.host.unload(name);
+        }
+    }
+
+    /// Запомнить, что пользователь разрешил плагину эти адреса.
+    fn grant(&self, name: &str, hosts: &[String]) {
+        tracing::info!(plugin = name, ?hosts, "разрешения плагина подтверждены");
+        self.update(|saved| {
+            saved.granted.insert(name.to_owned(), hosts.to_vec());
+        });
+    }
+
+    /// Прочитать плагин: встроенный, файл или папку.
+    fn plugin(&self, name: &str) -> Option<PluginSource> {
+        if let Some(builtin) = builtin(name) {
+            return Some(PluginSource {
+                id: builtin.id.to_owned(),
+                about: manifest::About {
+                    name: Some(builtin.name.to_owned()),
+                    version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+                    author: Some("Arachnid Client".to_owned()),
+                    description: Some(builtin.description.to_owned()),
+                },
+                origin: Origin::Builtin(builtin),
+            });
+        }
+        let entry = self.entry(Kind::Plugin, name)?;
+        Some(self.load_plugin(entry))
+    }
+
+    fn load_plugin(&self, entry: Entry) -> PluginSource {
+        let path = self.folder(Kind::Plugin, &entry.name);
+        if !entry.folder {
+            let meta = read_limited(&path)
+                .map(|code| usercss::header(&code))
+                .unwrap_or_default();
+            return PluginSource {
+                id: entry.name,
+                about: manifest::About {
+                    name: meta.name,
+                    version: meta.version,
+                    author: meta.author,
+                    description: meta.description,
+                },
+                origin: Origin::File,
+            };
+        }
+        let parsed = read_limited(&path.join(manifest::PLUGIN_MANIFEST))
+            .ok_or_else(|| format!("{} не читается", manifest::PLUGIN_MANIFEST))
+            .and_then(|text| manifest::parse_plugin(&path, &text));
+        match parsed {
+            Ok(manifest) => PluginSource {
+                id: entry.name,
+                about: manifest.about.clone(),
+                origin: Origin::Folder(Box::new(manifest)),
+            },
+            Err(error) => {
+                tracing::warn!(plugin = %entry.name, %error, "плагин-папка не читается");
+                PluginSource {
+                    about: manifest::About {
+                        name: Some(entry.name.clone()),
+                        ..manifest::About::default()
+                    },
+                    id: entry.name,
+                    origin: Origin::Broken(error),
+                }
+            }
+        }
+    }
+
+    /// Все плагины: сначала встроенные, затем из папки.
+    fn all_plugins(&self) -> Vec<PluginSource> {
+        let builtins = BUILTINS
+            .iter()
+            .filter_map(|builtin| self.plugin(builtin.id));
+        let user = self
+            .list(Kind::Plugin)
+            .into_iter()
+            .map(|entry| self.load_plugin(entry));
+        builtins.chain(user).collect()
+    }
+
+    /// Включённый плагин-папка с его разрешёнными адресами — для команд
+    /// хранилища, модуля и сети.
+    fn active_folder(&self, name: &str) -> CmdResult<(Box<PluginManifest>, Vec<String>)> {
+        let saved = self.saved();
+        let plugin = self.plugin(name).filter(|_| saved.plugin_enabled(name));
+        let Some(PluginSource {
+            origin: Origin::Folder(manifest),
+            ..
+        }) = plugin
+        else {
+            return Err(CommandError::new(
+                "plugin",
+                format!("плагин-папка «{name}» не найден или выключен"),
+            ));
+        };
+        let network = saved.network(name, &manifest);
+        Ok((manifest, network))
+    }
+
+    /// Изменить настройку плагина-папки; `None` — значение по умолчанию.
+    fn set_plugin_value(&self, file: &str, name: &str, value: Option<&str>) -> bool {
+        let Some(PluginSource {
+            origin: Origin::Folder(manifest),
+            ..
+        }) = self.plugin(file)
+        else {
+            return false;
+        };
+        let Some(value) = checked_value(&manifest.settings, name, value) else {
+            return false;
+        };
+        self.update(|saved| store_value(&mut saved.plugin_settings, file, name, value));
+        true
+    }
+
+    /// Сбросить все настройки плагина.
+    fn reset_plugin(&self, file: &str) {
+        self.update(|saved| {
+            saved.plugin_settings.remove(file);
+        });
+    }
+
+    /// Действующие значения настроек плагина-папки для его кода.
+    fn plugin_values(&self, name: &str) -> Option<Value> {
+        let Some(PluginSource {
+            origin: Origin::Folder(manifest),
+            ..
+        }) = self.plugin(name)
+        else {
+            return None;
+        };
+        let values = self.saved().plugin_values(name, &manifest);
+        Some(manifest::typed_values(&manifest.settings, &values))
     }
 
     fn read(&self, kind: Kind, name: &str) -> Option<String> {
         read_limited(&self.dir.join(kind.dir()).join(name))
     }
 
-    /// Стили для страницы: выбранная тема с её настройками, затем QuickCSS
-    /// (он последний, чтобы перекрывать тему).
+    /// Стили для страницы: выбранная тема с её настройками, стили
+    /// запущенных плагинов-папок, затем QuickCSS (он последний, чтобы
+    /// перекрывать остальное).
     pub fn styles(&self) -> Vec<Style> {
         let saved = self.saved();
         let mut styles = Vec::new();
         if let Some(name) = self.active_theme()
-            && let Some(css) = self.read(Kind::Theme, &name)
+            && let Some(entry) = self.entry(Kind::Theme, &name)
         {
-            let meta = usercss::parse(&css);
-            let empty = BTreeMap::new();
-            let values = saved.theme_settings.get(&name).unwrap_or(&empty);
-            styles.push(Style {
-                id: format!("theme:{name}"),
-                css: usercss::render(&css, &meta, values, &self.app_url),
-            });
+            let theme = self.load_theme(&entry);
+            if let Some(css) = theme.css {
+                let css = match &theme.base {
+                    Some(base) => rebase_urls(&css, base),
+                    None => css,
+                };
+                let empty = BTreeMap::new();
+                let values = saved.theme_settings.get(&name).unwrap_or(&empty);
+                styles.push(Style {
+                    id: format!("theme:{name}"),
+                    css: usercss::render(&css, &theme.meta, values, &self.app_url),
+                });
+            }
+        }
+        let running = self.running();
+        for plugin in self.all_plugins() {
+            if !running.contains(&plugin.id) {
+                continue;
+            }
+            if let Origin::Folder(manifest) = &plugin.origin
+                && let Some(css) = self.plugin_style(&plugin.id, manifest, &saved)
+            {
+                styles.push(Style {
+                    id: format!("plugin:{}", plugin.id),
+                    css,
+                });
+            }
         }
         if let Some(css) = read_limited(&self.dir.join(QUICK_CSS)) {
             styles.push(Style {
@@ -423,17 +818,70 @@ impl Extensions {
         styles
     }
 
-    /// Код включённых плагинов: `(имя файла, код)`.
+    /// Стили плагина-папки: настройки — переменными CSS, `url()` — в его папку.
+    fn plugin_style(&self, id: &str, manifest: &PluginManifest, saved: &Saved) -> Option<String> {
+        let style = manifest.style.as_deref()?;
+        let path = self.folder(Kind::Plugin, id).join(manifest::relative_path(style)?);
+        let css = read_limited(&path)?;
+        let css = match asset_url(Kind::Plugin, id, style) {
+            Some(base) => rebase_urls(&css, &base),
+            None => css,
+        };
+        if manifest.settings.is_empty() {
+            return Some(css);
+        }
+        let values = saved.plugin_values(id, manifest);
+        Some(usercss::css_variables(&manifest.settings, &values) + &css)
+    }
+
+    /// Код включённых плагинов для страницы: `(ключ, скрипт)`.
     pub fn plugins(&self) -> Vec<(String, String)> {
         let saved = self.saved();
-        self.list(Kind::Plugin)
+        self.all_plugins()
             .into_iter()
-            .filter(|entry| saved.plugin_enabled(&entry.name))
-            .filter_map(|entry| {
-                let code = self.read(Kind::Plugin, &entry.name)?;
-                Some((entry.name, code))
+            .filter(|plugin| saved.plugin_enabled(&plugin.id))
+            .filter_map(|plugin| {
+                let script = self.script(&plugin, &saved)?;
+                Some((plugin.id, script))
             })
             .collect()
+    }
+
+    /// Скрипт плагина для страницы.
+    fn script(&self, plugin: &PluginSource, saved: &Saved) -> Option<String> {
+        match &plugin.origin {
+            Origin::Builtin(builtin) => Some(plugin_script(&plugin.id, &(builtin.code)())),
+            Origin::File => {
+                let code = self.read(Kind::Plugin, &plugin.id)?;
+                Some(plugin_script(&plugin.id, &code))
+            }
+            Origin::Folder(manifest) => {
+                let code = match manifest.main.as_deref() {
+                    Some(main) => read_limited(
+                        &self
+                            .folder(Kind::Plugin, &plugin.id)
+                            .join(manifest::relative_path(main)?),
+                    )?,
+                    None => String::new(),
+                };
+                let values = saved.plugin_values(&plugin.id, manifest);
+                let info = json!({
+                    "id": plugin.id,
+                    "name": plugin.about.name,
+                    "version": plugin.about.version,
+                    "author": plugin.about.author,
+                    "description": plugin.about.description,
+                    "apiVersion": API_VERSION,
+                    "settings": manifest::typed_values(&manifest.settings, &values),
+                    "assetBase": format!("{ASSET_BASE}{PLUGINS_DIR}/{}/", plugin.id),
+                    "native": manifest.native.is_some(),
+                    "network": saved.network(&plugin.id, manifest),
+                });
+                let main = manifest.main.as_deref().unwrap_or(manifest::PLUGIN_MANIFEST);
+                Some(folder_plugin_script(&plugin.id, main, &code, &info))
+            }
+            Origin::Broken(_) => None,
+        }
     }
 
     fn running(&self) -> Vec<String> {
@@ -458,49 +906,60 @@ impl Extensions {
             .list(Kind::Theme)
             .into_iter()
             .map(|entry| {
-                let meta = self
-                    .read(Kind::Theme, &entry.name)
-                    .map(|css| usercss::parse(&css))
-                    .unwrap_or_default();
+                let theme = self.load_theme(&entry);
                 let stored = saved.theme_settings.get(&entry.name).unwrap_or(&empty);
-                let values = meta
-                    .settings
-                    .iter()
-                    .map(|setting| {
-                        let value =
-                            setting.effective(stored.get(&setting.name).map(String::as_str));
-                        (setting.name.clone(), value)
-                    })
-                    .collect();
+                let values = manifest::effective_values(&theme.meta.settings, Some(stored));
                 ThemeInfo {
                     file: entry.name,
-                    meta,
+                    folder: entry.folder,
+                    error: theme.error,
+                    meta: theme.meta,
                     values,
                 }
             })
             .collect();
         let plugins: Vec<PluginInfo> = self
-            .list(Kind::Plugin)
+            .all_plugins()
             .into_iter()
-            .map(|entry| {
-                let meta = self
-                    .read(Kind::Plugin, &entry.name)
-                    .map(|code| usercss::header(&code))
+            .map(|plugin| {
+                let (manifest, error) = match plugin.origin {
+                    Origin::Folder(manifest) => (Some(manifest), None),
+                    Origin::Broken(error) => (None, Some(error)),
+                    Origin::Builtin(_) | Origin::File => (None, None),
+                };
+                let values = manifest
+                    .as_ref()
+                    .map(|manifest| saved.plugin_values(&plugin.id, manifest))
                     .unwrap_or_default();
                 PluginInfo {
-                    enabled: saved.plugin_enabled(&entry.name),
-                    running: running.contains(&entry.name),
-                    file: entry.name,
-                    name: meta.name,
-                    description: meta.description,
-                    author: meta.author,
-                    version: meta.version,
+                    enabled: saved.plugin_enabled(&plugin.id),
+                    running: running.contains(&plugin.id),
+                    builtin: builtin(&plugin.id).is_some(),
+                    folder: manifest.is_some() || error.is_some(),
+                    native: manifest.as_ref().is_some_and(|manifest| manifest.native.is_some()),
+                    granted: manifest
+                        .as_ref()
+                        .is_none_or(|manifest| saved.granted(&plugin.id, manifest)),
+                    network: manifest
+                        .as_ref()
+                        .map(|manifest| manifest.network.clone())
+                        .unwrap_or_default(),
+                    settings: manifest
+                        .map(|manifest| manifest.settings)
+                        .unwrap_or_default(),
+                    values,
+                    error,
+                    file: plugin.id,
+                    name: plugin.about.name,
+                    description: plugin.about.description,
+                    author: plugin.about.author,
+                    version: plugin.about.version,
                 }
             })
             .collect();
         let reload_needed = plugins
             .iter()
-            .any(|plugin| plugin.enabled != plugin.running);
+            .any(|plugin| plugin.enabled != plugin.running && plugin.error.is_none());
         let theme = saved
             .theme
             .filter(|name| themes.iter().any(|theme| &theme.file == name));
@@ -509,6 +968,8 @@ impl Extensions {
             themes,
             plugins,
             reload_needed,
+            version: env!("CARGO_PKG_VERSION"),
+            api_version: API_VERSION,
         }
     }
 
@@ -517,6 +978,50 @@ impl Extensions {
             themes: self.list(Kind::Theme),
             plugins: self.list(Kind::Plugin),
             quick_css: stamp(&self.dir.join(QUICK_CSS)),
+        }
+    }
+
+    /// Файл из папки темы или плагина по пути адреса
+    /// (`/plugins/<id>/<путь>`); `None` — такого файла нет или путь ведёт
+    /// за пределы папки.
+    fn asset_path(&self, path: &str) -> Option<PathBuf> {
+        let path = percent_decode(path.strip_prefix('/').unwrap_or(path))?;
+        let (dir, rest) = path.split_once('/')?;
+        let kind = match dir {
+            THEMES_DIR => Kind::Theme,
+            PLUGINS_DIR => Kind::Plugin,
+            _ => return None,
+        };
+        let (id, file) = rest.split_once('/')?;
+        if !manifest::valid_id(id) {
+            return None;
+        }
+        let folder = self.folder(kind, id);
+        if !folder.join(kind.manifest()).is_file() {
+            return None;
+        }
+        let file = folder.join(manifest::relative_path(file)?);
+        // ссылки внутри папки не должны вести наружу
+        let real = file.canonicalize().ok()?;
+        let root = folder.canonicalize().ok()?;
+        (real.starts_with(&root) && real.is_file()).then_some(real)
+    }
+
+    /// Ответ на запрос файла из папки.
+    pub fn asset(&self, path: &str) -> tauri::http::Response<Vec<u8>> {
+        let Some(file) = self.asset_path(path) else {
+            return asset_response(404, "text/plain", b"not found".to_vec());
+        };
+        let fits = std::fs::metadata(&file).is_ok_and(|meta| meta.len() <= MAX_ASSET_SIZE);
+        if !fits {
+            return asset_response(413, "text/plain", b"too large".to_vec());
+        }
+        match std::fs::read(&file) {
+            Ok(body) => asset_response(200, mime_type(&file), body),
+            Err(error) => {
+                tracing::warn!(%error, path = %file.display(), "файл расширения не читается");
+                asset_response(500, "text/plain", b"unreadable".to_vec())
+            }
         }
     }
 
@@ -587,6 +1092,7 @@ fn list_dir(dir: &Path, extension: &str) -> Vec<Entry> {
             let name = item.file_name().into_string().ok()?;
             (matches && !name.starts_with('.')).then(|| Entry {
                 stamp: stamp(&path),
+                folder: false,
                 name,
             })
         })
@@ -615,6 +1121,287 @@ fn read_limited(path: &Path) -> Option<String> {
             None
         }
     }
+}
+
+/// Папки с манифестом в каталоге; имя папки — идентификатор.
+fn list_folders(dir: &Path, manifest_file: &str) -> Vec<Entry> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    read.filter_map(Result::ok)
+        .filter(|item| item.file_type().is_ok_and(|kind| kind.is_dir()))
+        .filter_map(|item| {
+            let name = item.file_name().into_string().ok()?;
+            let path = item.path();
+            let valid = manifest::valid_id(&name) && path.join(manifest_file).is_file();
+            valid.then(|| Entry {
+                stamp: folder_stamp(&path),
+                folder: true,
+                name,
+            })
+        })
+        .collect()
+}
+
+/// Отметка папки: время самого нового файла и общий размер вместе с числом
+/// файлов — меняется, когда файл сохранили, добавили или удалили.
+fn folder_stamp(dir: &Path) -> Option<(SystemTime, u64)> {
+    let mut newest: Option<SystemTime> = None;
+    let mut total = 0u64;
+    let mut count = 0u64;
+    let mut pending = vec![(dir.to_path_buf(), 0usize)];
+    while let Some((path, depth)) = pending.pop() {
+        let Ok(read) = std::fs::read_dir(&path) else {
+            continue;
+        };
+        for item in read.filter_map(Result::ok) {
+            if count as usize >= MAX_WATCHED_FILES {
+                break;
+            }
+            if item.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let Ok(meta) = item.metadata() else {
+                continue;
+            };
+            if meta.is_dir() {
+                if depth < MAX_WATCH_DEPTH {
+                    pending.push((item.path(), depth + 1));
+                }
+                continue;
+            }
+            count += 1;
+            total = total.wrapping_add(meta.len());
+            if let Ok(modified) = meta.modified() {
+                newest = newest.max(Some(modified));
+            }
+        }
+    }
+    Some((newest?, total.wrapping_add(count << 40)))
+}
+
+/// Проверить значение настройки: `Some(None)` — вернуть значение по
+/// умолчанию, `None` — такой настройки нет или значение не подходит.
+fn checked_value(
+    settings: &[usercss::Setting],
+    name: &str,
+    value: Option<&str>,
+) -> Option<Option<String>> {
+    let setting = settings.iter().find(|setting| setting.name == name)?;
+    match value {
+        Some(value) => setting.normalize(value).map(Some),
+        None => Some(None),
+    }
+}
+
+/// Записать значение настройки: тема или плагин → имя → значение.
+fn store_value(
+    map: &mut BTreeMap<String, BTreeMap<String, String>>,
+    owner: &str,
+    name: &str,
+    value: Option<String>,
+) {
+    let values = map.entry(owner.to_owned()).or_default();
+    match value {
+        Some(value) => {
+            values.insert(name.to_owned(), value);
+        }
+        None => {
+            values.remove(name);
+        }
+    }
+    if values.is_empty() {
+        map.remove(owner);
+    }
+}
+
+// ─────────────────────────────── файлы папок ───────────────────────────────
+
+/// Адрес файла из папки темы или плагина.
+fn asset_url(kind: Kind, id: &str, file: &str) -> Option<Url> {
+    let folder = Url::parse(ASSET_BASE)
+        .ok()?
+        .join(&format!("{}/{id}/", kind.dir()))
+        .ok()?;
+    folder.join(file).ok()
+}
+
+/// Относительные адреса в `url()` стилей из папки — от адреса файла
+/// стилей, как у подключённого файла: иначе `<style>` на странице искал бы
+/// их на сервере веб-клиента. Адреса со схемой, `/…` и `#…` не меняются.
+fn rebase_urls(css: &str, base: &Url) -> String {
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut copied = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i = css[i + 2..]
+                    .find("*/")
+                    .map_or(bytes.len(), |end| i + 2 + end + 2);
+            }
+            quote @ (b'"' | b'\'') => i = skip_string(bytes, i + 1, quote),
+            b'u' | b'U' if starts_url(bytes, i) => {
+                let Some((value, end)) = url_argument(css, i + 4) else {
+                    i += 4;
+                    continue;
+                };
+                if let Some(url) = rebased(value, base) {
+                    out.push_str(&css[copied..i]);
+                    out.push_str(&format!("url(\"{url}\")"));
+                    copied = end;
+                }
+                i = end;
+            }
+            _ => i += 1,
+        }
+    }
+    out.push_str(&css[copied..]);
+    out
+}
+
+/// `url(` с позиции `i`, не продолжение другого имени.
+fn starts_url(bytes: &[u8], i: usize) -> bool {
+    let name = |byte: u8| byte.is_ascii_alphanumeric() || b"-_".contains(&byte) || byte >= 0x80;
+    bytes.len() >= i + 4
+        && bytes[i..i + 4].eq_ignore_ascii_case(b"url(")
+        && (i == 0 || !name(bytes[i - 1]))
+}
+
+/// Конец строки CSS, начатой кавычкой `quote` перед `i`.
+fn skip_string(bytes: &[u8], mut i: usize, quote: u8) -> usize {
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\\' => i += 2,
+            // незакрытая строка кончается вместе со строкой файла
+            b'\n' => return i + 1,
+            byte if byte == quote => return i + 1,
+            _ => i += 1,
+        }
+    }
+    bytes.len()
+}
+
+/// Адрес внутри `url(…)` с позиции `start` и позиция после `)`. Адреса с
+/// экранированием не трогаются.
+fn url_argument(css: &str, start: usize) -> Option<(&str, usize)> {
+    let rest = &css[start..];
+    let trimmed = rest.trim_start();
+    let offset = start + rest.len() - trimmed.len();
+    match *trimmed.as_bytes().first()? {
+        quote @ (b'"' | b'\'') => {
+            let close = trimmed[1..].find(char::from(quote))? + 1;
+            let value = &trimmed[1..close];
+            if value.contains(['\\', '\n']) {
+                return None;
+            }
+            let after = trimmed[close + 1..].trim_start();
+            after
+                .starts_with(')')
+                .then(|| (value, css.len() - after.len() + 1))
+        }
+        _ => {
+            let close = trimmed.find(')')?;
+            let value = trimmed[..close].trim_end();
+            let plain = !value.contains(|c: char| c.is_whitespace() || "\"'(\\".contains(c));
+            plain.then_some((value, offset + close + 1))
+        }
+    }
+}
+
+fn rebased(value: &str, base: &Url) -> Option<Url> {
+    if value.is_empty() || value.starts_with(['/', '#']) || Url::parse(value).is_ok() {
+        return None;
+    }
+    base.join(value).ok()
+}
+
+/// Раскодировать `%XX` в пути адреса.
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'%' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let hex = bytes.get(i + 1..i + 3)?;
+        if !hex.iter().all(u8::is_ascii_hexdigit) {
+            return None;
+        }
+        let digits = std::str::from_utf8(hex).ok()?;
+        out.push(u8::from_str_radix(digits, 16).ok()?);
+        i += 3;
+    }
+    String::from_utf8(out).ok()
+}
+
+/// Тип файла для ответа. HTML отдаётся текстом: адреса файлов — не место
+/// для страниц со скриптами.
+fn mime_type(path: &Path) -> &'static str {
+    let extension = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    match extension.as_str() {
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "text/javascript; charset=utf-8",
+        "json" => "application/json",
+        "wasm" => "application/wasm",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "mp3" => "audio/mpeg",
+        "ogg" | "oga" => "audio/ogg",
+        "wav" => "audio/wav",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "txt" | "md" | "html" | "htm" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream",
+    }
+}
+
+fn asset_response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", mime)
+        // шрифты и fetch страницы веб-клиента — запросы с другого origin
+        .header("Access-Control-Allow-Origin", "*")
+        // файл могли сохранить: страница проверяет, не изменился ли он
+        .header("Cache-Control", "no-cache")
+        .header("X-Content-Type-Options", "nosniff")
+        .body(body)
+        .unwrap_or_default()
+}
+
+/// Файлы из папок тем и плагинов (схема [`ASSET_SCHEME`]).
+pub fn asset_protocol(
+    context: tauri::UriSchemeContext<'_, tauri::Wry>,
+    request: tauri::http::Request<Vec<u8>>,
+    responder: tauri::UriSchemeResponder,
+) {
+    let app = context.app_handle().clone();
+    let path = request.uri().path().to_owned();
+    // чтение с диска — не в главном потоке
+    tauri::async_runtime::spawn_blocking(move || {
+        let response = match app.try_state::<Arc<Extensions>>() {
+            Some(extensions) => extensions.asset(&path),
+            None => asset_response(503, "text/plain", Vec::new()),
+        };
+        responder.respond(response);
+    });
 }
 
 fn write_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
@@ -685,14 +1472,16 @@ pub fn on_page_load(window: WebviewWindow, payload: PageLoadPayload<'_>) {
             return;
         }
         let mut running = Vec::with_capacity(plugins.len());
-        for (name, code) in &plugins {
+        for (name, script) in &plugins {
             tracing::info!(plugin = %name, "запускаю плагин");
-            match target.eval(plugin_script(name, code)) {
+            match target.eval(script) {
                 Ok(()) => running.push(name.clone()),
                 Err(error) => tracing::warn!(%error, plugin = %name, "плагин не запустился"),
             }
         }
         extensions.set_running(running);
+        // стили плагинов-папок действуют, пока плагин запущен
+        push_styles(target.app_handle());
         notify_page(target.app_handle());
     });
     if let Err(error) = result {
@@ -705,6 +1494,18 @@ fn plugin_script(name: &str, code: &str) -> String {
     // имя попадает в комментарий: переводы строк из него убираются
     let label: String = name.chars().filter(|c| !c.is_control()).collect();
     format!("{code}\n//# sourceURL=arachnid-plugins/{label}\n")
+}
+
+/// Код плагина-папки: тело функции с объектом `plugin` (API плагинов,
+/// `bridge.js`). Функция асинхронная — в коде можно сразу писать `await`;
+/// её переменные не попадают в глобальную область страницы.
+fn folder_plugin_script(id: &str, main: &str, code: &str, info: &Value) -> String {
+    let label: String = main.chars().filter(|c| !c.is_control()).collect();
+    format!(
+        "(async function (plugin) {{\n{code}\n}}).call(window, window.__arachnidDesktop.plugin({info}))\n\
+         .catch((error) => console.error(\"[{id}]\", error));\n\
+         //# sourceURL=arachnid-plugins/{id}/{label}\n"
+    )
 }
 
 /// Следить за папками: сохранённая тема применяется сразу, новые файлы
@@ -721,7 +1522,11 @@ pub fn start_watcher(app: AppHandle) {
                 if next == last {
                     continue;
                 }
-                if next.themes != last.themes || next.quick_css != last.quick_css {
+                // стили плагинов-папок тоже обновляются при сохранении
+                if next.themes != last.themes
+                    || next.plugins != last.plugins
+                    || next.quick_css != last.quick_css
+                {
                     push_styles(&app);
                 }
                 // редактор QuickCSS в настройках подхватит правку из другой программы
@@ -851,15 +1656,38 @@ fn themes_submenu(
     Ok(submenu)
 }
 
-/// «Плагины»: флажок на каждый файл и «Открыть папку».
+/// «Плагины»: флажок на каждый плагин (сначала встроенные) и «Открыть
+/// папку». Плагин, которому нужно разрешение на сеть, включается только в
+/// настройках — там окно разрешений; здесь его флажок недоступен.
 fn plugins_submenu(
     app: &AppHandle,
     extensions: &Extensions,
     labels: &TrayLabels,
 ) -> tauri::Result<Submenu<tauri::Wry>> {
     let submenu = Submenu::new(app, &labels.plugins, true)?;
-    let entries = extensions.list(Kind::Plugin);
-    if entries.is_empty() {
+    let saved = extensions.saved();
+    let (builtins, user): (Vec<_>, Vec<_>) = extensions
+        .all_plugins()
+        .into_iter()
+        .partition(|plugin| matches!(plugin.origin, Origin::Builtin(_)));
+    let item = |plugin: &PluginSource| {
+        let enabled = saved.plugin_enabled(&plugin.id);
+        CheckMenuItem::with_id(
+            app,
+            format!("{MENU_PLUGIN}{}", plugin.id),
+            menu_text(plugin.label()),
+            enabled || plugin.ready(&saved),
+            enabled,
+            None::<&str>,
+        )
+    };
+    for plugin in &builtins {
+        submenu.append(&item(plugin)?)?;
+    }
+    if !builtins.is_empty() {
+        submenu.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    if user.is_empty() {
         submenu.append(&MenuItem::new(
             app,
             &labels.no_plugins,
@@ -867,16 +1695,8 @@ fn plugins_submenu(
             None::<&str>,
         )?)?;
     }
-    for entry in entries {
-        let item = CheckMenuItem::with_id(
-            app,
-            format!("{MENU_PLUGIN}{}", entry.name),
-            menu_text(&entry.name),
-            true,
-            extensions.plugin_enabled(&entry.name),
-            None::<&str>,
-        )?;
-        submenu.append(&item)?;
+    for plugin in &user {
+        submenu.append(&item(plugin)?)?;
     }
     submenu.append(&PredefinedMenuItem::separator(app)?)?;
     submenu.append(&MenuItem::with_id(
@@ -914,7 +1734,13 @@ pub fn on_menu(app: &AppHandle, id: &str) {
         theme_changed(app);
         notify_page(app);
     } else if let Some(name) = id.strip_prefix(MENU_PLUGIN) {
-        let value = !extensions.plugin_enabled(name);
+        let saved = extensions.saved();
+        let value = !saved.plugin_enabled(name);
+        // включить можно только готовый плагин (см. plugins_submenu)
+        if value && !extensions.plugin(name).is_some_and(|plugin| plugin.ready(&saved)) {
+            desktop::refresh_tray(app);
+            return;
+        }
         extensions.set_plugin(name, value);
         tracing::info!(plugin = %name, enabled = value, "плагин переключён, перезагружаю страницу");
         desktop::refresh_tray(app);
@@ -1028,18 +1854,38 @@ pub fn extensions_reset_theme(
 /// Переключатель плагина в разделе «Плагины». Страница не
 /// перезагружается сама: раздел предлагает перезагрузку, когда включённые
 /// плагины отличаются от запущенных.
+///
+/// Плагин-папку, которая просит доступ в сеть, можно включить только с
+/// `grant: true` — после того как пользователь согласился в окне раздела.
+/// Тот же вызов подтверждает новые адреса уже включённого плагина.
 #[tauri::command]
 pub fn extensions_set_plugin(
     file: String,
     enabled: bool,
+    grant: Option<bool>,
     app: AppHandle,
     extensions: State<'_, Arc<Extensions>>,
 ) -> CmdResult<Overview> {
-    if !extensions.exists(Kind::Plugin, &file) {
+    let Some(plugin) = extensions.plugin(&file) else {
         return Err(CommandError::new(
             "plugin",
             "такого плагина нет в папке plugins",
         ));
+    };
+    if enabled && !plugin.ready(&extensions.saved()) {
+        match &plugin.origin {
+            Origin::Folder(manifest) if grant == Some(true) => {
+                extensions.grant(&file, &manifest.network);
+            }
+            Origin::Folder(_) => {
+                return Err(CommandError::new(
+                    "permissions",
+                    "плагину нужно разрешение на доступ в сеть",
+                ));
+            }
+            Origin::Broken(error) => return Err(CommandError::new("plugin", error.clone())),
+            Origin::Builtin(_) | Origin::File => {}
+        }
     }
     extensions.set_plugin(&file, enabled);
     tracing::info!(plugin = %file, enabled, "плагин переключён в настройках");
@@ -1069,6 +1915,122 @@ pub fn extensions_set_quick_css(
     extensions.set_quick_css(&css)?;
     push_styles(&app);
     Ok(())
+}
+
+/// Настройка плагина-папки изменилась: стили плагина (переменные CSS) и
+/// подписчики `plugin.onSettingsChange` на странице.
+fn plugin_settings_changed(app: &AppHandle, extensions: &Extensions, file: &str) {
+    if extensions.running().iter().any(|name| name == file) {
+        push_styles(app);
+    }
+    if let Some(values) = extensions.plugin_values(file) {
+        let id = serde_json::to_string(file).unwrap_or_default();
+        call_page(app, &format!("pluginSettingsChanged({id}, {values})"));
+    }
+}
+
+/// Изменить настройку плагина-папки; `value: null` — значение по умолчанию.
+#[tauri::command]
+pub fn extensions_set_plugin_value(
+    file: String,
+    name: String,
+    value: Option<String>,
+    app: AppHandle,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<Overview> {
+    if !extensions.set_plugin_value(&file, &name, value.as_deref()) {
+        return Err(CommandError::new(
+            "plugin",
+            "значение не подходит к настройке плагина",
+        ));
+    }
+    plugin_settings_changed(&app, &extensions, &file);
+    Ok(extensions.overview())
+}
+
+/// «Сбросить» в настройках плагина-папки.
+#[tauri::command]
+pub fn extensions_reset_plugin(
+    file: String,
+    app: AppHandle,
+    extensions: State<'_, Arc<Extensions>>,
+) -> Overview {
+    extensions.reset_plugin(&file);
+    plugin_settings_changed(&app, &extensions, &file);
+    extensions.overview()
+}
+
+/// `plugin.storage.get`: значение ключа или `null`.
+#[tauri::command(async)]
+pub fn plugin_storage_get(
+    plugin: String,
+    key: String,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<Option<Value>> {
+    extensions.active_folder(&plugin)?;
+    extensions
+        .host
+        .storage()
+        .get(&plugin, &key)
+        .map_err(|error| CommandError::new("storage", error))
+}
+
+/// `plugin.storage.set` / `delete`: `value: null` удаляет ключ.
+#[tauri::command(async)]
+pub fn plugin_storage_set(
+    plugin: String,
+    key: String,
+    value: Option<Value>,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<()> {
+    extensions.active_folder(&plugin)?;
+    extensions
+        .host
+        .storage()
+        .set(&plugin, &key, value)
+        .map_err(|error| CommandError::new("storage", error))
+}
+
+/// `plugin.native.call`: функция нативного модуля плагина. Модуль может
+/// работать секунды — вызов идёт в фоновом потоке.
+#[tauri::command]
+pub async fn plugin_native_call(
+    plugin: String,
+    function: String,
+    input: Value,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<Value> {
+    let (manifest, network) = extensions.active_folder(&plugin)?;
+    let native = manifest
+        .native
+        .as_deref()
+        .and_then(manifest::relative_path)
+        .ok_or_else(|| CommandError::new("native", "у плагина нет нативного модуля"))?;
+    let path = extensions.folder(Kind::Plugin, &plugin).join(native);
+    let extensions = Arc::clone(extensions.inner());
+    let call = move || {
+        extensions
+            .host
+            .call(&plugin, &path, &network, &function, &input)
+    };
+    tauri::async_runtime::spawn_blocking(call)
+        .await?
+        .map_err(|error| CommandError::new("native", error))
+}
+
+/// `plugin.fetch`: запрос к адресу, который плагин назвал в `plugin.toml`
+/// и пользователь подтвердил, — без ограничений CORS страницы.
+#[tauri::command]
+pub async fn plugin_fetch(
+    plugin: String,
+    request: FetchRequest,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<FetchResponse> {
+    let (_, network) = extensions.active_folder(&plugin)?;
+    let fetch = move || plugin_host::fetch(&request, &network);
+    tauri::async_runtime::spawn_blocking(fetch)
+        .await?
+        .map_err(|error| CommandError::new("network", error))
 }
 
 #[cfg(test)]
@@ -1101,8 +2063,17 @@ mod tests {
         let extensions = extensions(&dir);
         assert_eq!(extensions.list(Kind::Theme).len(), 1);
         assert!(extensions.styles().is_empty());
-        assert!(extensions.plugins().is_empty());
+        assert!(user_plugins(&extensions).is_empty());
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Плагины из папки plugins, без встроенных.
+    fn user_plugins(extensions: &Extensions) -> Vec<(String, String)> {
+        extensions
+            .plugins()
+            .into_iter()
+            .filter(|(id, _)| !id.starts_with(BUILTIN_PREFIX))
+            .collect()
     }
 
     #[test]
@@ -1159,7 +2130,7 @@ mod tests {
         .unwrap();
         let extensions = extensions(&dir);
         assert_eq!(extensions.active_theme().as_deref(), Some("night.css"));
-        assert!(extensions.plugin_enabled("x.js"));
+        assert!(extensions.saved().plugin_enabled("x.js"));
         extensions.set_plugin("x.js", false);
         let saved = std::fs::read_to_string(dir.join(STATE_FILE)).unwrap();
         assert!(
@@ -1204,12 +2175,15 @@ mod tests {
         )
         .unwrap();
         let extensions = extensions(&dir);
+        assert!(extensions.overview().reload_needed, "встроенный ещё не запущен");
+        extensions.set_running(vec!["builtin:qol".into()]);
         assert!(!extensions.overview().reload_needed);
         extensions.set_plugin("klipy.js", true);
         let overview = extensions.overview();
         assert!(overview.reload_needed, "включён, но ещё не запущен");
-        assert_eq!(overview.plugins[0].name.as_deref(), Some("Klipy"));
-        extensions.set_running(vec!["klipy.js".into()]);
+        let klipy = overview.plugins.iter().find(|plugin| plugin.file == "klipy.js");
+        assert_eq!(klipy.and_then(|plugin| plugin.name.as_deref()), Some("Klipy"));
+        extensions.set_running(vec!["builtin:qol".into(), "klipy.js".into()]);
         assert!(!extensions.overview().reload_needed);
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1219,8 +2193,9 @@ mod tests {
         let dir = temp_dir("state");
         std::fs::write(dir.join(PLUGINS_DIR).join("translate.js"), "go()").unwrap();
         extensions(&dir).set_plugin("translate.js", true);
-        let plugins = extensions(&dir).plugins();
-        assert_eq!(plugins, [("translate.js".to_owned(), "go()".to_owned())]);
+        let plugins = user_plugins(&extensions(&dir));
+        let script = plugin_script("translate.js", "go()");
+        assert_eq!(plugins, [("translate.js".to_owned(), script)]);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1229,7 +2204,7 @@ mod tests {
         let dir = temp_dir("removed");
         let extensions = extensions(&dir);
         extensions.set_plugin("gone.js", true);
-        assert!(extensions.plugins().is_empty());
+        assert!(user_plugins(&extensions).is_empty());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1304,6 +2279,186 @@ mod tests {
         let huge = "a".repeat(MAX_FILE_SIZE as usize + 1);
         assert!(extensions.set_quick_css(&huge).is_err());
         assert_eq!(extensions.quick_css().unwrap(), "body { color: red }");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn builtin_plugin_is_on_until_switched_off() {
+        let dir = temp_dir("builtin");
+        let extensions = extensions(&dir);
+        assert!(extensions.saved().plugin_enabled("builtin:qol"));
+        let plugins = extensions.plugins();
+        assert_eq!(plugins.len(), 1);
+        assert!(plugins[0].1.contains("__arachnidDesktop"), "это emoji.js");
+        let overview = extensions.overview();
+        assert!(overview.plugins[0].builtin);
+        assert_eq!(overview.api_version, API_VERSION);
+
+        extensions.set_plugin("builtin:qol", false);
+        assert!(extensions.plugins().is_empty());
+        assert!(!extensions.saved().plugin_enabled("builtin:nothing"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const TRANSLATE_MANIFEST: &str = "name = \"Переводчик\"\nversion = \"1.0\"\n\
+        [permissions]\nnetwork = [\"api.example.com\"]\n\
+        [[settings]]\nname = \"lang\"\ntype = \"select\"\ndefault = \"en\"\n\
+        options = [{ value = \"en\" }, { value = \"ru\" }]\n";
+
+    fn translate_plugin(dir: &Path) -> PathBuf {
+        let folder = dir.join(PLUGINS_DIR).join("translate");
+        std::fs::create_dir_all(folder.join("img")).unwrap();
+        std::fs::write(folder.join("plugin.toml"), TRANSLATE_MANIFEST).unwrap();
+        std::fs::write(folder.join("main.js"), "plugin.storage.get('x');").unwrap();
+        std::fs::write(folder.join("style.css"), "a { background: url(img/flag.png) }").unwrap();
+        std::fs::write(folder.join("img").join("flag.png"), "png").unwrap();
+        folder
+    }
+
+    #[test]
+    fn folder_plugin_gets_api_settings_and_style() {
+        let dir = temp_dir("folder-plugin");
+        translate_plugin(&dir);
+        let extensions = extensions(&dir);
+        let entry = extensions.entry(Kind::Plugin, "translate").unwrap();
+        assert!(entry.folder);
+        assert!(extensions.active_folder("translate").is_err(), "выключен");
+
+        extensions.set_plugin("translate", true);
+        let plugins = user_plugins(&extensions);
+        let script = &plugins[0].1;
+        assert!(script.starts_with("(async function (plugin) {\nplugin.storage.get('x');\n}"));
+        assert!(script.contains(r#""assetBase":"#));
+        assert!(script.contains("/plugins/translate/"));
+        assert!(script.contains(r#""settings":{"lang":"en"}"#));
+        assert!(script.contains(r#""network":[]"#), "адрес ещё не подтверждён");
+        assert!(script.ends_with("//# sourceURL=arachnid-plugins/translate/main.js\n"));
+
+        let info = extensions.overview().plugins.into_iter().find(|plugin| plugin.folder).unwrap();
+        assert_eq!(info.name.as_deref(), Some("Переводчик"));
+        assert_eq!(info.network, ["api.example.com"]);
+        assert!(!info.granted);
+        assert_eq!(info.values["lang"], "en");
+
+        extensions.grant("translate", &["api.example.com".to_owned()]);
+        let (_, network) = extensions.active_folder("translate").unwrap();
+        assert_eq!(network, ["api.example.com"]);
+
+        assert!(extensions.set_plugin_value("translate", "lang", Some("ru")));
+        assert!(!extensions.set_plugin_value("translate", "lang", Some("de")));
+        assert_eq!(extensions.plugin_values("translate").unwrap()["lang"], "ru");
+
+        // стиль действует, пока плагин запущен
+        assert!(extensions.styles().is_empty());
+        extensions.set_running(vec!["translate".into()]);
+        let styles = extensions.styles();
+        assert_eq!(styles[0].id, "plugin:translate");
+        assert!(styles[0].css.contains("--lang: ru;"));
+        assert!(styles[0].css.contains("/plugins/translate/img/flag.png\")"));
+
+        extensions.reset_plugin("translate");
+        assert_eq!(extensions.plugin_values("translate").unwrap()["lang"], "en");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn broken_folder_is_shown_but_not_run() {
+        let dir = temp_dir("broken");
+        let folder = dir.join(PLUGINS_DIR).join("broken");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("plugin.toml"), "name = ").unwrap();
+        // без манифеста папка не плагин
+        std::fs::create_dir_all(dir.join(PLUGINS_DIR).join("just-a-folder")).unwrap();
+        let extensions = extensions(&dir);
+        extensions.set_plugin("broken", true);
+        assert!(user_plugins(&extensions).is_empty());
+        let overview = extensions.overview();
+        let names: Vec<&str> = overview.plugins.iter().map(|plugin| plugin.file.as_str()).collect();
+        assert_eq!(names, ["builtin:qol", "broken"]);
+        assert!(overview.plugins[1].error.as_deref().unwrap().contains("plugin.toml"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn folder_theme_has_assets_and_settings() {
+        let dir = temp_dir("folder-theme");
+        let folder = dir.join(THEMES_DIR).join("night");
+        std::fs::create_dir_all(&folder).unwrap();
+        let manifest = "name = \"Ночь\"\n[[settings]]\nname = \"accent\"\ntype = \"color\"\n\
+                        default = \"#123456\"\n";
+        std::fs::write(folder.join("theme.toml"), manifest).unwrap();
+        let css = "body { background: url('bg.png'), url(data:image/png;base64,AA) }";
+        std::fs::write(folder.join("theme.css"), css).unwrap();
+        let extensions = extensions(&dir);
+        assert!(extensions.set_theme(Some("night")));
+        let styles = extensions.styles();
+        assert_eq!(styles[0].id, "theme:night");
+        assert!(styles[0].css.contains("--accent: #123456;"));
+        assert!(styles[0].css.contains("/themes/night/bg.png\")"));
+        assert!(styles[0].css.contains("url(data:image/png;base64,AA)"));
+
+        assert!(extensions.set_theme_value("night", "accent", Some("#ff0000")));
+        assert!(extensions.styles()[0].css.contains("--accent: #ff0000;"));
+        let overview = extensions.overview();
+        assert!(overview.themes[0].folder);
+        assert_eq!(overview.themes[0].meta.name.as_deref(), Some("Ночь"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn assets_stay_inside_their_folder() {
+        let dir = temp_dir("assets");
+        let folder = translate_plugin(&dir);
+        std::fs::write(folder.join("img").join("two words.png"), "png").unwrap();
+        std::fs::write(dir.join("secret.txt"), "secret").unwrap();
+        let extensions = extensions(&dir);
+        assert!(extensions.asset_path("/plugins/translate/img/flag.png").is_some());
+        assert!(extensions.asset_path("/plugins/translate/img/two%20words.png").is_some());
+        for bad in [
+            "/plugins/translate/../../secret.txt",
+            "/plugins/translate/%2E%2E/%2E%2E/secret.txt",
+            "/plugins/translate/img/none.png",
+            "/plugins/translate/img",
+            "/plugins/missing/main.js",
+            "/other/translate/main.js",
+            "/plugins/translate/%zz",
+        ] {
+            assert!(extensions.asset_path(bad).is_none(), "{bad}");
+        }
+        let response = extensions.asset("/plugins/translate/img/flag.png");
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.body(), b"png");
+        assert_eq!(response.headers()["content-type"], "image/png");
+        assert_eq!(extensions.asset("/plugins/translate/x.png").status(), 404);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn only_relative_urls_are_rebased() {
+        let base = Url::parse("http://arachnid.localhost/themes/night/css/theme.css").unwrap();
+        let css = "a { b: url(img/x.png); c: URL( \"../y.svg\" ); d: url(/root.png); \
+                   e: url(#mask); f: url(https://e.com/z.png); g: myurl(q.png); }\n\
+                   /* url(comment.png) */ h { content: \"url(string.png)\" }";
+        let out = rebase_urls(css, &base);
+        assert!(out.contains(r#"b: url("http://arachnid.localhost/themes/night/css/img/x.png")"#));
+        assert!(out.contains(r#"c: url("http://arachnid.localhost/themes/night/y.svg")"#));
+        assert!(out.contains("d: url(/root.png)"));
+        assert!(out.contains("e: url(#mask)"));
+        assert!(out.contains("f: url(https://e.com/z.png)"));
+        assert!(out.contains("g: myurl(q.png)"));
+        assert!(out.contains("/* url(comment.png) */"));
+        assert!(out.contains("\"url(string.png)\""));
+        // незакрытое не ломает остаток
+        assert_eq!(rebase_urls("a { b: url(x.png", &base), "a { b: url(x.png");
+    }
+
+    #[test]
+    fn folder_change_is_noticed() {
+        let dir = temp_dir("folder-stamp");
+        let folder = translate_plugin(&dir);
+        let before = folder_stamp(&folder);
+        std::fs::write(folder.join("img").join("new.png"), "png").unwrap();
+        assert_ne!(folder_stamp(&folder), before);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

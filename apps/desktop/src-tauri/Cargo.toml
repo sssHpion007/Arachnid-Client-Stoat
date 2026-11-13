@@ -46,6 +46,13 @@ harfrust = "0.16"
 # рисует resvg, слои системного шрифта — tiny-skia из того же resvg. Без
 # текста, системных шрифтов и растровых форматов кроме PNG
 resvg = { version = "0.50", default-features = false }
+# нативная часть плагинов — модули WebAssembly в песочнице (src/plugin_host.rs):
+# интерпретатор на чистом Rust, без JIT и без доступа модуля к системе
+wasmi = { version = "1.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# модули WebAssembly для тестов пишутся текстом (WAT)
+wat = "1.239"
 
 # экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
 # версии, что у Tauri и wry)

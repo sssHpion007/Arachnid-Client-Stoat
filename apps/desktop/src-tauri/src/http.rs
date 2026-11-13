@@ -1,6 +1,7 @@
 //! Загрузка файлов по HTTPS средствами Windows (WinHTTP).
 //!
-//! Нужна для скачиваемых наборов эмодзи (`emoji_packs.rs`). WinHTTP — часть
+//! Нужна для скачиваемых наборов эмодзи (`emoji_packs.rs`) и запросов
+//! плагинов с разрешением на сеть (`plugin_host.rs`). WinHTTP — часть
 //! системы: не тянет в клиент отдельный HTTP-стек с TLS и сам берёт прокси из
 //! настроек Windows (`WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY`), так что загрузка
 //! идёт тем же путём, что и у браузера. Переадресации (GitHub отдаёт файлы
@@ -121,41 +122,75 @@ fn session() -> Result<Arc<Session>, Error> {
     Ok(session)
 }
 
+/// Сервер, порт и путь запроса.
+struct Target {
+    host: HSTRING,
+    port: u16,
+    path: HSTRING,
+    flags: wh::WINHTTP_OPEN_REQUEST_FLAGS,
+}
+
+impl Target {
+    fn of(url: &Url) -> Result<Self, Error> {
+        let secure = match url.scheme() {
+            "https" => true,
+            "http" => false,
+            _ => return Err(Error::Url),
+        };
+        Ok(Self {
+            host: HSTRING::from(url.host_str().ok_or(Error::Url)?),
+            port: url.port_or_known_default().ok_or(Error::Url)?,
+            path: HSTRING::from(&url[url::Position::BeforePath..]),
+            flags: if secure {
+                wh::WINHTTP_FLAG_SECURE
+            } else {
+                wh::WINHTTP_OPEN_REQUEST_FLAGS(0)
+            },
+        })
+    }
+}
+
+/// Открыть запрос: дескриптор соединения нужен, пока жив запрос.
+///
+/// # Safety
+///
+/// Строки `verb` и `target` должны жить, пока жив запрос.
+unsafe fn open(
+    session: &Session,
+    verb: &HSTRING,
+    target: &Target,
+) -> Result<(Handle, Handle), Error> {
+    // SAFETY: дескрипторы закрывает Handle, строки живут у вызывающего
+    unsafe {
+        let raw = wh::WinHttpConnect(session.0.0, &target.host, target.port, 0);
+        let connection = Handle::new(raw)?;
+        let request = Handle::new(wh::WinHttpOpenRequest(
+            connection.0,
+            verb,
+            &target.path,
+            PCWSTR::null(),
+            PCWSTR::null(),
+            std::ptr::null(),
+            target.flags,
+        ))?;
+        Ok((connection, request))
+    }
+}
+
 /// Скачать `url`. `on_length` получает размер из Content-Length (если он
 /// есть) до первых данных, `on_data` — данные по кускам.
 pub fn get(
     url: &Url,
     on_length: impl FnOnce(Option<u64>),
-    mut on_data: impl FnMut(&[u8]) -> Result<(), StopReason>,
+    on_data: impl FnMut(&[u8]) -> Result<(), StopReason>,
 ) -> Result<(), Error> {
-    let secure = match url.scheme() {
-        "https" => true,
-        "http" => false,
-        _ => return Err(Error::Url),
-    };
-    let host = HSTRING::from(url.host_str().ok_or(Error::Url)?);
-    let port = url.port_or_known_default().ok_or(Error::Url)?;
-    let path = HSTRING::from(&url[url::Position::BeforePath..]);
-    let flags = if secure {
-        wh::WINHTTP_FLAG_SECURE
-    } else {
-        wh::WINHTTP_OPEN_REQUEST_FLAGS(0)
-    };
-
+    let target = Target::of(url)?;
+    let verb = HSTRING::from("GET");
     let session = session()?;
-    // SAFETY: строки живут до конца функции, дескрипторы закрывает Handle
-    // (запрос — раньше соединения, сессию держит Arc)
+    // SAFETY: строки живут до конца функции; запрос закрывается раньше
+    // соединения (порядок полей кортежа), сессию держит Arc
     unsafe {
-        let connection = Handle::new(wh::WinHttpConnect(session.0.0, &host, port, 0))?;
-        let request = Handle::new(wh::WinHttpOpenRequest(
-            connection.0,
-            w!("GET"),
-            &path,
-            PCWSTR::null(),
-            PCWSTR::null(),
-            std::ptr::null(),
-            flags,
-        ))?;
+        let (_connection, request) = open(&session, &verb, &target)?;
         wh::WinHttpSendRequest(request.0, None, None, 0, 0, 0)?;
         wh::WinHttpReceiveResponse(request.0, std::ptr::null_mut())?;
 
@@ -165,19 +200,154 @@ pub fn get(
         }
         let length = query_number::<u64>(&request, LENGTH);
         on_length(length.ok());
+        read_body(&request, on_data)
+    }
+}
 
-        let mut buffer = vec![0u8; CHUNK];
-        let capacity = CHUNK as u32;
-        loop {
-            let mut read = 0u32;
-            let target = buffer.as_mut_ptr().cast();
-            wh::WinHttpReadData(request.0, target, capacity, &mut read)?;
-            if read == 0 {
-                return Ok(());
+/// Ответ на запрос плагина.
+pub struct Response {
+    /// Код ответа
+    pub status: u32,
+    /// Заголовки: имя в нижнем регистре и значение
+    pub headers: Vec<(String, String)>,
+    /// Тело
+    pub body: Vec<u8>,
+}
+
+/// Запрос плагина: любой метод, свои заголовки (`Имя: значение\r\n…`) и
+/// тело. Переадресации не выполняются: ответ 3xx возвращается как есть, и
+/// адрес из `Location` плагин запрашивает снова — со своей проверкой
+/// разрешённых адресов. Тело больше `limit` байт — ошибка.
+pub fn request(
+    method: &str,
+    url: &Url,
+    headers: &str,
+    body: &[u8],
+    limit: usize,
+) -> Result<Response, Error> {
+    let target = Target::of(url)?;
+    let verb = HSTRING::from(method);
+    let extra: Vec<u16> = headers.encode_utf16().collect();
+    let length = u32::try_from(body.len()).map_err(|_| Error::Url)?;
+    let session = session()?;
+    // SAFETY: строки и тело живут до конца функции; запрос закрывается
+    // раньше соединения, сессию держит Arc
+    unsafe {
+        let (_connection, request) = open(&session, &verb, &target)?;
+        let redirects = wh::WINHTTP_DISABLE_REDIRECTS.to_ne_bytes();
+        wh::WinHttpSetOption(
+            Some(request.0.cast_const()),
+            wh::WINHTTP_OPTION_DISABLE_FEATURE,
+            Some(redirects.as_slice()),
+        )?;
+        let headers = (!extra.is_empty()).then_some(extra.as_slice());
+        let optional = (!body.is_empty()).then(|| body.as_ptr().cast::<c_void>());
+        wh::WinHttpSendRequest(request.0, headers, optional, length, length, 0)?;
+        wh::WinHttpReceiveResponse(request.0, std::ptr::null_mut())?;
+
+        let status = query_number::<u32>(&request, STATUS)?;
+        let headers = parse_headers(&raw_headers(&request)?);
+        let mut data = Vec::new();
+        read_body(&request, |chunk| {
+            if data.len() + chunk.len() > limit {
+                return Err(StopReason::TooLarge);
             }
-            on_data(&buffer[..read as usize]).map_err(Error::Stopped)?;
+            data.extend_from_slice(chunk);
+            Ok(())
+        })?;
+        Ok(Response {
+            status,
+            headers,
+            body: data,
+        })
+    }
+}
+
+/// Прочитать тело ответа по кускам.
+///
+/// # Safety
+///
+/// `request` — запрос, для которого уже получен ответ.
+unsafe fn read_body(
+    request: &Handle,
+    mut on_data: impl FnMut(&[u8]) -> Result<(), StopReason>,
+) -> Result<(), Error> {
+    let mut buffer = vec![0u8; CHUNK];
+    let capacity = CHUNK as u32;
+    loop {
+        let mut read = 0u32;
+        let target = buffer.as_mut_ptr().cast();
+        // SAFETY: буфер на `capacity` байт живёт до конца цикла
+        unsafe { wh::WinHttpReadData(request.0, target, capacity, &mut read)? };
+        if read == 0 {
+            return Ok(());
+        }
+        on_data(&buffer[..read as usize]).map_err(Error::Stopped)?;
+    }
+}
+
+/// Заголовки ответа одной строкой, как пришли (`HTTP/1.1 200 OK\r\n…`).
+///
+/// # Safety
+///
+/// `request` — запрос, для которого уже получен ответ.
+unsafe fn raw_headers(request: &Handle) -> Result<String, Error> {
+    let info = wh::WINHTTP_QUERY_RAW_HEADERS_CRLF;
+    let mut size = 0u32;
+    // SAFETY: без буфера WinHTTP только сообщает нужный размер в байтах
+    // (и отвечает ошибкой ERROR_INSUFFICIENT_BUFFER)
+    let _ = unsafe {
+        wh::WinHttpQueryHeaders(
+            request.0,
+            info,
+            PCWSTR::null(),
+            None,
+            &mut size,
+            std::ptr::null_mut(),
+        )
+    };
+    if size == 0 {
+        return Ok(String::new());
+    }
+    let mut buffer = vec![0u16; (size as usize).div_ceil(2)];
+    // SAFETY: буфер на `size` байт живёт до конца функции
+    unsafe {
+        wh::WinHttpQueryHeaders(
+            request.0,
+            info,
+            PCWSTR::null(),
+            Some(buffer.as_mut_ptr().cast()),
+            &mut size,
+            std::ptr::null_mut(),
+        )?;
+    }
+    let length = (size as usize / 2).min(buffer.len());
+    Ok(String::from_utf16_lossy(&buffer[..length]))
+}
+
+/// Разобрать заголовки ответа: строка состояния пропускается, имена — в
+/// нижнем регистре, повторы склеиваются через запятую (`Set-Cookie` — через
+/// перевод строки, как в fetch).
+fn parse_headers(raw: &str) -> Vec<(String, String)> {
+    let mut headers: Vec<(String, String)> = Vec::new();
+    for line in raw.split("\r\n").skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        let name = name.trim().to_ascii_lowercase();
+        let value = value.trim();
+        if name.is_empty() {
+            continue;
+        }
+        match headers.iter_mut().find(|(known, _)| *known == name) {
+            Some((known, joined)) => {
+                joined.push_str(if *known == "set-cookie" { "\n" } else { ", " });
+                joined.push_str(value);
+            }
+            None => headers.push((name, value.to_owned())),
         }
     }
+    headers
 }
 
 /// Числовой заголовок ответа: `u32` или `u64`.
@@ -213,4 +383,26 @@ unsafe fn query_number<T: Number>(request: &Handle, info: u32) -> Result<T, Erro
         )?;
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn response_headers_are_joined_like_fetch() {
+        let raw = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nVary: a\r\nvary: b\r\n\
+                   Set-Cookie: x=1\r\nSet-Cookie: y=2\r\nbroken\r\n\r\n";
+        let headers = parse_headers(raw);
+        let get = |name: &str| {
+            headers
+                .iter()
+                .find(|(known, _)| known == name)
+                .map(|(_, value)| value.as_str())
+        };
+        assert_eq!(get("content-type"), Some("text/plain"));
+        assert_eq!(get("vary"), Some("a, b"));
+        assert_eq!(get("set-cookie"), Some("x=1\ny=2"));
+        assert_eq!(headers.len(), 3);
+    }
 }

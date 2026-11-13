@@ -321,6 +321,97 @@
   // меню от прошлой загрузки страницы больше не действует
   syncMenu();
 
+  // ───────────────────────────── API плагинов ─────────────────────────────
+  // Плагин-папка (plugins/<id>/plugin.toml) выполняется как тело функции с
+  // объектом `plugin` (extensions.rs, folder_plugin_script): хранилище,
+  // настройки из раздела «Плагины», файлы своей папки, запросы к адресам из
+  // [permissions] network и нативный модуль WebAssembly. Права проверяет
+  // Rust; здесь — только удобная обёртка над командами. Описание для
+  // авторов — docs/extensions.md.
+  const pluginSettings = new Map(); // id → { values, listeners }
+
+  /** Ошибка команды ({ kind, message }) — как обычная ошибка JavaScript */
+  const pluginError = (error) => {
+    const wrapped = new Error(typeof error?.message === "string" ? error.message : String(error));
+    if (typeof error?.kind === "string") wrapped.kind = error.kind;
+    return wrapped;
+  };
+
+  /** Путь внутри папки плагина — частями, как в адресе */
+  const assetPath = (path) =>
+    String(path)
+      .split("/")
+      .filter((part) => part !== "" && part !== ".")
+      .map(encodeURIComponent)
+      .join("/");
+
+  function pluginApi(info) {
+    const id = info.id;
+    const state = { values: Object.freeze({ ...info.settings }), listeners: new Set() };
+    pluginSettings.set(id, state);
+    const call = (command, args) =>
+      invoke(command, { plugin: id, ...args }).catch((error) => {
+        throw pluginError(error);
+      });
+    return Object.freeze({
+      id,
+      apiVersion: info.apiVersion,
+      manifest: Object.freeze({
+        name: info.name,
+        version: info.version,
+        author: info.author,
+        description: info.description,
+      }),
+      /** Значения настроек из plugin.toml: флажок — boolean, число — number */
+      get settings() {
+        return state.values;
+      },
+      onSettingsChange(listener) {
+        if (typeof listener !== "function") throw new TypeError("listener must be a function");
+        state.listeners.add(listener);
+        return () => state.listeners.delete(listener);
+      },
+      storage: Object.freeze({
+        get: (key) => call("plugin_storage_get", { key: String(key) }),
+        // null удаляет ключ, как и delete
+        set: (key, value) => call("plugin_storage_set", { key: String(key), value: value ?? null }),
+        delete: (key) => call("plugin_storage_set", { key: String(key), value: null }),
+      }),
+      /** Адрес файла из папки плагина (картинки, звуки, шрифты) */
+      asset: (path) => info.assetBase + assetPath(path),
+      /** Адреса, к которым пользователь разрешил запросы */
+      network: Object.freeze([...info.network]),
+      fetch(url, options = {}) {
+        const request = {
+          url: String(url),
+          method: options.method,
+          // Headers, массив пар или объект — одним объектом
+          headers: Object.fromEntries(new Headers(options.headers ?? {})),
+          body: options.body ?? undefined,
+          responseType: options.responseType ?? "text",
+        };
+        return call("plugin_fetch", { request });
+      },
+      native: Object.freeze({
+        available: Boolean(info.native),
+        call: (name, input = null) => call("plugin_native_call", { function: String(name), input }),
+      }),
+    });
+  }
+
+  function pluginSettingsChanged(id, values) {
+    const state = pluginSettings.get(id);
+    if (!state) return;
+    state.values = Object.freeze({ ...values });
+    for (const listener of state.listeners) {
+      try {
+        listener(state.values);
+      } catch (error) {
+        console.error(`[${id}]`, error);
+      }
+    }
+  }
+
   // Rust сообщает об изменениях, сделанных не со страницы: окно развернули
   // кнопкой системы или перетаскиванием к краю экрана, сохранили тему,
   // выбрали тему или плагин в трее. settings.js подписывается на события.
@@ -333,6 +424,9 @@
       },
       runMenuItem,
       pluginMenu: menuEntries,
+      // объект `plugin` для плагина-папки и новые значения его настроек
+      plugin: pluginApi,
+      pluginSettingsChanged,
       extensionsChanged: () => emit("extensions"),
       // quickcss.css изменили в другой программе / «Изменить QuickCSS» в трее
       quickCssChanged: () => emit("quickcss"),

@@ -18,6 +18,11 @@
 //    заставляет клиент искать окно по всему документу;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки.
+//
+// Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
+// (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
+// шаге 2 он уже запущен: API plugin, настройки, стили и файлы папки,
+// хранилище, нативный модуль WebAssembly и отказ в чужих адресах.
 (async () => {
   "use strict";
 
@@ -181,6 +186,8 @@
     return { base, input, rail, grid, gridList, render, picked };
   }
   const packState = async (id) => (await invoke("emoji_packs")).packs.find((pack) => pack.id === id);
+  const FOLDER = "e2e-folder";
+  const pluginInfo = async (file) => (await invoke("extensions_overview")).plugins.find((plugin) => plugin.file === file);
 
   try {
     await log(`загрузка, ${navigator.userAgent}`);
@@ -205,6 +212,24 @@
 
       const overview = await invoke("emoji_packs");
       await check("emoji_packs: скачивание поддерживается", overview.supported, overview.sizes);
+
+      // плагины: встроенный включён сразу, плагин-папке нужно разрешение
+      const qol = await pluginInfo("builtin:qol");
+      await check("встроенный плагин «Quality of Life» включён", qol?.builtin && qol.enabled, qol);
+      const folder = await pluginInfo(FOLDER);
+      await check(
+        "плагин-папка виден и ждёт разрешения",
+        folder?.folder && !folder.enabled && !folder.granted && folder.native && folder.network.join() === "example.com",
+        folder,
+      );
+      const refused = await invoke("extensions_set_plugin", { file: FOLDER, enabled: true }).then(
+        () => null,
+        (error) => error,
+      );
+      await check("без разрешения плагин-папка не включается", refused?.kind === "permissions", refused);
+      const allowed = await invoke("extensions_set_plugin", { file: FOLDER, enabled: true, grant: true });
+      const enabled = allowed.plugins.find((plugin) => plugin.file === FOLDER);
+      await check("с разрешением включён", enabled?.enabled && enabled.granted, enabled);
 
       await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" });
       await navigator.serviceWorker.ready;
@@ -244,6 +269,83 @@
     }
 
     if (step === 2) {
+      // плагин-папка запущен после загрузки страницы
+      const report = await waitFor(() => window.__e2eFolderPlugin?.ready && window.__e2eFolderPlugin, 15000, 50);
+      await check("плагин-папка запущен", Boolean(report) && !report.error, report?.error ?? report);
+      if (report) {
+        await check(
+          "plugin: id, версия API и манифест",
+          report.id === FOLDER && report.apiVersion === 1 && report.name === "E2E Folder",
+          report,
+        );
+        await check(
+          "plugin.settings: значения по типам",
+          report.settings.flag === true && report.settings.size === 4,
+          report.settings,
+        );
+        await check("plugin.network: подтверждённые адреса", report.network.join() === "example.com", report.network);
+        await check(
+          "plugin.storage: записано и прочитано",
+          report.stored?.text === "привет",
+          report.stored,
+        );
+        await check(
+          "plugin.native: echo модуля WebAssembly",
+          report.native && report.echo?.text === "ok" && report.echo.list?.join() === "1,2",
+          report.echo,
+        );
+        await check("модуль читает то же хранилище", report.greeting?.text === "привет", report.greeting);
+        await check(
+          "plugin.fetch: чужой адрес отклонён",
+          report.denied?.kind === "network" && /permissions/.test(report.denied.message),
+          report.denied,
+        );
+
+        const asset = await fetch(report.asset, { cache: "no-store" }).then(
+          async (response) => ({
+            status: response.status,
+            type: response.headers.get("content-type"),
+            size: (await response.arrayBuffer()).byteLength,
+          }),
+          (error) => ({ error: String(error) }),
+        );
+        await check("файл папки плагина доступен странице", asset.status === 200 && asset.type === "image/png", {
+          url: report.asset,
+          ...asset,
+        });
+        const outside = await fetch(report.asset.replace("img/dot.png", "..%2F..%2Fconfig.toml")).then(
+          (response) => response.status,
+          (error) => String(error),
+        );
+        await check("файлы вне папки плагина недоступны", outside === 404, outside);
+
+        const style = () => document.querySelector(`style[data-arachnid-style="plugin:${FOLDER}"]`)?.textContent ?? "";
+        await check(
+          "стили плагина: переменные настроек и url() от папки",
+          style().includes("--size: 4px;") && style().includes(`url("${report.asset}")`),
+          style(),
+        );
+        const probe = document.createElement("div");
+        probe.id = "e2e-folder-probe";
+        document.body.append(probe);
+        const image = await waitFor(() => {
+          const value = getComputedStyle(probe).backgroundImage;
+          return value.includes("dot.png") ? value : null;
+        }, 3000);
+        await check("стили плагина действуют на странице", probe.getBoundingClientRect().width === 4 && image, {
+          width: probe.getBoundingClientRect().width,
+          image,
+        });
+
+        await invoke("extensions_set_plugin_value", { file: FOLDER, name: "size", value: "7" });
+        const changed = await waitFor(() => report.changes.at(-1)?.size === 7, 5000, 50);
+        await check("plugin.onSettingsChange: новое значение", changed, report.changes);
+        await waitFor(() => style().includes("--size: 7px;"), 5000, 50);
+        await check("стили плагина: новое значение настройки", probe.getBoundingClientRect().width === 7, style());
+        probe.remove();
+        await invoke("extensions_reset_plugin", { file: FOLDER });
+      }
+
       const current = await settings();
       await check(
         "прежние настройки с fluent-3d получили Twemoji",
