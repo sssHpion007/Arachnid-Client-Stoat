@@ -908,6 +908,63 @@
       const favorites = async () => (await invoke("favorite_gifs_list")).favorites;
       const failed = (error) => ({ failed: error });
 
+      // ВРЕМЕННО: диагностика превью Tenor на настоящей сети
+      for (const link of [
+        "https://tenor.com/view/cat-gif-26024704",
+        "https://media1.tenor.com/m/GOj9ZF_-ZOcAAAAd/cat.gif",
+        "https://giphy.com/gifs/cat-funny-JIX9t2j0ZTN9S",
+      ]) {
+        const info = { link };
+        try {
+          const resolved = await invoke("favorite_gifs_resolve", { url: link });
+          Object.assign(info, resolved);
+          const buffer = await invoke("favorite_gifs_download", { url: resolved.media });
+          info.bytes = buffer.byteLength;
+          info.head = Array.from(new Uint8Array(buffer.slice(0, 12)), (b) => b.toString(16).padStart(2, "0")).join("");
+          const blob = new Blob([buffer]);
+          try {
+            const bitmap = await createImageBitmap(blob);
+            info.bitmap = [bitmap.width, bitmap.height];
+          } catch (error) {
+            info.bitmap = String(error);
+          }
+          const url = URL.createObjectURL(blob);
+          const video = document.createElement("video");
+          video.muted = true;
+          video.preload = "auto";
+          const events = [];
+          for (const type of ["loadedmetadata", "loadeddata", "canplay", "error", "stalled", "suspend"]) {
+            video.addEventListener(type, () => events.push(`${type}@${video.readyState}`));
+          }
+          video.src = url;
+          await waitFor(() => video.readyState >= 2 || video.error, 15000, 100);
+          info.events = events;
+          info.videoError = video.error ? `${video.error.code} ${video.error.message}` : null;
+          info.video = [video.videoWidth, video.videoHeight, video.duration];
+          if (video.readyState >= 2) {
+            const canvas = document.createElement("canvas");
+            canvas.width = 32;
+            canvas.height = 32;
+            const context = canvas.getContext("2d");
+            context.drawImage(video, 0, 0, 32, 32);
+            const pixels = context.getImageData(0, 0, 32, 32).data;
+            let lit = 0;
+            for (let i = 0; i < pixels.length; i += 4) if (pixels[i] + pixels[i + 1] + pixels[i + 2] > 30) lit++;
+            info.lit = lit;
+            info.alpha = pixels[3];
+          }
+          URL.revokeObjectURL(url);
+          const cors = await fetch(resolved.media, { mode: "cors" }).then(
+            (response) => `${response.status} ${response.headers.get("content-type")}`,
+            (error) => String(error),
+          );
+          info.cors = cors;
+        } catch (error) {
+          info.error = error?.message ?? String(error);
+        }
+        await check(`ДИАГНОСТИКА ${link}`, true, info, { measured: true });
+      }
+
       const listing = await invoke("favorite_gifs_list");
       await check(
         "избранные GIF: сначала пусто, превью — из файлов клиента",

@@ -93,7 +93,9 @@ foreach ($check in $checks) {
   $mark = if ($check.ok) { "OK  " } else { "FAIL" }
   Write-Host "$mark [шаг $($check.step)] $($check.name)"
 }
-$summary = foreach ($check in $checks) {
+# аннотация обрезается: сначала проваленные проверки и замеры
+$ordered = @($failed) + @($checks | Where-Object { $_.ok -and $_.measured }) + @($checks | Where-Object { $_.ok -and -not $_.measured })
+$summary = foreach ($check in $ordered) {
   $mark = if ($check.ok) { "OK  " } else { "FAIL" }
   # подробности — у проваленных проверок и у замеров
   $details = if (($check.ok -and -not $check.measured) -or $null -eq $check.details) { "" } else { " — " + ($check.details | ConvertTo-Json -Compress -Depth 5) }
