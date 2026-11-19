@@ -113,9 +113,13 @@
 // строк эмодзи с заголовком.
 //
 // Это встроенный плагин «Quality of Life» (extensions.rs): он выполняется
-// после загрузки страницы, как плагины из папки, и выключается в разделе
-// «Плагины» (страница перезагружается — стили реакций и значков уходят
-// вместе с ним).
+// после загрузки страницы, как плагин-папка, — телом функции с объектом
+// `plugin` — и выключается в разделе «Плагины» (страница перезагружается —
+// стили реакций и значков уходят вместе с ним). У плагина есть настройки
+// (шестерёнка в его строке): `interface` — реакции, значки ролей и заголовки
+// групп участников, `emoji_picker` — окно эмодзи. Они действуют сразу:
+// стили и значки ролей меняются на месте, окно эмодзи — со следующего
+// открытия.
 // Работает только там, где bridge.js создал window.__arachnidDesktop
 // (страница веб-клиента из config.toml).
 (() => {
@@ -305,8 +309,9 @@
 
   // Цвета — переменные Material 3 for-web, подходят к любой теме. Заголовки,
   // ячейки и полоса предпросмотра повторяют свои элементы for-web
-  // (EmojiOption, EmojiPreviewBar, PreviewEmoji, PreviewName); в конце —
-  // реакции и значки ролей (см. начало файла).
+  // (EmojiOption, EmojiPreviewBar, PreviewEmoji, PreviewName). Реакции и
+  // значки ролей — отдельным стилем (INTERFACE_STYLE): его включает и
+  // выключает настройка `interface`.
   const STYLE = `
 .arachnid-emoji-rail {
   display: flex;
@@ -419,6 +424,10 @@
   color: var(--colour-foreground);
 }
 [data-arachnid-emoji-hidden] { display: none !important; }
+`;
+
+  /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
+  const INTERFACE_STYLE = `
 ${REACTION} {
   align-items: center;
 }
@@ -446,10 +455,10 @@ ${MESSAGE_ROLE_ICON} > img {
 }
 `;
 
-  function ensureStyle() {
-    if (document.getElementById("arachnid-emoji-style")) return;
-    const style = h("style", { id: "arachnid-emoji-style" });
-    style.textContent = STYLE;
+  function ensureStyle(id, css) {
+    if (document.getElementById(id)) return;
+    const style = h("style", { id });
+    style.textContent = css;
     (document.head ?? document.documentElement).append(style);
   }
 
@@ -1100,11 +1109,42 @@ ${MESSAGE_ROLE_ICON} > img {
 
   function watchRoleIcons() {
     document.addEventListener("load", onImageLoad, true);
-    // уже загруженные до запуска плагина
+    // уже загруженные до запуска плагина или до включения настройки
     for (const img of document.querySelectorAll(MESSAGE_ROLE_ICON_IMAGE)) {
       if (img.complete) fitRoleIcon(img);
     }
   }
+
+  /** Вернуть значкам у ника вид for-web: квадрат 16 px */
+  function unwatchRoleIcons() {
+    document.removeEventListener("load", onImageLoad, true);
+    for (const svg of document.querySelectorAll(`svg[${ROLE_ICON_MARK}]`)) {
+      svg.removeAttribute(ROLE_ICON_MARK);
+      svg.setAttribute("viewBox", "0 0 32 32");
+      svg.querySelector(":scope > g > foreignObject")?.setAttribute("width", "32");
+      svg.style.setProperty("width", "16px");
+    }
+  }
+
+  // ─────────────────────────── настройки ───────────────────────────
+  const INTERFACE_STYLE_ID = "arachnid-interface-style";
+  let interfaceOn = false;
+
+  /** Включить или выключить исправления интерфейса по настройке */
+  function applyInterface() {
+    const wanted = plugin.settings.interface !== false;
+    if (wanted === interfaceOn) return;
+    interfaceOn = wanted;
+    if (wanted) {
+      ensureStyle(INTERFACE_STYLE_ID, INTERFACE_STYLE);
+      watchRoleIcons();
+    } else {
+      document.getElementById(INTERFACE_STYLE_ID)?.remove();
+      unwatchRoleIcons();
+    }
+  }
+
+  const pickerOn = () => plugin.settings.emoji_picker !== false;
 
   // ─────────────────────────── наблюдение ───────────────────────────
   // Поле поиска for-web — mdui-text-field (TextField.tsx). Solid задаёт ему
@@ -1128,6 +1168,12 @@ ${MESSAGE_ROLE_ICON} > img {
   function consider(field) {
     if (field.dataset.arachnidEmoji !== undefined) return;
     if (field.placeholder !== SEARCH_PLACEHOLDER) return;
+    // окно без улучшений — как у for-web; включённая настройка подействует
+    // со следующего открытия
+    if (!pickerOn()) {
+      waiting.delete(field);
+      return;
+    }
     const picker = parts(field);
     if (picker) {
       waiting.delete(field);
@@ -1184,8 +1230,9 @@ ${MESSAGE_ROLE_ICON} > img {
   }
 
   function start() {
-    ensureStyle();
-    watchRoleIcons();
+    ensureStyle("arachnid-emoji-style", STYLE);
+    applyInterface();
+    plugin.onSettingsChange(applyInterface);
     new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
     added.push(document.body);
     scan();

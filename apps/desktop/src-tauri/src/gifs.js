@@ -11,7 +11,7 @@
 //   чате (пункт for-web рядом с «Copy link to file»), у плиток Gifbox и в
 //   самом избранном (там же «Отправить», «Переместить в самый верх»,
 //   «Изменить описание», «Копировать ссылку»). Звёздочек на плитках нет.
-// * Над результатами поиска Gifbox — ряд «Из избранного» с подходящими GIF.
+// * Избранное ищется только в избранном: результаты Gifbox оно не трогает.
 // * GIF в избранном и в Gifbox воспроизводятся, только пока на них наведён
 //   указатель; до того видно превью — один кадр. Превью делает эта
 //   страница (WebView2 умеет разбирать всё, что показывает), а файлы для
@@ -22,9 +22,15 @@
 //   канал через API Stoat с сессией страницы, набранный текст не меняется.
 //   Окно, открытое с панели сообщения, отвечает на это сообщение (как for-web).
 //
+// * Настройки плагина (шестерёнка в его строке): `favorite_gifs` включает
+//   всё это — избранное, пункты меню и воспроизведение под указателем, —
+//   `gifs_open_favorites` открывает окно GIF сразу на избранном. Они
+//   действуют сразу, в том числе в открытом окне.
+//
 // for-web ничего не знает об избранном: всё, что видно, добавляет скрипт,
 // а элементы for-web он только скрывает и показывает. Работает только там,
-// где bridge.js создал window.__arachnidDesktop.
+// где bridge.js создал window.__arachnidDesktop; объект `plugin` — от
+// встроенного плагина (extensions.rs).
 (() => {
   "use strict";
 
@@ -45,9 +51,6 @@
   /** Плитка не ниже и не выше стольких ширин колонки */
   const TILE_MIN_RATIO = 0.3;
   const TILE_MAX_RATIO = 2.5;
-  /** Высота ряда «Из избранного» и сколько в нём GIF */
-  const ROW_HEIGHT = 96;
-  const ROW_LIMIT = 24;
   /** Запас над и под видимой частью сетки, px */
   const OVERSCAN = 400;
   /** Сдвиг указателя, после которого нажатие становится перетаскиванием */
@@ -68,7 +71,6 @@
   const text = russian
     ? {
         favorites: "Избранное",
-        fromFavorites: "Из избранного",
         search: "Поиск в избранном",
         back: "Назад",
         addByLink: "Добавить GIF по ссылке",
@@ -102,7 +104,6 @@
       }
     : {
         favorites: "Favorites",
-        fromFavorites: "From Favorites",
         search: "Search favorites",
         back: "Back",
         addByLink: "Add a GIF by link",
@@ -372,23 +373,6 @@
   line-height: 1rem;
   letter-spacing: 0.025rem;
   color: var(--md-sys-color-on-surface-variant);
-}
-.arachnid-gifs-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gap-sm);
-  padding-block: var(--gap-sm);
-}
-.arachnid-gifs-row-tiles {
-  display: flex;
-  gap: var(--gap-sm);
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.arachnid-gifs-row-tiles::-webkit-scrollbar { display: none; }
-.arachnid-gifs-row-tiles > .arachnid-gifs-tile {
-  flex-shrink: 0;
-  height: ${ROW_HEIGHT}px;
 }
 .arachnid-gifs-menu {
   position: fixed;
@@ -1486,7 +1470,7 @@
     let grid = null;
     let masonry = null;
     for (const list of stack.querySelectorAll('[role="list"]')) {
-      if (list.closest(".arachnid-gifs-view, .arachnid-gifs-row")) continue;
+      if (list.closest(".arachnid-gifs-view")) continue;
       if (list.querySelector('[role="listitem"] video') || getComputedStyle(list).columnCount === "2") masonry = list;
       else grid = list;
     }
@@ -1569,14 +1553,14 @@
     video.pause();
   }
 
-  function enhance(found) {
+  /** `opening` — окно только что открыто (а не включена настройка) */
+  function enhance(found, opening) {
     const { input, stack, container } = found;
     input.dataset.arachnidGifs = "";
     const picker = {
       ...found,
       replyTo: replyTarget(),
       category: null,
-      row: null,
       view: null,
       openFavorites,
       closeFavorites,
@@ -1608,51 +1592,6 @@
       picker.category.style.backgroundImage = cover ? `url("${previewUrl(cover)}")` : "";
     }
 
-    // ───── ряд «Из избранного» над результатами Gifbox
-    function updateRow(masonry) {
-      const value = query().trim();
-      const list = value ? matching(value).slice(0, ROW_LIMIT) : [];
-      const place = masonry ?? stack.querySelector(":scope > :last-child");
-      if (list.length === 0 || !place || place === picker.row) {
-        picker.row?.remove();
-        return;
-      }
-      if (!picker.row) {
-        const tiles = h("div", { class: "arachnid-gifs-row-tiles", role: "list" });
-        picker.row = h("div", { class: "arachnid-gifs-row" }, h("span", { class: "arachnid-gifs-title" }, text.fromFavorites), tiles);
-        tiles.addEventListener("mousedown", (event) => event.preventDefault());
-        tiles.addEventListener("click", (event) => {
-          const tile = event.target.closest(".arachnid-gifs-tile");
-          if (tile) void sendFavorite(tile.favorite, picker);
-        });
-        tiles.addEventListener("contextmenu", (event) => {
-          const tile = event.target.closest(".arachnid-gifs-tile");
-          if (tile) favoriteMenu(event, tile.favorite, picker);
-        });
-      }
-      const tiles = picker.row.lastElementChild;
-      const ids = list.map((favorite) => favorite.id).join();
-      if (tiles.dataset.ids !== ids || tiles.dataset.base !== store.base) {
-        tiles.dataset.ids = ids;
-        tiles.dataset.base = store.base;
-        tiles.replaceChildren(
-          ...list.map((favorite) => {
-            const tile = createTile(favorite);
-            const ratio = favorite.height > 0 ? favorite.width / favorite.height : 1;
-            tile.style.width = `${Math.round(ROW_HEIGHT * Math.min(2.5, Math.max(0.5, ratio)))}px`;
-            return tile;
-          }),
-        );
-      } else {
-        for (const tile of tiles.children) {
-          const favorite = store.list.find((known) => known.id === tile.dataset.id);
-          if (favorite && favorite !== tile.favorite) fillTile(tile, favorite);
-        }
-      }
-      // в прокрутке результатов — перед ними, без результатов — перед «No GIFs found»
-      if (picker.row.nextElementSibling !== place) place.before(picker.row);
-    }
-
     // ───── плитки Gifbox: только под указателем, до того — первый кадр
     function quiet(masonry) {
       for (const video of masonry.querySelectorAll("video")) quietVideo(video);
@@ -1673,7 +1612,7 @@
 
     function onContextMenu(event) {
       const tile = event.target.closest?.('[role="listitem"]');
-      if (!tile?.querySelector(":scope > video") || tile.closest(".arachnid-gifs-row")) return;
+      if (!tile?.querySelector(":scope > video")) return;
       event.preventDefault();
       event.stopPropagation();
       const value = query();
@@ -1729,9 +1668,6 @@
         paintCategory();
       }
       if (masonry) quiet(masonry);
-      // пока for-web ждёт конца ввода (250 мс), видны ещё категории
-      if (grid) picker.row?.remove();
-      else updateRow(masonry);
     }
 
     const onInput = () => refresh();
@@ -1749,14 +1685,21 @@
       stack.removeEventListener("pointerout", onOut);
       stack.removeEventListener("contextmenu", onContextMenu);
       picker.view?.dispose();
-      picker.row?.remove();
       picker.category?.remove();
       stack.removeAttribute("data-arachnid-gifs-hidden");
+      // видео Gifbox снова играют сами, как у for-web
+      for (const video of stack.querySelectorAll("video[data-arachnid-gifs]")) {
+        delete video.dataset.arachnidGifs;
+        video.autoplay = true;
+        if (video.isConnected) void video.play().catch(() => {});
+      }
+      delete input.dataset.arachnidGifs;
       closeMenu();
     }
 
     void load();
     refresh();
+    if (opening && plugin.settings.gifs_open_favorites === true) openFavorites();
     return picker;
   }
 
@@ -1774,9 +1717,10 @@
     rememberPointer(event);
     const target = event.target;
     candidate = null;
+    if (!favoritesOn) return;
     if (!(target instanceof HTMLImageElement || target instanceof HTMLVideoElement)) return;
     if (target.classList.contains("emoji") || target.closest("foreignObject")) return;
-    if (target.closest(".arachnid-gifs-view, .arachnid-gifs-row, .arachnid-gifs-dialog, .CompositionButton ~ *")) return;
+    if (target.closest(".arachnid-gifs-view, .arachnid-gifs-dialog, .CompositionButton ~ *")) return;
     const own = { element: target, file: true, time: performance.now() };
     candidate = own;
     const controller = new AbortController();
@@ -1912,10 +1856,11 @@
   let added = [];
   let queued = false;
 
-  function consider(field) {
+  function consider(field, opening = true) {
+    if (!favoritesOn) return;
     if (field.dataset.arachnidGifs !== undefined || field.placeholder !== SEARCH_PLACEHOLDER) return;
     const found = parts(field);
-    if (found) pickers.set(field, enhance(found));
+    if (found) pickers.set(field, enhance(found, opening));
   }
 
   function scan() {
@@ -1944,7 +1889,7 @@
     });
   }
 
-  const OWN = ".arachnid-gifs-view, .arachnid-gifs-row, .arachnid-gifs-category";
+  const OWN = ".arachnid-gifs-view, .arachnid-gifs-category";
 
   /** Может ли в добавленном блоке быть новое окно GIF */
   function mayHoldPicker(target, node) {
@@ -1988,6 +1933,25 @@
     if (wanted) queueScan();
   }
 
+  // ───── настройка `favorite_gifs`: выключена — окно GIF как у for-web
+  let favoritesOn = plugin.settings.favorite_gifs !== false;
+
+  function onSettingsChange(values) {
+    const next = values.favorite_gifs !== false;
+    if (next === favoritesOn) return;
+    favoritesOn = next;
+    if (next) {
+      void load();
+      // уже открытое окно — без перехода в избранное
+      for (const field of floating.querySelectorAll(FIELDS)) consider(field, false);
+      return;
+    }
+    for (const picker of pickers.values()) picker.dispose();
+    pickers.clear();
+    candidate = null;
+    closeMenu();
+  }
+
   function start() {
     ensureStyle();
     watchGifbox();
@@ -1995,9 +1959,10 @@
     addEventListener("click", rememberPointer, true);
     floating = document.getElementById("floating") ?? document.body;
     new MutationObserver(observe).observe(floating, { childList: true, subtree: true });
+    plugin.onSettingsChange(onSettingsChange);
     added.push(floating);
     scan();
-    void load();
+    if (favoritesOn) void load();
   }
 
   if (document.body) start();

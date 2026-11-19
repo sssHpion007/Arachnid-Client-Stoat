@@ -26,10 +26,13 @@
 //    страницу без GIF не принимает; окно GIF получает плитку
 //    «Избранное», кнопка «+» добавляет GIF по ссылке с описанием и превью
 //    WebP, поиск идёт по словам описания, перетаскивание меняет порядок,
-//    щелчок отправляет ссылку через API Stoat в открытый канал, над
-//    результатами Gifbox — ряд «Из избранного», а их видео не играют сами;
-//    меню избранного убирает GIF вместе с превью; вход создаёт сессию с
-//    именем «Arachnid Client» (имя, заданное не for-web, остаётся).
+//    щелчок отправляет ссылку через API Stoat в открытый канал, в
+//    результатах Gifbox избранного нет, а их видео не играют сами; меню
+//    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
+//    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
+//    сразу (избранное в окне GIF, окно сразу на избранном, исправления
+//    интерфейса); вход создаёт сессию с именем «Arachnid Client» (имя,
+//    заданное не for-web, остаётся).
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -1088,20 +1091,20 @@
       localStorage.removeItem("auth");
       history.pushState(null, "", "/app/");
 
-      // ряд «Из избранного» над результатами Gifbox
+      // избранное ищется только в избранном: в результатах Gifbox его нет
       view.querySelector(".arachnid-gifs-bar > :first-child").click();
       await check("«Назад» возвращает окно Gifbox", view.hidden && getComputedStyle(picker.stack).display !== "none");
       const masonry = picker.search("кот");
-      await frame();
-      const row = await waitFor(() => picker.stack.querySelector(".arachnid-gifs-row"), 3000, 50);
-      const video = masonry.querySelector("video");
+      const video = await waitFor(() => masonry.querySelector("video[data-arachnid-gifs]"), 3000, 50);
+      await sleep(300);
       await check(
-        "над результатами Gifbox — ряд «Из избранного», их видео не играют сами",
-        row?.nextElementSibling === masonry &&
-          Array.from(row.querySelectorAll(".arachnid-gifs-tile"), (tile) => tile.dataset.id).join() === cat.id &&
-          video.dataset.arachnidGifs !== undefined &&
-          !video.autoplay,
-        { row: Boolean(row), autoplay: video.autoplay },
+        "в результатах Gifbox нет избранного, их видео не играют сами",
+        video &&
+          !video.autoplay &&
+          picker.stack.querySelector(".arachnid-gifs-tile, .arachnid-gifs-row") === null &&
+          picker.stack.textContent.indexOf("избранного") === -1 &&
+          picker.stack.textContent.indexOf("From Favorites") === -1,
+        { video: Boolean(video), autoplay: video?.autoplay, tiles: picker.stack.querySelectorAll(".arachnid-gifs-tile").length },
       );
 
       // меню избранного: «Убрать из избранного» — последний пункт
@@ -1124,6 +1127,93 @@
       }, 3000);
       const gone = await fetch(`${listing.base}${two[0].id}.webp`).then((response) => response.status);
       await check("GIF убрана вместе с превью", left?.[0].id === cat.id && gone === 404, { left, gone });
+
+      // раздел «Плагины» в настройках, как их строит for-web: боковая
+      // панель с «Внешним видом» (значок palette) и «ПК», рядом — колонка
+      const settingsPage = document.createElement("div");
+      settingsPage.innerHTML = `<div class="settings_sidebar"><div>
+<a class="button"><span class="material-symbols-outlined">mic</span><span>Voice</span></a>
+<a class="button"><svg viewBox="0 0 24 24"><path d="M0 0"/><circle/><circle/><circle/><circle/></svg><div><span>Appearance</span></div></a>
+<a class="button"><span class="material-symbols-outlined">notifications</span><span>Notifications</span></a>
+<a class="button"><span class="material-symbols-outlined">language</span><span>Language</span></a>
+<a class="button"><span class="material-symbols-outlined">desktop_windows</span><span>Desktop</span></a>
+</div></div><div><div class="settings_cont"><div></div></div></div>`;
+      document.body.append(settingsPage);
+      const pluginsEntry = await waitFor(() => settingsPage.querySelector("a.button[data-arachnid-entry]"), 3000, 50);
+      pluginsEntry?.click();
+      const qolRow = await waitFor(
+        () =>
+          [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
+            (item) => item.querySelector(".arachnid-item-title")?.textContent === "Quality of Life",
+          ),
+        3000,
+        50,
+      );
+      const panelText = settingsPage.querySelector("[data-arachnid-panel]")?.textContent ?? "";
+      await check(
+        "раздел «Плагины»: без «null» и «undefined»",
+        qolRow && !/\b(null|undefined)\b/.test(panelText),
+        panelText.slice(0, 400),
+      );
+      const gear = qolRow && [...qolRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
+      gear?.click();
+      const qolDialog = await waitFor(() => document.querySelector('[data-arachnid-plugin-settings="builtin:qol"]'), 3000, 50);
+      const qolInputs = qolDialog ? [...qolDialog.querySelectorAll("[data-arachnid-setting]")] : [];
+      const qolInput = (name) => qolInputs.find((input) => input.dataset.arachnidSetting === name);
+      await check(
+        "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
+        qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
+          "interface=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false" &&
+          !qolInput("gifs_open_favorites").disabled &&
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 4,
+        qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
+      );
+
+      // настройки действуют сразу: избранное в открытом окне GIF
+      qolInput("favorite_gifs")?.click();
+      const switchedOff = await waitFor(
+        () =>
+          !picker.grid.querySelector(".arachnid-gifs-category") &&
+          !picker.container.querySelector(".arachnid-gifs-view") &&
+          getComputedStyle(picker.stack).display !== "none",
+        3000,
+        50,
+      );
+      await check(
+        "выключенное избранное уходит из открытого окна GIF, «Открывать на избранном» недоступно",
+        switchedOff && qolInput("gifs_open_favorites").disabled && picker.input.dataset.arachnidGifs === undefined,
+        { switchedOff, disabled: qolInput("gifs_open_favorites")?.disabled },
+      );
+      qolInput("favorite_gifs")?.click();
+      qolInput("gifs_open_favorites")?.click();
+      const tileBack = await waitFor(() => picker.grid.querySelector(":scope > .arachnid-gifs-category"), 3000, 50);
+      await check(
+        "включённое избранное возвращается в открытое окно, не переключая его",
+        tileBack && !picker.container.querySelector(".arachnid-gifs-view:not([hidden])"),
+      );
+      const savedQol = await pluginInfo("builtin:qol");
+      const opensFavorites = gifPicker();
+      document.getElementById("floating").append(opensFavorites.base);
+      const openedView = await waitFor(
+        () => opensFavorites.container.querySelector(":scope > .arachnid-gifs-view:not([hidden])"),
+        3000,
+        50,
+      );
+      await check(
+        "«Открывать окно GIF сразу на избранном»: новое окно — сразу избранное",
+        openedView && getComputedStyle(opensFavorites.stack).display === "none" && savedQol?.values.gifs_open_favorites === "1",
+        savedQol?.values,
+      );
+      opensFavorites.base.remove();
+
+      qolInput("interface")?.click();
+      const interfaceOff = await waitFor(() => !document.getElementById("arachnid-interface-style"), 3000, 50);
+      qolInput("interface")?.click();
+      const interfaceOn = await waitFor(() => document.getElementById("arachnid-interface-style"), 3000, 50);
+      await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn);
+      qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
+      await invoke("extensions_reset_plugin", { file: "builtin:qol" });
+      settingsPage.remove();
 
       picker.base.remove();
 

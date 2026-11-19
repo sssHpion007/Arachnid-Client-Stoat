@@ -49,6 +49,29 @@
         builtinDescription: {
           "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, избранные GIF, крупные эмодзи в реакциях и значки ролей целиком.",
         },
+        // подписи настроек встроенных плагинов; requires — от какого
+        // флажка настройка зависит
+        builtinSettings: {
+          "builtin:qol": {
+            interface: {
+              label: "Исправление деталей интерфейса",
+              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников.",
+            },
+            emoji_picker: {
+              label: "Улучшенное меню эмодзи",
+              hint: "Разделы и «Часто используемые», как в Discord. Действует со следующего открытия окна.",
+            },
+            favorite_gifs: {
+              label: "Меню избранного для GIF",
+              hint: "Плитка «Избранное» в окне GIF, пункты в меню правой кнопки; GIF играют только под указателем.",
+            },
+            gifs_open_favorites: {
+              label: "Открывать окно GIF сразу на избранном",
+              hint: "Вернуться к Gifbox — стрелкой «Назад».",
+              requires: "favorite_gifs",
+            },
+          },
+        },
         network: (hosts) => `Доступ в сеть: ${hosts}`,
         needsGrant: "Ждёт разрешения на доступ в сеть",
         broken: (error) => `Не загружен: ${error}`,
@@ -97,6 +120,27 @@
         builtin: "Built-in",
         builtinDescription: {
           "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, favorite GIFs, larger emoji in reactions and uncropped role icons.",
+        },
+        builtinSettings: {
+          "builtin:qol": {
+            interface: {
+              label: "Interface Fixes",
+              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles.",
+            },
+            emoji_picker: {
+              label: "Enhanced Emoji Picker",
+              hint: "Sections and “Frequently Used”, like in Discord. Applies the next time the picker opens.",
+            },
+            favorite_gifs: {
+              label: "Favorite GIFs",
+              hint: "A “Favorites” tile in the GIF picker and right-click menu items; GIFs play only on hover.",
+            },
+            gifs_open_favorites: {
+              label: "Open the GIF Picker on Favorites",
+              hint: "The Back arrow returns to Gifbox.",
+              requires: "favorite_gifs",
+            },
+          },
         },
         network: (hosts) => `Network access: ${hosts}`,
         needsGrant: "Waiting for network permission",
@@ -176,6 +220,15 @@
     }
     return element;
   }
+
+  /**
+   * Заменить детей элемента. Пропуски (`null`, `false`) отбрасываются, как в
+   * `h`: replaceChildren сам вывел бы их текстом «null».
+   */
+  const setChildren = (element, ...children) =>
+    element.replaceChildren(
+      ...children.flat().filter((child) => child !== undefined && child !== null && child !== false),
+    );
 
   /** Значок Material Symbols (шрифт for-web) */
   const icon = (name) =>
@@ -327,6 +380,10 @@
 .arachnid-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-block-start: 24px; }
 .arachnid-dialog[data-compact] { width: min(560px, 100%); height: auto; max-height: 100%; }
 .arachnid-dialog[data-compact] .arachnid-dialog-content { overflow-y: auto; font-size: 0.875rem; line-height: 1.25rem; }
+/* пояснение под флажком — с начала его подписи: у mdui-checkbox значок 40px
+   и по 10px над и под подписью */
+.arachnid-setting-hint { padding-inline-start: 40px; margin-top: -6px; }
+label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start: 32px; margin-top: 2px; }
 .arachnid-hosts { margin: 0; padding-inline-start: 20px; font-family: var(--fonts-monospace, monospace); overflow-wrap: anywhere; }
 .arachnid-item-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 .arachnid-icon-button {
@@ -681,7 +738,8 @@
       ];
     });
 
-    page.panel.replaceChildren(
+    setChildren(
+      page.panel,
       h("span", { class: "arachnid-title" }, text.plugins),
       h(
         "div",
@@ -981,7 +1039,8 @@
           .join("\n")
       : text.themesHint;
 
-    appearance.picker.replaceChildren(
+    setChildren(
+      appearance.picker,
       // те же кнопки, что «Папка плагинов» в разделе «Плагины»
       h(
         "div",
@@ -1038,9 +1097,18 @@
         case "checkbox": {
           const box = checkbox(value === "1", setting.label);
           const input = box instanceof HTMLInputElement ? box : box.querySelector?.("input") ?? box;
+          input.dataset.arachnidSetting = setting.name;
+          input.disabled = Boolean(setting.disabled);
           input.addEventListener("change", () => set(setting.name, input.checked ? "1" : "0"));
           if (input.classList?.contains("arachnid-checkbox")) input.style.pointerEvents = "auto";
-          return box;
+          if (!setting.hint) return box;
+          // пояснение — под подписью флажка
+          return h(
+            "div",
+            { class: "arachnid-column", style: { gap: "0" } },
+            box,
+            h("span", { class: "arachnid-label arachnid-setting-hint" }, setting.hint),
+          );
         }
         case "select":
           return select({
@@ -1176,15 +1244,39 @@
     return { close };
   }
 
-  /** Настройки плагина-папки из plugin.toml */
+  /**
+   * Настройки плагина — окно, как у QuickCSS: у плагина-папки — из
+   * plugin.toml, у встроенного — свои (подписи и пояснения из
+   * text.builtinSettings). Значение сохраняется сразу.
+   */
   function openPluginSettings(file) {
     const plugin = overview?.plugins?.find((entry) => entry.file === file);
     if (!plugin || !document.body) return;
+    const own = (plugin.builtin && text.builtinSettings[file]) || {};
     const body = h("div", { class: "arachnid-column" });
-    const set = (name, value) => void change("extensions_set_plugin_value", { file, name, value }, false);
+    const set = (name, value) => {
+      // зависимые флажки доступны, только пока включён их флажок
+      for (const [dependent, about] of Object.entries(own)) {
+        if (about.requires !== name) continue;
+        const input = body.querySelector(`[data-arachnid-setting="${CSS.escape(dependent)}"]`);
+        if (input) input.disabled = value !== "1";
+      }
+      void change("extensions_set_plugin_value", { file, name, value }, false);
+    };
     const fill = () => {
       const current = overview?.plugins?.find((entry) => entry.file === file);
-      if (current) body.replaceChildren(...settingControls(current.settings, current.values, set));
+      if (!current) return;
+      const settings = current.settings.map((setting) => {
+        const about = own[setting.name];
+        if (!about) return setting;
+        return {
+          ...setting,
+          label: about.label ?? setting.label,
+          hint: about.hint,
+          disabled: about.requires !== undefined && current.values[about.requires] !== "1",
+        };
+      });
+      body.replaceChildren(...settingControls(settings, current.values, set));
     };
     const dialog = openDialog({
       title: text.pluginSettings(plugin.name ?? file),

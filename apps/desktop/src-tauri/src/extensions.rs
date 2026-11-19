@@ -154,7 +154,8 @@ struct Saved {
     theme_settings: BTreeMap<String, BTreeMap<String, String>>,
     /// Включённые плагины
     plugins: BTreeMap<String, bool>,
-    /// Значения настроек плагинов-папок: плагин → имя настройки → значение
+    /// Значения настроек плагинов (папок и встроенных): плагин → имя
+    /// настройки → значение
     plugin_settings: BTreeMap<String, BTreeMap<String, String>>,
     /// Подтверждённые адреса сети: плагин → адреса из `[permissions] network`
     granted: BTreeMap<String, Vec<String>>,
@@ -203,9 +204,9 @@ impl Saved {
             .collect()
     }
 
-    /// Действующие значения настроек плагина-папки.
-    fn plugin_values(&self, id: &str, manifest: &PluginManifest) -> BTreeMap<String, String> {
-        manifest::effective_values(&manifest.settings, self.plugin_settings.get(id))
+    /// Действующие значения настроек плагина.
+    fn plugin_values(&self, id: &str, settings: &[usercss::Setting]) -> BTreeMap<String, String> {
+        manifest::effective_values(settings, self.plugin_settings.get(id))
     }
 
     /// Все ли адреса, которые просит плагин, подтверждены.
@@ -224,8 +225,11 @@ struct Builtin {
     description: &'static str,
     /// Включён, пока его не выключили
     enabled_by_default: bool,
-    /// Код для страницы
+    /// Код для страницы: тело функции с объектом `plugin`, как у
+    /// плагина-папки
     code: fn() -> String,
+    /// Настройки — в том же виде, что у плагина-папки в `plugin.toml`
+    settings: fn() -> Vec<usercss::Setting>,
 }
 
 /// Встроенные плагины: улучшения, которые не обязательны для работы
@@ -236,7 +240,34 @@ const BUILTINS: &[Builtin] = &[Builtin {
     description: "Разделы в окне эмодзи, избранные GIF, крупные реакции, значки ролей целиком",
     enabled_by_default: true,
     code: desktop::qol_script,
+    settings: qol_settings,
 }];
+
+/// Флажок встроенного плагина.
+fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
+    usercss::Setting {
+        name: name.to_owned(),
+        label: label.to_owned(),
+        kind: usercss::Kind::Checkbox,
+        default: if default { "1" } else { "0" }.to_owned(),
+        options: Vec::new(),
+        min: None,
+        max: None,
+        step: None,
+        unit: None,
+    }
+}
+
+/// Настройки «Quality of Life»: каждая часть включается отдельно
+/// (`emoji.js`, `gifs.js`). Подписи на странице переводит `settings.js`.
+fn qol_settings() -> Vec<usercss::Setting> {
+    vec![
+        checkbox("interface", "Исправление деталей интерфейса", true),
+        checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
+        checkbox("favorite_gifs", "Меню избранного для GIF", true),
+        checkbox("gifs_open_favorites", "Открывать окно GIF сразу на избранном", false),
+    ]
+}
 
 fn builtin(id: &str) -> Option<&'static Builtin> {
     if !id.starts_with(BUILTIN_PREFIX) {
@@ -305,6 +336,18 @@ enum Origin {
     Folder(Box<PluginManifest>),
     /// Папка с ошибкой в `plugin.toml`
     Broken(String),
+}
+
+impl Origin {
+    /// Настройки плагина: из `plugin.toml` или встроенные; `None` — у
+    /// плагина-файла и папки с ошибкой их нет.
+    fn settings(&self) -> Option<Vec<usercss::Setting>> {
+        match self {
+            Self::Builtin(builtin) => Some((builtin.settings)()),
+            Self::Folder(manifest) => Some(manifest.settings.clone()),
+            Self::File | Self::Broken(_) => None,
+        }
+    }
 }
 
 /// Стиль для страницы: `bridge.js` держит по элементу `<style>` на каждый.
@@ -393,7 +436,7 @@ pub struct PluginInfo {
     network: Vec<String>,
     /// Все эти адреса подтверждены
     granted: bool,
-    /// Настройки из `plugin.toml`
+    /// Настройки из `plugin.toml` или встроенного плагина
     settings: Vec<usercss::Setting>,
     /// Их действующие значения
     values: BTreeMap<String, String>,
@@ -734,16 +777,13 @@ impl Extensions {
         Ok((manifest, network))
     }
 
-    /// Изменить настройку плагина-папки; `None` — значение по умолчанию.
+    /// Изменить настройку плагина (папки или встроенного); `None` —
+    /// значение по умолчанию.
     fn set_plugin_value(&self, file: &str, name: &str, value: Option<&str>) -> bool {
-        let Some(PluginSource {
-            origin: Origin::Folder(manifest),
-            ..
-        }) = self.plugin(file)
-        else {
+        let Some(settings) = self.plugin(file).and_then(|plugin| plugin.origin.settings()) else {
             return false;
         };
-        let Some(value) = checked_value(&manifest.settings, name, value) else {
+        let Some(value) = checked_value(&settings, name, value) else {
             return false;
         };
         self.update(|saved| store_value(&mut saved.plugin_settings, file, name, value));
@@ -757,17 +797,11 @@ impl Extensions {
         });
     }
 
-    /// Действующие значения настроек плагина-папки для его кода.
+    /// Действующие значения настроек плагина для его кода.
     fn plugin_values(&self, name: &str) -> Option<Value> {
-        let Some(PluginSource {
-            origin: Origin::Folder(manifest),
-            ..
-        }) = self.plugin(name)
-        else {
-            return None;
-        };
-        let values = self.saved().plugin_values(name, &manifest);
-        Some(manifest::typed_values(&manifest.settings, &values))
+        let settings = self.plugin(name)?.origin.settings()?;
+        let values = self.saved().plugin_values(name, &settings);
+        Some(manifest::typed_values(&settings, &values))
     }
 
     fn read(&self, kind: Kind, name: &str) -> Option<String> {
@@ -834,7 +868,7 @@ impl Extensions {
         if manifest.settings.is_empty() {
             return Some(css);
         }
-        let values = saved.plugin_values(id, manifest);
+        let values = saved.plugin_values(id, &manifest.settings);
         Some(usercss::css_variables(&manifest.settings, &values) + &css)
     }
 
@@ -854,7 +888,24 @@ impl Extensions {
     /// Скрипт плагина для страницы.
     fn script(&self, plugin: &PluginSource, saved: &Saved) -> Option<String> {
         match &plugin.origin {
-            Origin::Builtin(builtin) => Some(plugin_script(&plugin.id, &(builtin.code)())),
+            Origin::Builtin(builtin) => {
+                let settings = (builtin.settings)();
+                let values = saved.plugin_values(&plugin.id, &settings);
+                let info = json!({
+                    "id": plugin.id,
+                    "name": plugin.about.name,
+                    "version": plugin.about.version,
+                    "author": plugin.about.author,
+                    "description": plugin.about.description,
+                    "apiVersion": API_VERSION,
+                    "settings": manifest::typed_values(&settings, &values),
+                    "assetBase": "",
+                    "native": false,
+                    "network": [],
+                });
+                let code = (builtin.code)();
+                Some(folder_plugin_script(&plugin.id, "main.js", &code, &info))
+            }
             Origin::File => {
                 let code = self.read(Kind::Plugin, &plugin.id)?;
                 Some(plugin_script(&plugin.id, &code))
@@ -868,7 +919,7 @@ impl Extensions {
                     )?,
                     None => String::new(),
                 };
-                let values = saved.plugin_values(&plugin.id, manifest);
+                let values = saved.plugin_values(&plugin.id, &manifest.settings);
                 let info = json!({
                     "id": plugin.id,
                     "name": plugin.about.name,
@@ -929,15 +980,13 @@ impl Extensions {
             .all_plugins()
             .into_iter()
             .map(|plugin| {
+                let settings = plugin.origin.settings().unwrap_or_default();
+                let values = saved.plugin_values(&plugin.id, &settings);
                 let (manifest, error) = match plugin.origin {
                     Origin::Folder(manifest) => (Some(manifest), None),
                     Origin::Broken(error) => (None, Some(error)),
                     Origin::Builtin(_) | Origin::File => (None, None),
                 };
-                let values = manifest
-                    .as_ref()
-                    .map(|manifest| saved.plugin_values(&plugin.id, manifest))
-                    .unwrap_or_default();
                 PluginInfo {
                     enabled: saved.plugin_enabled(&plugin.id),
                     running: running.contains(&plugin.id),
@@ -953,9 +1002,7 @@ impl Extensions {
                         .as_ref()
                         .map(|manifest| manifest.network.clone())
                         .unwrap_or_default(),
-                    settings: manifest
-                        .map(|manifest| manifest.settings)
-                        .unwrap_or_default(),
+                    settings,
                     values,
                     error,
                     file: plugin.id,
@@ -2333,6 +2380,38 @@ mod tests {
         extensions.set_plugin("builtin:qol", false);
         assert!(extensions.plugins().is_empty());
         assert!(!extensions.saved().plugin_enabled("builtin:nothing"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn builtin_plugin_has_settings() {
+        let dir = temp_dir("builtin-settings");
+        let extensions = extensions(&dir);
+        let overview = extensions.overview();
+        let qol = &overview.plugins[0];
+        let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(
+            names.join(","),
+            "interface,emoji_picker,favorite_gifs,gifs_open_favorites"
+        );
+        assert_eq!(qol.values["favorite_gifs"], "1");
+        assert_eq!(qol.values["gifs_open_favorites"], "0");
+
+        // код получает объект `plugin` со значениями настроек
+        let script = &extensions.plugins()[0].1;
+        assert!(script.starts_with("(async function (plugin) {"));
+        assert!(script.contains("\"gifs_open_favorites\":false"));
+
+        assert!(extensions.set_plugin_value("builtin:qol", "gifs_open_favorites", Some("1")));
+        assert!(!extensions.set_plugin_value("builtin:qol", "nothing", Some("1")));
+        let values = extensions.plugin_values("builtin:qol").unwrap();
+        assert_eq!(values["gifs_open_favorites"], true);
+        assert_eq!(values["interface"], true);
+        assert!(extensions.plugins()[0].1.contains("\"gifs_open_favorites\":true"));
+
+        extensions.reset_plugin("builtin:qol");
+        let values = extensions.plugin_values("builtin:qol").unwrap();
+        assert_eq!(values["gifs_open_favorites"], false);
         std::fs::remove_dir_all(&dir).ok();
     }
 

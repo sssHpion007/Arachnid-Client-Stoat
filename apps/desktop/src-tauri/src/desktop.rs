@@ -386,7 +386,9 @@ fn emoji_script() -> String {
 }
 
 /// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
-/// ролей (`emoji.js`), избранные GIF (`gifs.js`).
+/// ролей (`emoji.js`), избранные GIF (`gifs.js`). Выполняется телом функции
+/// с объектом `plugin`, как плагин-папка: по `plugin.settings` включается
+/// каждая часть.
 pub(crate) fn qol_script() -> String {
     format!("{}\n{GIFS_SCRIPT}", emoji_script())
 }
