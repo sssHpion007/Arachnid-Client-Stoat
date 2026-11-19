@@ -265,7 +265,11 @@ fn qol_settings() -> Vec<usercss::Setting> {
         checkbox("interface", "Исправление деталей интерфейса", true),
         checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
         checkbox("favorite_gifs", "Меню избранного для GIF", true),
-        checkbox("gifs_open_favorites", "Открывать окно GIF сразу на избранном", false),
+        checkbox(
+            "gifs_open_favorites",
+            "Открывать окно GIF сразу на избранном",
+            false,
+        ),
     ]
 }
 
@@ -780,7 +784,7 @@ impl Extensions {
     /// Изменить настройку плагина (папки или встроенного); `None` —
     /// значение по умолчанию.
     fn set_plugin_value(&self, file: &str, name: &str, value: Option<&str>) -> bool {
-        let Some(settings) = self.plugin(file).and_then(|plugin| plugin.origin.settings()) else {
+        let Some(settings) = self.plugin(file).and_then(|p| p.origin.settings()) else {
             return false;
         };
         let Some(value) = checked_value(&settings, name, value) else {
@@ -2407,7 +2411,8 @@ mod tests {
         let values = extensions.plugin_values("builtin:qol").unwrap();
         assert_eq!(values["gifs_open_favorites"], true);
         assert_eq!(values["interface"], true);
-        assert!(extensions.plugins()[0].1.contains("\"gifs_open_favorites\":true"));
+        let script = extensions.plugins().remove(0).1;
+        assert!(script.contains("\"gifs_open_favorites\":true"));
 
         extensions.reset_plugin("builtin:qol");
         let values = extensions.plugin_values("builtin:qol").unwrap();
