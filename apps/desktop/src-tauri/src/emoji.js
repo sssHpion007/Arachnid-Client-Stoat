@@ -116,8 +116,9 @@
 // после загрузки страницы, как плагин-папка, — телом функции с объектом
 // `plugin` — и выключается в разделе «Плагины» (страница перезагружается —
 // стили реакций и значков уходят вместе с ним). У плагина есть настройки
-// (шестерёнка в его строке): `interface` — реакции, значки ролей и заголовки
-// групп участников, `emoji_picker` — окно эмодзи. Они действуют сразу:
+// (шестерёнка в его строке): `interface` — реакции, значки ролей, заголовки
+// групп участников и подсветка кнопок при наведении (см. «подсветка при
+// наведении» ниже), `emoji_picker` — окно эмодзи. Они действуют сразу:
 // стили и значки ролей меняются на месте, окно эмодзи — со следующего
 // открытия.
 // Работает только там, где bridge.js создал window.__arachnidDesktop
@@ -1126,6 +1127,62 @@ ${MESSAGE_ROLE_ICON} > img {
     }
   }
 
+  // ─────────────────────── подсветка при наведении ───────────────────────
+  // Подсветку кнопок при наведении и нажатии рисует md-ripple
+  // (@material/web, Ripple.tsx for-web): IconButton (GIF, эмодзи в поле
+  // сообщения), CategoryButton (строки настроек, выбор языка) и другие.
+  // Подсветка — псевдоэлемент ::before в его shadow root, который
+  // появляется и гаснет переходом opacity за 15 мс. Такой переход Chromium
+  // выполняет в компоновщике: на время перехода псевдоэлемент получает свой
+  // слой, а потом рисуется обратно в слой страницы. В WebView2 после этого
+  // часть кнопки — обычно нижняя, по границе плитки растра — иногда не
+  // перерисовывается, и подсветка остаётся на ней, когда указатель уже
+  // ушёл. 15 мс — меньше одного кадра, поэтому переход убирается: подсветка
+  // меняется обычной перерисовкой, как у остальных кнопок for-web, а на вид
+  // ничего не меняется. Волна нажатия (::after) остаётся как есть.
+  //
+  // md-ripple — элемент Lit: стили shadow root он берёт из
+  // `elementStyles` своего класса (adoptedStyleSheets). Свой лист
+  // добавляется туда — для новых кнопок — и в уже созданные кнопки.
+  const RIPPLE_CSS = ".surface::before { transition: none; }";
+  let rippleSheet = null;
+  let rippleWaiting = false;
+
+  function patchRipple(root, on) {
+    if (!root) return;
+    const sheets = root.adoptedStyleSheets;
+    const has = sheets.includes(rippleSheet);
+    if (on && !has) root.adoptedStyleSheets = [...sheets, rippleSheet];
+    else if (!on && has) root.adoptedStyleSheets = sheets.filter((sheet) => sheet !== rippleSheet);
+  }
+
+  function applyRipple() {
+    const on = interfaceOn;
+    const Ripple = customElements.get("md-ripple");
+    if (!Ripple) {
+      // for-web регистрирует md-ripple при загрузке своих модулей
+      if (on && !rippleWaiting) {
+        rippleWaiting = true;
+        void customElements.whenDefined("md-ripple").then(() => {
+          rippleWaiting = false;
+          applyRipple();
+        });
+      }
+      return;
+    }
+    if (!rippleSheet) {
+      rippleSheet = new CSSStyleSheet();
+      rippleSheet.replaceSync(RIPPLE_CSS);
+    }
+    const styles = Ripple.elementStyles;
+    if (Array.isArray(styles)) {
+      const index = styles.indexOf(rippleSheet);
+      if (on && index === -1) styles.push(rippleSheet);
+      else if (!on && index !== -1) styles.splice(index, 1);
+    }
+    for (const ripple of document.querySelectorAll("md-ripple")) patchRipple(ripple.shadowRoot, on);
+  }
+
   // ─────────────────────────── настройки ───────────────────────────
   const INTERFACE_STYLE_ID = "arachnid-interface-style";
   let interfaceOn = false;
@@ -1142,6 +1199,7 @@ ${MESSAGE_ROLE_ICON} > img {
       document.getElementById(INTERFACE_STYLE_ID)?.remove();
       unwatchRoleIcons();
     }
+    applyRipple();
   }
 
   const pickerOn = () => plugin.settings.emoji_picker !== false;

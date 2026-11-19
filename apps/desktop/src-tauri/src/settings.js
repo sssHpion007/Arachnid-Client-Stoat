@@ -55,7 +55,7 @@
           "builtin:qol": {
             interface: {
               label: "Исправление деталей интерфейса",
-              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников.",
+              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников, подсветка кнопок не застревает после наведения.",
             },
             emoji_picker: {
               label: "Улучшенное меню эмодзи",
@@ -125,7 +125,7 @@
           "builtin:qol": {
             interface: {
               label: "Interface Fixes",
-              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles.",
+              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles, button highlights that no longer stick after hover.",
             },
             emoji_picker: {
               label: "Enhanced Emoji Picker",

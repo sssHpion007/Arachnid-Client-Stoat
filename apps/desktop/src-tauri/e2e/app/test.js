@@ -31,8 +31,9 @@
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
 //    сразу (избранное в окне GIF, окно сразу на избранном, исправления
-//    интерфейса); вход создаёт сессию с именем «Arachnid Client» (имя,
-//    заданное не for-web, остаётся).
+//    интерфейса, в том числе подсветка md-ripple без перехода); вход
+//    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
+//    остаётся).
 //
 // Плагины: на шаге 0 встроенный «Quality of Life» включён, а плагин-папка
 // (e2e/plugins/e2e-folder) включается только с разрешением на сеть; на
@@ -1206,11 +1207,54 @@
       );
       opensFavorites.base.remove();
 
+      // подсветка кнопок for-web — md-ripple (Lit): стили shadow root из
+      // elementStyles класса, у ::before переход opacity 15 мс
+      class E2eRipple extends HTMLElement {
+        static elementStyles = (() => {
+          const sheet = new CSSStyleSheet();
+          sheet.replaceSync('.surface::before { content: ""; position: absolute; inset: 0; transition: opacity 15ms linear; }');
+          return [sheet];
+        })();
+        constructor() {
+          super();
+          const root = this.attachShadow({ mode: "open" });
+          root.adoptedStyleSheets = [...E2eRipple.elementStyles];
+          const surface = document.createElement("div");
+          surface.className = "surface";
+          root.append(surface);
+        }
+      }
+      customElements.define("md-ripple", E2eRipple);
+      const earlyRipple = document.createElement("md-ripple");
+      document.body.append(earlyRipple);
+      const rippleTransition = (element) =>
+        getComputedStyle(element.shadowRoot.querySelector(".surface"), "::before").transitionDuration;
+      await waitFor(() => rippleTransition(earlyRipple) === "0s", 2000, 50);
+      const lateRipple = document.createElement("md-ripple");
+      document.body.append(lateRipple);
+      await check(
+        "подсветка при наведении (md-ripple) — без перехода, который оставлял её на части кнопки",
+        rippleTransition(earlyRipple) === "0s" && rippleTransition(lateRipple) === "0s",
+        { early: rippleTransition(earlyRipple), late: rippleTransition(lateRipple) },
+      );
+
       qolInput("interface")?.click();
-      const interfaceOff = await waitFor(() => !document.getElementById("arachnid-interface-style"), 3000, 50);
+      const interfaceOff = await waitFor(
+        () => !document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0.015s",
+        3000,
+        50,
+      );
       qolInput("interface")?.click();
-      const interfaceOn = await waitFor(() => document.getElementById("arachnid-interface-style"), 3000, 50);
-      await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn);
+      const interfaceOn = await waitFor(
+        () => document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0s",
+        3000,
+        50,
+      );
+      await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
+        ripple: rippleTransition(earlyRipple),
+      });
+      earlyRipple.remove();
+      lateRipple.remove();
       qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
       settingsPage.remove();
