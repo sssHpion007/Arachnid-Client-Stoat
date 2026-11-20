@@ -1837,8 +1837,15 @@ ${sidebarGroup("", [
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
 
       // выбор в окне настроек плагина-папки виден сразу, без повторного открытия
-      const folderRow = [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
-        (item) => item.querySelector(".arachnid-item-title")?.textContent === "E2E Folder",
+      // перед этим открыт раздел «Горячие клавиши» — вернуться в «Плагины»
+      settingsPage.querySelector('a.button[data-arachnid-entry="plugins"]')?.click();
+      const folderRow = await waitFor(
+        () =>
+          [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
+            (item) => item.querySelector(".arachnid-item-title")?.textContent === "E2E Folder",
+          ),
+        3000,
+        50,
       );
       const folderGear = folderRow && [...folderRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
       folderGear?.click();
@@ -1858,7 +1865,7 @@ ${sidebarGroup("", [
       await check(
         "настройки плагина: выбранный вариант виден сразу и сохранён",
         modeBefore === "Первый" && modeAfter === "Второй" && modeSelect.isConnected && modeSaved,
-        { modeBefore, modeAfter, connected: modeSelect?.isConnected, modeSaved },
+        { row: Boolean(folderRow), dialog: Boolean(folderDialog), modeBefore, modeAfter, connected: modeSelect?.isConnected, modeSaved },
       );
       folderDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: FOLDER });
