@@ -155,7 +155,9 @@
     const rows = 1 + Math.ceil(1785 / columns);
     const input = h("input");
     input.placeholder = "Search for emojis...";
-    const railList = h("div", "position:relative;height:0");
+    // колонка серверов: 12 значков по 40 px — выше колонки, разделы под ними
+    // сначала не видны
+    const railList = h("div", "position:relative;flex-shrink:0;height:480px");
     railList.className = "virtual-container-e2e";
     const rail = h("div", "display:flex;flex-direction:column;width:40px;overflow-y:scroll;scrollbar-width:none", railList);
     const gridList = h("div", `position:relative;flex-shrink:0;height:${rows * 40}px`);
@@ -734,8 +736,40 @@
       const picker = emojiPicker();
       document.getElementById("floating").append(picker.base);
       const railButtons = () => picker.rail.querySelectorAll(".arachnid-emoji-rail-button:not([hidden])");
-      const enhanced = await waitFor(() => railButtons().length > 0, 5000, 50);
-      await check("окно эмодзи: разделы в колонке", enhanced && railButtons().length === 9, railButtons().length);
+      const enhanced = await waitFor(() => railButtons().length === 9, 5000, 50);
+      await check("окно эмодзи: разделы в колонке", enhanced, railButtons().length);
+
+      // Кнопка перехода к стандартным эмодзи — внизу колонки поверх серверов,
+      // пока разделы в колонке не видны; переход показывает разделы и прячет
+      // её, а когда разделы снова уходят из вида, она возвращается.
+      const standardButton = picker.rail.querySelector(".arachnid-emoji-dock > .arachnid-emoji-rail-button");
+      const railBox = picker.rail.getBoundingClientRect();
+      const dockBox = standardButton?.getBoundingClientRect();
+      const docked = {
+        visible: standardButton ? !standardButton.hidden : null,
+        bottom: dockBox && Math.round(railBox.bottom - dockBox.bottom),
+        height: dockBox && Math.round(dockBox.height),
+      };
+      standardButton?.click();
+      const jumped = await waitFor(() => standardButton?.hidden, 3000, 50);
+      const categoriesTop = Math.round(
+        picker.rail.querySelector('[data-arachnid-emoji-rail="categories"]').getBoundingClientRect().top - railBox.top,
+      );
+      picker.rail.scrollTop = 0;
+      const back = await waitFor(() => standardButton && !standardButton.hidden, 3000, 50);
+      await check(
+        "окно эмодзи: кнопка стандартных эмодзи внизу колонки, после перехода прячется",
+        docked.visible &&
+          docked.bottom === 0 &&
+          docked.height === 40 &&
+          jumped &&
+          categoriesTop >= 0 &&
+          categoriesTop < railBox.height - 40 &&
+          back,
+        { ...docked, jumped, categoriesTop, back },
+      );
+      picker.grid.scrollTop = 0;
+      await frame();
 
       // Поиск окна (по подсказке поля) не должен идти при каждой перерисовке
       // списка: так клиент раньше обходил весь документ на каждый кадр
@@ -838,7 +872,17 @@
       const menuLabels = () => menuItems().map((item) => item.lastElementChild.textContent);
       rightClick(standard.querySelector('[role="heading"]'));
       rightClick(picker.rail);
-      await check("окно эмодзи: на пустом месте своего меню нет", !emojiMenu());
+      // заголовок сервера for-web: значок сервера (Avatar) — тоже не эмодзи
+      const serverIcon = document.createElement("img");
+      serverIcon.src = emoji("twemoji", "1f600");
+      const serverHeader = document.createElement("div");
+      serverHeader.style.cssText = "position:absolute;left:0;top:0;width:100%;height:40px;display:flex";
+      serverHeader.append(Object.assign(document.createElement("div"), { style: "width:24px;height:24px" }));
+      serverHeader.firstChild.append(serverIcon);
+      picker.gridList.prepend(serverHeader);
+      rightClick(serverIcon);
+      serverHeader.remove();
+      await check("окно эмодзи: на пустом месте и на заголовке сервера своего меню нет", !emojiMenu());
       picker.grid.scrollTop = 0;
       await frame();
       await frame();
@@ -920,10 +964,14 @@
       rightClick(favoriteCells(againFavorites)[0]);
       menuItems()[1]?.click();
       await frame();
+      const againButtons = await waitFor(
+        () => again.rail.querySelectorAll(".arachnid-emoji-rail-button:not([hidden])").length === 10,
+        3000,
+        50,
+      );
       await check(
         "меню эмодзи: избранное сохраняется и убирается из меню",
-        kept === "😂" && againFavorites.hidden && favoriteCells(againFavorites).length === 0 &&
-          again.rail.querySelectorAll(".arachnid-emoji-rail-button:not([hidden])").length === 10,
+        kept === "😂" && againFavorites.hidden && favoriteCells(againFavorites).length === 0 && againButtons,
         { kept, hidden: againFavorites?.hidden },
       );
       again.base.remove();

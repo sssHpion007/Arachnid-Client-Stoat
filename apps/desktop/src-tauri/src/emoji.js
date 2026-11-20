@@ -25,9 +25,11 @@
 //   окно, с меткой набора эмодзи). Всё это происходит синхронно, до
 //   отрисовки кадра, — поиск на экране не мелькает. Под сеткой, как у for-web,
 //   — эмодзи под указателем и его имя.
-// * В колонке вверху — «Часто используемые» (если они уже есть) и быстрый
-//   переход к стандартным эмодзи, под серверами — разделы. Раздел, который
-//   сейчас виден в сетке, подсвечивается.
+// * В колонке вверху — «Избранное» и «Часто используемые» (если они уже
+//   есть), под серверами — разделы. Раздел, который сейчас виден в сетке,
+//   подсвечивается. Пока разделы в колонке не видны (серверов много), внизу
+//   колонки поверх серверов — кнопка перехода к стандартным эмодзи; переход
+//   показывает разделы, и кнопка прячется, пока они снова не уйдут из вида.
 // * «Часто используемые» — блок над сеткой, как в Discord. Сюда попадают и
 //   стандартные эмодзи, и эмодзи серверов; счётчики хранятся в localStorage
 //   отдельно для каждого аккаунта.
@@ -426,6 +428,28 @@
 .arachnid-emoji-rail-button[data-active] > span {
   color: var(--md-sys-color-on-secondary-container);
   background: var(--md-sys-color-secondary-container);
+}
+.arachnid-emoji-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  flex-shrink: 0;
+  height: 0;
+  /* у колонки for-web — промежуток между элементами, у этого блока его нет */
+  margin-top: calc(-1 * var(--gap-sm, 0px));
+}
+.arachnid-emoji-dock > .arachnid-emoji-rail-button {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+}
+.arachnid-emoji-dock > .arachnid-emoji-rail-button > span {
+  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--md-sys-color-shadow, #000) 40%, transparent);
+}
+.arachnid-emoji-dock > .arachnid-emoji-rail-button:hover > span {
+  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
 }
 .arachnid-emoji-divider {
   flex-shrink: 0;
@@ -849,7 +873,9 @@ ${MESSAGE_ROLE_ICON} > img {
     }
 
     const cells = () => Array.from(gridList.children);
-    const imageOf = (cell) => cell.querySelector("img");
+    // Картинка эмодзи — прямо в ячейке (рядом с md-ripple). В заголовке
+    // сервера картинка — значок сервера внутри Avatar: это не эмодзи.
+    const imageOf = (cell) => cell.querySelector(":scope > img");
     const nextFrame = () =>
       new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
 
@@ -1229,7 +1255,8 @@ ${MESSAGE_ROLE_ICON} > img {
      * поиска). У эмодзи сервера имя — из полосы предпросмотра for-web (она
      * показывает эмодзи под указателем) или из сохранённых записей; без
      * имени его не добавить в избранное (выбор идёт поиском по имени), но
-     * можно скачать.
+     * можно скачать. Заголовки — серверов (со значком сервера) и разделов —
+     * не эмодзи: меню на них нет.
      */
     function emojiAt(target) {
       if (!(target instanceof Element)) return null;
@@ -1276,9 +1303,10 @@ ${MESSAGE_ROLE_ICON} > img {
       scrollGrid(sectionTop(index));
     }
 
+    /** Разделы в колонке — в поле зрения; сетка — к первому, если она не в них */
     function jumpToStandard() {
-      jumpToCategory(0);
-      // и разделы в колонке — в поле зрения
+      const inStandard = !filtering() && CATEGORIES.some((category) => category.id === activeSection());
+      if (!inStandard) jumpToCategory(0);
       rail.scrollTop += categoryBlock.getBoundingClientRect().top - rail.getBoundingClientRect().top;
     }
 
@@ -1300,8 +1328,13 @@ ${MESSAGE_ROLE_ICON} > img {
       frequentBlock
         ? railButton("frequent", "schedule", text.frequent, () => scrollGrid(offsetOf(frequentBlock)))
         : null,
-      railButton("standard", "emoji_emotions", text.standard, jumpToStandard),
     );
+    // Кнопка перехода к стандартным эмодзи — внизу колонки поверх серверов:
+    // блок нулевой высоты, прилипающий к низу (sticky), между списком
+    // серверов и разделами, а кнопка в нём выступает вверх. Места в колонке
+    // она не занимает, поэтому её показ и скрытие ничего не сдвигают.
+    const standardButton = railButton("standard", "emoji_emotions", text.standard, jumpToStandard);
+    const standardDock = h("div", { class: "arachnid-emoji-dock" }, standardButton);
     const categoryBlock = h(
       "div",
       { class: "arachnid-emoji-rail", "data-arachnid-emoji-rail": "categories" },
@@ -1311,7 +1344,17 @@ ${MESSAGE_ROLE_ICON} > img {
       ),
     );
     rail.insertBefore(topBlock, railList);
-    railList.after(categoryBlock);
+    railList.after(standardDock, categoryBlock);
+
+    // кнопка видна, только пока разделов в колонке не видно
+    standardButton.hidden = true;
+    const categoryWatch = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) standardButton.hidden = entry.isIntersecting;
+      },
+      { root: rail },
+    );
+    categoryWatch.observe(categoryBlock);
 
     // ─────────────────────────── прокрутка ───────────────────────────
     // Размеры сетки читаются не при каждой прокрутке: чтение заставляет
@@ -1422,6 +1465,7 @@ ${MESSAGE_ROLE_ICON} > img {
       favoriteListeners.delete(renderFavorites);
       closeMenu();
       resize.disconnect();
+      categoryWatch.disconnect();
       listWatch.disconnect();
       packWatch?.disconnect();
       window.removeEventListener("input", onInput);
