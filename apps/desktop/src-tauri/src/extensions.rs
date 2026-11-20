@@ -2628,7 +2628,10 @@ mod tests {
     #[test]
     fn client_is_signed_by_its_author() {
         assert_eq!(AUTHOR, "_sssHpion007");
-        assert!(REPOSITORY.starts_with("https://github.com/"), "{REPOSITORY}");
+        assert!(
+            REPOSITORY.starts_with("https://github.com/"),
+            "{REPOSITORY}"
+        );
         let dir = temp_dir("author");
         let overview = serde_json::to_value(extensions(&dir).overview()).unwrap();
         assert_eq!(overview["author"], AUTHOR);
