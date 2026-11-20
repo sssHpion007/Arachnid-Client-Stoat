@@ -23,3 +23,10 @@ min = 1
 max = 10
 default = 4
 unit = "px"
+
+[[settings]]
+name = "mode"
+label = "Режим"
+type = "select"
+default = "one"
+options = [{ value = "one", label = "Первый" }, { value = "two", label = "Второй" }]

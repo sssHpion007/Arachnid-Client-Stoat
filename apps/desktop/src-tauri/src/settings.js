@@ -612,12 +612,13 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * в окне настроек есть трансформации, внутри них fixed не работает.
    */
   function select({ label, value, options, onChange }) {
-    const current = options.find((option) => option.value === value) ?? options[0];
+    let current = options.find((option) => option.value === value) ?? options[0];
+    const shown = h("span", { class: "arachnid-select-value" }, current?.label ?? "");
     const trigger = h(
       "button",
       { type: "button", class: "arachnid-select", "aria-haspopup": "listbox" },
       h("span", { class: "arachnid-select-label" }, label),
-      h("span", { class: "arachnid-select-value" }, current?.label ?? ""),
+      shown,
     );
     trigger.insertAdjacentHTML("beforeend", '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>');
 
@@ -672,7 +673,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     function choose(option) {
       close();
       trigger.focus();
-      if (option.value !== value) onChange(option.value);
+      if (option.value === current?.value) return;
+      // поле показывает выбор сразу: окна настроек после сохранения не
+      // перерисовываются
+      current = option;
+      shown.textContent = option.label;
+      onChange(option.value);
     }
 
     function open() {

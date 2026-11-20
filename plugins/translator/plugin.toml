@@ -1,13 +1,12 @@
 name = "Переводчик"
-version = "1.0.0"
+version = "1.1.0"
 author = "_sssHpion007"
 description = "Перевод сообщений кнопкой в панели сообщения и пунктом меню"
 
 [permissions]
 network = [
-  "translate.googleapis.com",
+  "translate-pa.googleapis.com",
   "edge.microsoft.com",
-  "api-edge.cognitive.microsofttranslator.com",
   "api-free.deepl.com",
   "api.deepl.com",
 ]

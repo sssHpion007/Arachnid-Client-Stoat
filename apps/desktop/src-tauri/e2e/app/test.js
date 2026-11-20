@@ -546,7 +546,7 @@
         );
         await check(
           "plugin.settings: значения по типам",
-          report.settings.flag === true && report.settings.size === 4,
+          report.settings.flag === true && report.settings.size === 4 && report.settings.mode === "one",
           report.settings,
         );
         await check("plugin.network: подтверждённые адреса", report.network.join() === "example.com", report.network);
@@ -1835,6 +1835,33 @@ ${sidebarGroup("", [
 
       qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
+
+      // выбор в окне настроек плагина-папки виден сразу, без повторного открытия
+      const folderRow = [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
+        (item) => item.querySelector(".arachnid-item-title")?.textContent === "E2E Folder",
+      );
+      const folderGear = folderRow && [...folderRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
+      folderGear?.click();
+      const folderDialog = await waitFor(() => document.querySelector(`[data-arachnid-plugin-settings="${FOLDER}"]`), 3000, 50);
+      const modeSelect = folderDialog?.querySelector(".arachnid-select");
+      const modeShown = () => modeSelect?.querySelector(".arachnid-select-value")?.textContent;
+      const modeBefore = modeShown();
+      modeSelect?.click();
+      const modeOption = await waitFor(
+        () => [...document.querySelectorAll(".arachnid-select-menu .arachnid-select-item")].find((item) => item.textContent === "Второй"),
+        3000,
+        50,
+      );
+      modeOption?.click();
+      const modeAfter = modeShown();
+      const modeSaved = await waitFor(async () => (await pluginInfo(FOLDER))?.values.mode === "two", 3000, 50);
+      await check(
+        "настройки плагина: выбранный вариант виден сразу и сохранён",
+        modeBefore === "Первый" && modeAfter === "Второй" && modeSelect.isConnected && modeSaved,
+        { modeBefore, modeAfter, connected: modeSelect?.isConnected, modeSaved },
+      );
+      folderDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
+      await invoke("extensions_reset_plugin", { file: FOLDER });
       settingsPage.remove();
 
       picker.base.remove();

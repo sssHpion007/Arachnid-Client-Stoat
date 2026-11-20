@@ -190,7 +190,16 @@ function parseJson(response) {
 
 function checkStatus(response) {
   if (response.status === 429) throw new TranslatorError("limit");
-  if (response.status < 200 || response.status >= 300) throw new TranslatorError("failed", `HTTP ${response.status}`);
+  if (response.status >= 200 && response.status < 300) return;
+  // переадресацию клиент не выполняет: куда она ведёт — подсказка к ошибке
+  const location = Object.entries(response.headers ?? {}).find(([name]) => name.toLowerCase() === "location")?.[1];
+  let target = "";
+  try {
+    target = location ? ` → ${new URL(location).host}` : "";
+  } catch {
+    target = "";
+  }
+  throw new TranslatorError("failed", `HTTP ${response.status}${target}`);
 }
 
 /** Тексты частями: не больше `count` штук и `size` единиц по мерке `measure` */
@@ -212,79 +221,87 @@ function chunks(items, count, size, measure) {
   return result;
 }
 
-const GOOGLE_CODES = { "zh-Hans": "zh-CN", "zh-Hant": "zh-TW", "pt-BR": "pt", nb: "no", fil: "tl", he: "iw" };
+/** Текст → HTML: сервисы ниже разбирают запрос как HTML */
+function escapeHtml(value) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-async function googleRequest(query, target) {
-  const url =
-    "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&dt=t&dj=1&ie=UTF-8&oe=UTF-8" +
-    `&tl=${encodeURIComponent(target)}&q=${encodeURIComponent(query)}`;
-  const response = await send(url);
-  checkStatus(response);
-  const data = parseJson(response);
-  const translated = (Array.isArray(data?.sentences) ? data.sentences : [])
-    .map((sentence) => (typeof sentence?.trans === "string" ? sentence.trans : ""))
-    .join("");
-  return { text: translated, lang: typeof data?.src === "string" ? data.src : null };
+/** HTML ответа → текст (разбор в <template>: скрипты и картинки не оживают) */
+function htmlText(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return template.content.textContent ?? "";
+}
+
+const GOOGLE_KEY = "AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520";
+const GOOGLE_CODES = { "zh-Hans": "zh-CN", "zh-Hant": "zh-TW", "pt-BR": "pt", nb: "no", fil: "tl" };
+
+/**
+ * Перевод одной части от Google. Текст из нескольких предложений Google
+ * может вернуть парами «<i>оригинал</i> <b>перевод</b>» — тогда берутся
+ * только переводы.
+ */
+function googleText(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const sentences = template.content.querySelectorAll("b");
+  if (!sentences.length) return template.content.textContent ?? "";
+  return [...sentences]
+    .map((sentence) => sentence.textContent.trim())
+    .join(" ")
+    .replace(/\s+/g, " ");
 }
 
 /**
- * Google Переводчик (бесплатный адрес translate_a/single). Он принимает один
- * текст, поэтому части сообщения идут строками одного запроса: переводчик
- * сохраняет переводы строк. Если строк вернулось другое число, части
- * переводятся по одной.
+ * Google Переводчик: translateHtml с открытым ключом встроенного перевода
+ * страниц Chrome — тот же адрес, что у расширения Translate Web Pages.
+ * Части сообщения — элементами одного запроса.
  */
 async function google(texts, target) {
   const tl = GOOGLE_CODES[target] ?? target;
-  const lines = texts.map((item) => item.replace(/\s*[\r\n]+\s*/g, " "));
   const results = new Array(texts.length);
-  for (const group of chunks(lines, 100, 4000, (line) => encodeURIComponent(line).length + 3)) {
-    const answer = await googleRequest(group.map((index) => lines[index]).join("\n"), tl);
-    const parts = answer.text.replace(/\n$/, "").split("\n");
-    if (parts.length === group.length) {
-      group.forEach((index, position) => (results[index] = { text: parts[position], lang: answer.lang }));
-      continue;
-    }
-    for (const index of group) results[index] = await googleRequest(lines[index], tl);
+  for (const group of chunks(texts, 100, 5000, (item) => item.length)) {
+    const response = await send("https://translate-pa.googleapis.com/v1/translateHtml", {
+      method: "POST",
+      headers: { "Content-Type": "application/json+protobuf", "X-Goog-API-Key": GOOGLE_KEY },
+      body: JSON.stringify([[group.map((index) => escapeHtml(texts[index])), "auto", tl], "te"]),
+    });
+    checkStatus(response);
+    const data = parseJson(response);
+    const translations = Array.isArray(data?.[0]) ? data[0] : [];
+    if (translations.length !== group.length) throw new TranslatorError("failed", "response");
+    group.forEach((index, position) => {
+      const detected = Array.isArray(data[1]) ? data[1][position] : null;
+      results[index] = {
+        text: googleText(String(translations[position] ?? "")),
+        lang: typeof detected === "string" ? detected : Array.isArray(detected) ? detected[0] ?? null : null,
+      };
+    });
   }
   return results;
 }
 
 const MICROSOFT_CODES = { "pt-BR": "pt", "pt-PT": "pt-pt", sr: "sr-Cyrl" };
-const edge = { token: null, time: 0 };
 
-async function edgeToken(renew) {
-  if (!renew && edge.token && Date.now() - edge.time < 8 * 60 * 1000) return edge.token;
-  const response = await send("https://edge.microsoft.com/translate/auth");
-  checkStatus(response);
-  const token = response.body.trim();
-  if (!token) throw new TranslatorError("failed", "auth");
-  edge.token = token;
-  edge.time = Date.now();
-  return token;
-}
-
-/** Microsoft Translator (Translator API v3 с ключом доступа Edge) */
+/** Microsoft Translator: адрес встроенного перевода Edge, без ключа */
 async function microsoft(texts, target) {
   const to = MICROSOFT_CODES[target] ?? target;
-  const url = `https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${encodeURIComponent(to)}`;
+  const url = `https://edge.microsoft.com/translate/translatetext?isEnterpriseClient=false&to=${encodeURIComponent(to)}`;
   const results = new Array(texts.length);
   for (const group of chunks(texts, 100, 40000, (item) => item.length)) {
-    const body = JSON.stringify(group.map((index) => ({ Text: texts[index] })));
-    const post = async (token) =>
-      send(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body,
-      });
-    let response = await post(await edgeToken(false));
-    if (response.status === 401) response = await post(await edgeToken(true));
+    const response = await send(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(group.map((index) => escapeHtml(texts[index]))),
+    });
     checkStatus(response);
     const data = parseJson(response);
     if (!Array.isArray(data) || data.length !== group.length) throw new TranslatorError("failed", "response");
     group.forEach((index, position) => {
       const item = data[position];
+      const translatedText = item?.translations?.[0]?.text;
       results[index] = {
-        text: String(item?.translations?.[0]?.text ?? texts[index]),
+        text: typeof translatedText === "string" ? htmlText(translatedText) : texts[index],
         lang: item?.detectedLanguage?.language ?? null,
       };
     });
