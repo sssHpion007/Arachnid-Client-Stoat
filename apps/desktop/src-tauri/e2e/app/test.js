@@ -1305,7 +1305,8 @@
       }, 3000);
       await check("перетаскивание меняет порядок", moved, (await favorites()).map((item) => item.url));
 
-      // щелчок отправляет ссылку в открытый канал
+      // щелчок отправляет ссылку в открытый канал — пустой ссылкой Markdown,
+      // чтобы в сообщении была видна только GIF
       const channel = "01J2E2E0000000000000000000";
       history.pushState(null, "", `/app/channel/${channel}`);
       localStorage.setItem("auth", JSON.stringify({ session: { token: "e2e-session" } }));
@@ -1322,7 +1323,7 @@
         "щелчок отправляет ссылку через API Stoat в открытый канал",
         sent?.length === 1 &&
           message.path === `/api/channels/${channel}/messages` &&
-          message.body.content === page &&
+          message.body.content === `[](${page})` &&
           !message.body.replies &&
           message.token === "e2e-session" &&
           /^[0-9A-HJKMNP-TV-Z]{26}$/.test(message.idempotency ?? ""),
