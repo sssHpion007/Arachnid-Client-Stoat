@@ -870,6 +870,29 @@
         .map((image) => image.alt);
       await check("окно эмодзи: разделы как в Discord (сердца — в «Символах»)", firstRow[0] === "🩷" && firstRow[1] === "❤️", firstRow);
 
+      // Сервер в колонке: for-web прокручивает к нему на «строка × 40» от
+      // начала своего списка, а над списком — «Избранное» и «Часто
+      // используемые» (здесь — блок их высоты): заголовок сервера всё равно
+      // должен встать к верху сетки.
+      const aboveList = document.createElement("div");
+      aboveList.style.cssText = "flex-shrink:0;height:120px";
+      picker.gridList.before(aboveList);
+      const listOffset = Math.round(top(picker.gridList) + picker.grid.scrollTop);
+      const serverItem = document.createElement("div");
+      serverItem.setAttribute("role", "listitem");
+      serverItem.style.cssText = "position:absolute;left:0;top:0;width:40px;height:40px";
+      serverItem.addEventListener("click", () => (picker.grid.scrollTop = 0));
+      picker.railList.append(serverItem);
+      picker.grid.scrollTop = 600;
+      await frame();
+      serverItem.click();
+      await frame();
+      await frame();
+      const serverJump = { listOffset, listTop: Math.round(top(picker.gridList)), scroll: picker.grid.scrollTop };
+      serverItem.remove();
+      aboveList.remove();
+      await check("окно эмодзи: переход к серверу ставит его заголовок к верху сетки", listOffset > 0 && serverJump.listTop === 0, serverJump);
+
       // Меню эмодзи: на эмодзи — своё меню со скачиванием и избранным, на
       // пустом месте окна его нет.
       const emojiMenu = () => document.querySelector("[data-arachnid-emoji-menu]");

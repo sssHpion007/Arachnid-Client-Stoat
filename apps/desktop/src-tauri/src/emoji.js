@@ -1310,6 +1310,34 @@ ${MESSAGE_ROLE_ICON} > img {
       scrollGrid(sectionTop(index));
     }
 
+    /** «Избранное» и «Часто используемые» при поиске скрыты — сначала сброс */
+    function jumpToBlock(block) {
+      setFilter("");
+      scrollGrid(offsetOf(block));
+    }
+
+    /**
+     * Сервер в колонке. for-web прокручивает сетку к его эмодзи на «номер
+     * строки × 40» от начала своего списка (EmojiPicker.tsx), а над списком
+     * теперь «Избранное» и «Часто используемые»: заголовок сервера оказался
+     * бы ниже верха сетки на их высоту и выглядывал бы снизу. Щелчок for-web
+     * обрабатывает в том же событии (делегирование Solid на document), а
+     * кадр — после него: поправка ставит заголовок к верху до отрисовки.
+     * Несколько щелчков до кадра — одна поправка: for-web каждый раз ставит
+     * ту же прокрутку от начала списка.
+     */
+    let serverJump = false;
+    function onServerClick(event) {
+      if (serverJump || !(event.target instanceof Element) || !event.target.closest('[role="listitem"]')) return;
+      serverJump = true;
+      requestAnimationFrame(() => {
+        serverJump = false;
+        // при поиске над списком ничего нет — поправка нулевая
+        scrollGrid(grid.scrollTop + offsetOf(gridList));
+      });
+    }
+    railList.addEventListener("click", onServerClick, true);
+
     /** Разделы в колонке — в поле зрения; сетка — к первому, если она не в них */
     function jumpToStandard() {
       const inStandard = !filtering() && CATEGORIES.some((category) => category.id === activeSection());
@@ -1331,9 +1359,9 @@ ${MESSAGE_ROLE_ICON} > img {
     const topBlock = h(
       "div",
       { class: "arachnid-emoji-rail", "data-arachnid-emoji-rail": "top" },
-      railButton("favorites", "star", text.favorites, () => scrollGrid(offsetOf(favoritesBlock))),
+      railButton("favorites", "star", text.favorites, () => jumpToBlock(favoritesBlock)),
       frequentBlock
-        ? railButton("frequent", "schedule", text.frequent, () => scrollGrid(offsetOf(frequentBlock)))
+        ? railButton("frequent", "schedule", text.frequent, () => jumpToBlock(frequentBlock))
         : null,
     );
     // Кнопка перехода к стандартным эмодзи — внизу колонки поверх серверов,
@@ -1469,6 +1497,7 @@ ${MESSAGE_ROLE_ICON} > img {
     // окно закрыто
     return () => {
       root.removeEventListener("contextmenu", onContextMenu, true);
+      railList.removeEventListener("click", onServerClick, true);
       pickerRoots.delete(root);
       favoriteListeners.delete(renderFavorites);
       closeMenu();
