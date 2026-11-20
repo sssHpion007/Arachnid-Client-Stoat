@@ -43,6 +43,8 @@
       "icons/icon.ico"
     ],
     "resources": [],
+    "publisher": "_sssHpion007",
+    "copyright": "© _sssHpion007, AGPL-3.0-or-later",
     "shortDescription": "Настольный клиент Stoat",
     "longDescription": "Официальный веб-клиент Stoat в окне Tauri: своя рамка окна, трей, автозапуск и Discord RPC."
   }

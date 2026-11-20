@@ -1,5 +1,6 @@
-// Настройки веб-клиента: раздел «Плагины», выбор темы в «Внешнем виде» и
-// подпись Arachnid Client.
+// Настройки веб-клиента: раздел «Плагины», выбор темы в «Внешнем виде»,
+// группы списка настроек («О клиенте», «О программе») и подпись Arachnid
+// Client.
 //
 // for-web открыт с сервера Stoat, его исходники здесь не меняются. Поэтому
 // раздел добавляется в уже отрисованные настройки, как это делают клиентские
@@ -41,9 +42,6 @@
     ? {
         plugins: "Плагины",
         about: "Настольный клиент Stoat: темы, плагины и QuickCSS.",
-        pluginsIntro:
-          "Плагины — файлы .js или папки с plugin.toml в папке plugins. Они выполняются на странице Stoat с теми же правами, что и сам клиент, включая доступ к аккаунту: включайте только те, которым доверяете.",
-        noPlugins: "Своих плагинов пока нет. Положите файл .js или папку плагина в папку plugins — он появится здесь.",
         core: (api) => `Ядро клиента всегда включено · API плагинов ${api}`,
         builtin: "Встроенный",
         builtinDescription: {
@@ -109,13 +107,16 @@
         reset: "Сбросить настройки темы",
         author: (name) => `Автор: ${name}`,
         version: (value) => `Версия ${value}`,
+        // группы боковой панели настроек
+        aboutApp: "О программе",
+        aboutClient: "О клиенте",
+        sourceCode: "Исходный код",
+        releases: "Обновления",
+        issues: "Сообщить о проблеме",
       }
     : {
         plugins: "Plugins",
         about: "Desktop client for Stoat: themes, plugins and QuickCSS.",
-        pluginsIntro:
-          "Plugins are .js files or folders with a plugin.toml in the plugins folder. They run on the Stoat page with the same rights as the client itself, including access to your account: only enable the ones you trust.",
-        noPlugins: "No plugins of your own yet. Put a .js file or a plugin folder into the plugins folder and it will show up here.",
         core: (api) => `The client core is always on · Plugin API ${api}`,
         builtin: "Built-in",
         builtinDescription: {
@@ -179,6 +180,11 @@
         reset: "Reset Theme Settings",
         author: (name) => `By ${name}`,
         version: (value) => `Version ${value}`,
+        aboutApp: "About",
+        aboutClient: "About the Client",
+        sourceCode: "Source Code",
+        releases: "Releases",
+        issues: "Report an Issue",
       };
 
   const BRAND = "Arachnid Client";
@@ -252,6 +258,7 @@
 .arachnid-page, .arachnid-column { display: flex; flex-direction: column; gap: var(--gap-md, 12px); }
 .arachnid-page { gap: var(--gap-lg, 16px); padding-bottom: 80px; color: var(--md-sys-color-on-surface); }
 .arachnid-title { line-height: 1.75rem; font-size: 1.375rem; font-weight: 550; }
+.arachnid-page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .arachnid-subtitle { line-height: 1.25rem; font-size: 0.875rem; letter-spacing: 0.00625rem; font-weight: 550; }
 .arachnid-label { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
 .arachnid-card {
@@ -293,6 +300,36 @@
 .arachnid-item-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .arachnid-item-description { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; white-space: pre-line; overflow-wrap: anywhere; }
 .arachnid-item-note { color: var(--md-sys-color-tertiary); }
+.arachnid-item-icon[data-blank] { background: transparent; }
+/* варианты CategoryButton for-web: tertiary — вариант списка, tertiaryAlt — выбранный */
+.arachnid-item[data-variant="tertiary"] {
+  --color: var(--md-sys-color-on-tertiary-container); --mdui-color-primary: var(--color);
+  background: var(--md-sys-color-tertiary-container); color: var(--color);
+}
+.arachnid-item[data-variant="tertiaryAlt"] {
+  --color: var(--md-sys-color-on-tertiary); --mdui-color-primary: var(--color);
+  background: var(--md-sys-color-tertiary); color: var(--color);
+}
+.arachnid-item[data-variant="tertiary"][data-clickable]:hover {
+  background: color-mix(in srgb, var(--color) 8%, var(--md-sys-color-tertiary-container));
+}
+.arachnid-item[data-variant="tertiaryAlt"][data-clickable]:hover {
+  background: color-mix(in srgb, var(--color) 8%, var(--md-sys-color-tertiary));
+}
+/* CategoryButton.Select for-web: список под строкой раскрывается по высоте */
+.arachnid-collapse-list {
+  display: flex; flex-direction: column; gap: var(--gap-xs, 2px); height: 0;
+  border-radius: var(--borderRadius-md, 12px); overflow-y: auto; scrollbar-width: none;
+  opacity: 0; pointer-events: none; transition: 0.3s;
+}
+.arachnid-collapse[data-open] .arachnid-collapse-list { opacity: 1; pointer-events: auto; }
+.arachnid-collapse > .arachnid-item { transition: background-color 0.1s ease-in-out, margin 0.3s; }
+.arachnid-collapse[data-open] > .arachnid-item { margin-bottom: var(--gap-xs, 2px); }
+.arachnid-collapse-chevron { width: 24px; height: 24px; display: grid; place-items: center; flex-shrink: 0; }
+.arachnid-collapse-chevron > .arachnid-icon { font-size: 18px; transition: transform 0.3s; }
+.arachnid-collapse[data-open] .arachnid-collapse-chevron > .arachnid-icon { transform: rotate(180deg); }
+.arachnid-collapse-list mdui-radio { pointer-events: none; }
+.arachnid-radio { width: 20px; height: 20px; margin: 10px; accent-color: currentColor; pointer-events: none; }
 .arachnid-buttons { display: flex; flex-wrap: wrap; gap: var(--gap-sm, 8px); }
 .arachnid-button {
   height: 40px; padding: 0 24px; border: none; flex-shrink: 0;
@@ -464,7 +501,8 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
             }
           : undefined,
       },
-      h("div", { class: "arachnid-item-icon" }, icon(iconName)),
+      // без значка — пустое место под ним, как icon="blank" у CategoryButton
+      h("div", { class: "arachnid-item-icon", dataset: iconName ? undefined : { blank: "" } }, iconName ? icon(iconName) : null),
       h(
         "div",
         { class: "arachnid-item-content" },
@@ -617,6 +655,80 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     return trigger;
   }
 
+  /** Радиокнопка for-web (mdui-radio), если она уже зарегистрирована */
+  function radio(checked) {
+    if (customElements.get("mdui-radio")) {
+      const control = h("mdui-radio", { tabIndex: -1 });
+      control.checked = checked;
+      return control;
+    }
+    const control = h("input", { type: "radio", class: "arachnid-radio", tabIndex: -1 });
+    control.checked = checked;
+    return control;
+  }
+
+  /** Наибольшая высота раскрытого списка, как MAX_HEIGHT у CategoryButton */
+  const CATEGORY_SELECT_HEIGHT = 340;
+
+  /**
+   * Выбор как CategoryButton.Select в for-web (выбор языка): строка со
+   * значком, заголовком и выбранным вариантом, под ней раскрывается список
+   * вариантов с радиокнопками. Щелчок по варианту выбирает его и сворачивает
+   * список.
+   */
+  function categorySelect({ iconName, title, value, options, onChange }) {
+    const current = options.find((option) => option.value === value) ?? options[0];
+    let opened = false;
+
+    const chevron = h("span", { class: "arachnid-collapse-chevron" }, icon("keyboard_arrow_down"));
+    const summary = item({
+      iconName,
+      title,
+      description: current?.label ?? "",
+      action: chevron,
+      onClick: () => toggle(),
+    });
+    summary.setAttribute("aria-expanded", "false");
+
+    const rows = options.map((option) => {
+      const selected = option.value === current?.value;
+      const row = item({
+        iconName: null,
+        title: option.label,
+        description: option.description,
+        action: radio(selected),
+        onClick: () => {
+          toggle(false);
+          if (option.value !== value) onChange(option.value);
+        },
+      });
+      row.dataset.variant = selected ? "tertiaryAlt" : "tertiary";
+      row.setAttribute("role", "radio");
+      row.setAttribute("aria-checked", String(selected));
+      row.tabIndex = -1;
+      return row;
+    });
+    const list = h("div", { class: "arachnid-collapse-list", role: "radiogroup", "aria-label": title }, rows);
+    const wrapper = h("div", { class: "arachnid-collapse" }, summary, list);
+
+    function toggle(next = !opened) {
+      if (next === opened) return;
+      opened = next;
+      wrapper.toggleAttribute("data-open", opened);
+      summary.setAttribute("aria-expanded", String(opened));
+      for (const row of rows) row.tabIndex = opened ? 0 : -1;
+      const full = list.scrollHeight;
+      list.style.height = `${opened ? Math.min(full, CATEGORY_SELECT_HEIGHT) : 0}px`;
+      // длинный список — сразу на выбранном варианте
+      if (opened && full > CATEGORY_SELECT_HEIGHT) {
+        const selected = rows[options.indexOf(current)];
+        if (selected) list.scrollTop += selected.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      }
+    }
+
+    return h("div", { class: "arachnid-group" }, wrapper);
+  }
+
   /** Поле ввода с плавающей подписью; onCommit — по Enter или уходу с поля */
   function field({ label, value, type, onCommit, extra }) {
     const input = h("input", { type: type ?? "text", value, spellcheck: "false" });
@@ -740,7 +852,13 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
     setChildren(
       page.panel,
-      h("span", { class: "arachnid-title" }, text.plugins),
+      // заголовок, напротив него — папка плагинов
+      h(
+        "div",
+        { class: "arachnid-page-header" },
+        h("span", { class: "arachnid-title" }, text.plugins),
+        button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
+      ),
       h(
         "div",
         { class: "arachnid-card" },
@@ -750,6 +868,9 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           { class: "arachnid-card-text" },
           h("span", { class: "arachnid-card-title" }, `${BRAND} ${version}`),
           h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.about),
+          overview?.author
+            ? h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.author(overview.author))
+            : null,
           // ядро — первая строка раздела, его не выключить
           h(
             "span",
@@ -768,9 +889,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
             button(text.reload, () => location.reload(), "filled"),
           )
         : null,
-      h("span", { class: "arachnid-label" }, text.pluginsIntro),
       list.length ? h("div", { class: "arachnid-group" }, list) : null,
-      plugins.some((plugin) => !plugin.builtin) ? null : h("span", { class: "arachnid-label" }, text.noPlugins),
       actions.length
         ? h(
             "div",
@@ -779,11 +898,6 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
             h("div", { class: "arachnid-group" }, actions),
           )
         : null,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
-      ),
     );
   }
 
@@ -965,7 +1079,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     const appearanceEntry = findAppearanceEntry(sidebar);
     if (!appearanceEntry) return;
 
-    let entry = sidebar.querySelector("a.button[data-arachnid-entry]");
+    let entry = sidebar.querySelector('a.button[data-arachnid-entry="plugins"]');
     if (!entry) entry = createEntry(sidebar, appearanceEntry);
     // for-web мог перерисовать список: пункт остаётся после «Внешнего вида»
     if (appearanceEntry.nextElementSibling !== entry) appearanceEntry.after(entry);
@@ -984,6 +1098,166 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         true,
       );
     }
+  }
+
+  // ─────────────────────────── группы боковой панели ───────────────────────────
+  // Порядок for-web (UserSettings.tsx): «Настройки пользователя» (профиль,
+  // сессии), «Stoat» (мои боты, обратная связь), «Настройки клиента» (с «ПК»)
+  // и группа без заголовка: «Что нового», «Исходный код», «Расширенные»,
+  // «Пожертвовать», «Выйти». Клиент меняет её так:
+  //
+  // * «Мои боты» — в «Настройки пользователя», «Обратная связь» — между
+  //   «Исходным кодом» и «Расширенными»; опустевшая группа «Stoat» скрыта;
+  // * у последней группы — заголовок «О программе»;
+  // * перед ней — своя группа «О клиенте» со ссылками на репозиторий клиента.
+  //
+  // Группы узнаются по месту относительно группы с «ПК», пункты — по месту в
+  // группе (заголовки и подписи зависят от языка), а там, где for-web рисует
+  // значки шрифтом Material Symbols, — ещё и по значку. Узнанные пункты
+  // помечаются (data-arachnid-role): перенесённые остаются узнаваемыми.
+  // Если for-web перерисует список, новые пункты снова окажутся на своих
+  // местах — они переносятся заново, а старые убираются.
+
+  /** Пункты группы «Stoat» и последней группы по порядку; значки — из for-web main */
+  const STOAT_ROLES = [
+    { role: "bots", symbol: "smart_toy" },
+    { role: "feedback", symbol: "rate_review" },
+  ];
+  const ABOUT_ROLES = [
+    { role: "news", symbol: "campaign" },
+    { role: "source", symbol: "memory" },
+    { role: "advanced", symbol: "science" },
+    { role: "donate", symbol: "coffee" },
+  ];
+
+  /** Ссылки группы «О клиенте»: путь от адреса репозитория */
+  const CLIENT_LINKS = [
+    { id: "source", symbol: "code", label: text.sourceCode, path: "" },
+    { id: "releases", symbol: "new_releases", label: text.releases, path: "/releases" },
+    { id: "issues", symbol: "bug_report", label: text.issues, path: "/issues" },
+  ];
+
+  /** Значок пункта шрифтом Material Symbols; null — значок svg */
+  const symbolOf = (link) => link.querySelector(".material-symbols-outlined")?.textContent.trim() ?? null;
+
+  /** Пункты for-web в списке группы (без своих) */
+  const ownLinks = (list) =>
+    [...list.children].filter((child) => child.matches("a.button") && !child.hasAttribute("data-arachnid-entry"));
+
+  /**
+   * Группа for-web — `Column` с заголовком (span) и списком пунктов (div);
+   * `titled` — у неё должен быть заголовок.
+   */
+  function isCategory(element, titled) {
+    if (!element || element.hasAttribute("data-arachnid-category")) return false;
+    const list = element.lastElementChild;
+    if (list?.localName !== "div") return false;
+    const title = element.firstElementChild;
+    return titled ? title !== list && title.localName === "span" : true;
+  }
+
+  /** Соседняя группа for-web (свои группы пропускаются) */
+  function siblingCategory(element, forward) {
+    let next = forward ? element.nextElementSibling : element.previousElementSibling;
+    while (next?.hasAttribute("data-arachnid-category")) next = forward ? next.nextElementSibling : next.previousElementSibling;
+    return next;
+  }
+
+  /** Группы боковой панели или null, если разметка не та */
+  function sidebarCategories(sidebar) {
+    const client = findDesktopEntry(sidebar)?.parentElement?.parentElement;
+    if (!client || client === sidebar || !sidebar.contains(client) || !isCategory(client, true)) return null;
+    const stoat = siblingCategory(client, false);
+    const user = stoat && siblingCategory(stoat, false);
+    const about = siblingCategory(client, true);
+    if (!isCategory(stoat, true) || !isCategory(user, true) || !isCategory(about, false)) return null;
+    return { user, stoat, client, about };
+  }
+
+  /**
+   * Пометить пункты списка ролями, если там ровно эти пункты for-web (или,
+   * для последней группы, они и «Выйти»). Старые пункты с теми же ролями —
+   * от прошлой отрисовки for-web — убираются.
+   */
+  function markRoles(sidebar, list, roles, extra) {
+    const links = ownLinks(list).filter((link) => !link.dataset.arachnidRole);
+    if (links.length !== roles.length + extra) return;
+    const fits = roles.every(({ symbol }, index) => {
+      const shown = symbolOf(links[index]);
+      return shown === null || shown === symbol;
+    });
+    if (!fits) return;
+    roles.forEach(({ role }, index) => {
+      for (const old of sidebar.querySelectorAll(`a.button[data-arachnid-role="${role}"]`)) old.remove();
+      links[index].dataset.arachnidRole = role;
+    });
+  }
+
+  /** Заголовок группы — с классом заголовка for-web */
+  function categoryTitle(template, label) {
+    return h("span", { class: template.className, dataset: { arachnidTitle: "" } }, label);
+  }
+
+  /** Ссылка группы «О клиенте» — копия пункта «ПК» со своим значком */
+  function clientLink(sidebar, template, link) {
+    const entry = template.cloneNode(true);
+    entry.className = plainClass(sidebar) ?? template.className;
+    entry.removeAttribute("id");
+    entry.removeAttribute("href");
+    entry.removeAttribute("data-arachnid-muted");
+    entry.setAttribute("aria-selected", "false");
+    entry.setAttribute("role", "link");
+    entry.dataset.arachnidEntry = `client-${link.id}`;
+    const symbol = entry.querySelector(".material-symbols-outlined");
+    symbol.textContent = link.symbol;
+    let label = symbol.nextElementSibling;
+    while (label?.firstElementChild) label = label.firstElementChild;
+    (label ?? entry).textContent = link.label;
+    entry.addEventListener("click", (event) => {
+      event.preventDefault();
+      // ссылки for-web открываются так же: window.open, клиент отдаёт их системе
+      const open = () => overview?.repository && window.open(`${overview.repository}${link.path}`, "_blank");
+      if (overview) open();
+      else void refresh().then(open);
+    });
+    return entry;
+  }
+
+  function arrangeSidebar(sidebar) {
+    const categories = sidebarCategories(sidebar);
+    if (!categories) return;
+    const { user, stoat, about } = categories;
+    if (!overview) void refresh();
+
+    markRoles(sidebar, stoat.lastElementChild, STOAT_ROLES, 0);
+    markRoles(sidebar, about.lastElementChild, ABOUT_ROLES, 1);
+    const role = (name) => sidebar.querySelector(`a.button[data-arachnid-role="${name}"]`);
+
+    const bots = role("bots");
+    if (bots && bots.parentElement !== user.lastElementChild) user.lastElementChild.append(bots);
+    const feedback = role("feedback");
+    const advanced = role("advanced");
+    if (feedback && advanced && feedback.nextElementSibling !== advanced) advanced.before(feedback);
+    stoat.toggleAttribute("data-arachnid-hidden", !stoat.lastElementChild.querySelector("a.button"));
+
+    const titleTemplate = user.firstElementChild;
+    if (!about.querySelector(":scope > [data-arachnid-title]")) about.prepend(categoryTitle(titleTemplate, text.aboutApp));
+
+    let client = sidebar.querySelector('[data-arachnid-category="client"]');
+    if (!client) {
+      const template = findDesktopEntry(sidebar);
+      client = h(
+        "div",
+        { class: about.className, dataset: { arachnidCategory: "client" } },
+        categoryTitle(titleTemplate, text.aboutClient),
+        h(
+          "div",
+          { class: about.lastElementChild.className },
+          CLIENT_LINKS.map((link) => clientLink(sidebar, template, link)),
+        ),
+      );
+    }
+    if (about.previousElementSibling !== client) about.before(client);
   }
 
   // ───────────────────────────── «Внешний вид» ─────────────────────────────
@@ -1048,12 +1322,18 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
         button(text.quickCss, openQuickCss, undefined, "css"),
       ),
-      select({
-        label: text.theme,
+      // как выбор языка в for-web
+      categorySelect({
+        iconName: "palette",
+        title: text.theme,
         value: active?.file ?? "",
         options: [
           { value: "", label: text.defaultTheme },
-          ...themes.map((theme) => ({ value: theme.file, label: theme.name ?? theme.file })),
+          ...themes.map((theme) => ({
+            value: theme.file,
+            label: theme.name ?? theme.file,
+            description: theme.author ? text.author(theme.author) : undefined,
+          })),
         ],
         onChange: (file) => void change("extensions_set_theme", { file: file || null }),
       }),
@@ -1531,6 +1811,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     for (const sidebar of document.querySelectorAll(".settings_sidebar")) {
       if (!isUserSettings(sidebar)) continue;
       ensureEntry(sidebar);
+      arrangeSidebar(sidebar);
       const content = sidebar.nextElementSibling;
       if (content) enhanceAppearance(content);
     }

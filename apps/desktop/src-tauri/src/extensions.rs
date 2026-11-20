@@ -93,6 +93,13 @@ const MAX_WATCH_DEPTH: usize = 4;
 
 /// Версия API плагинов (`plugin` в коде плагина-папки, `plugin.toml`).
 pub const API_VERSION: u32 = 1;
+
+/// Автор клиента (`authors` в Cargo.toml): подпись клиента и встроенных
+/// плагинов в настройках
+pub const AUTHOR: &str = env!("CARGO_PKG_AUTHORS");
+
+/// Репозиторий клиента: ссылки группы «О клиенте» в настройках
+pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 /// Начало ключей встроенных плагинов: в именах файлов и папок `:` не бывает.
 const BUILTIN_PREFIX: &str = "builtin:";
 
@@ -465,6 +472,10 @@ pub struct Overview {
     version: &'static str,
     /// Версия API плагинов
     api_version: u32,
+    /// Автор клиента
+    author: &'static str,
+    /// Репозиторий клиента
+    repository: &'static str,
 }
 
 /// Что открыть в проводнике или редакторе.
@@ -700,7 +711,7 @@ impl Extensions {
                 about: manifest::About {
                     name: Some(builtin.name.to_owned()),
                     version: Some(env!("CARGO_PKG_VERSION").to_owned()),
-                    author: Some("Arachnid Client".to_owned()),
+                    author: Some(AUTHOR.to_owned()),
                     description: Some(builtin.description.to_owned()),
                 },
                 origin: Origin::Builtin(builtin),
@@ -1030,6 +1041,8 @@ impl Extensions {
             reload_needed,
             version: env!("CARGO_PKG_VERSION"),
             api_version: API_VERSION,
+            author: AUTHOR,
+            repository: REPOSITORY,
         }
     }
 
@@ -2609,6 +2622,24 @@ mod tests {
         let before = folder_stamp(&folder);
         std::fs::write(folder.join("img").join("new.png"), "png").unwrap();
         assert_ne!(folder_stamp(&folder), before);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn client_is_signed_by_its_author() {
+        assert_eq!(AUTHOR, "_sssHpion007");
+        assert!(REPOSITORY.starts_with("https://github.com/"), "{REPOSITORY}");
+        let dir = temp_dir("author");
+        let overview = serde_json::to_value(extensions(&dir).overview()).unwrap();
+        assert_eq!(overview["author"], AUTHOR);
+        assert_eq!(overview["repository"], REPOSITORY);
+        let qol = overview["plugins"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|plugin| plugin["file"] == "builtin:qol")
+            .unwrap();
+        assert_eq!(qol["author"], AUTHOR);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

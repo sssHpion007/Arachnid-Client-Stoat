@@ -1347,18 +1347,94 @@
       const gone = await fetch(`${listing.base}${two[0].id}.webp`).then((response) => response.status);
       await check("GIF убрана вместе с превью", left?.[0].id === cat.id && gone === 404, { left, gone });
 
-      // раздел «Плагины» в настройках, как их строит for-web: боковая
-      // панель с «Внешним видом» (значок palette) и «ПК», рядом — колонка
+      // раздел «Плагины» в настройках, как их строит for-web
+      // (UserSettings.tsx, Sidebar.tsx): группы с заголовками — «Настройки
+      // пользователя», «Stoat», «Настройки клиента» с «Внешним видом»
+      // (значок palette) и «ПК» — и последняя группа без заголовка; значки —
+      // svg, как в 0.17, и шрифтом Material Symbols, как в for-web main;
+      // рядом — колонка страницы
+      const sidebarLink = (icon, label) =>
+        icon.startsWith("<")
+          ? `<a class="button">${icon}<div><span>${label}</span></div></a>`
+          : `<a class="button"><span class="material-symbols-outlined">${icon}</span><div><span>${label}</span></div></a>`;
+      const sidebarGroup = (title, links) =>
+        `<div class="e2e-group">${title ? `<span class="e2e-group-title">${title}</span>` : ""}<div class="e2e-list">${links.join("")}</div></div>`;
+      const svgIcon = '<svg viewBox="0 0 24 24"><path d="M0 0"/></svg>';
       const settingsPage = document.createElement("div");
-      settingsPage.innerHTML = `<div class="settings_sidebar"><div>
-<a class="button"><span class="material-symbols-outlined">mic</span><span>Voice</span></a>
-<a class="button"><svg viewBox="0 0 24 24"><path d="M0 0"/><circle/><circle/><circle/><circle/></svg><div><span>Appearance</span></div></a>
-<a class="button"><span class="material-symbols-outlined">notifications</span><span>Notifications</span></a>
-<a class="button"><span class="material-symbols-outlined">language</span><span>Language</span></a>
-<a class="button"><span class="material-symbols-outlined">desktop_windows</span><span>Desktop</span></a>
-</div></div><div><div class="settings_cont"><div></div></div></div>`;
+      settingsPage.innerHTML = `<div class="settings_sidebar"><div><div class="content"><div class="e2e-column">
+<div class="e2e-prepend">${sidebarLink("arrow_back", "Back")}<div></div></div>
+${sidebarGroup("User Settings", [sidebarLink(svgIcon, "Profile"), sidebarLink(svgIcon, "Sessions")])}
+${sidebarGroup("Stoat", [sidebarLink(svgIcon, "My Bots"), sidebarLink(svgIcon, "Feedback")])}
+${sidebarGroup("Client Settings", [
+  sidebarLink("mic", "Voice"),
+  sidebarLink('<svg viewBox="0 0 24 24"><path d="M0 0"/><circle/><circle/><circle/><circle/></svg>', "Appearance"),
+  sidebarLink("notifications", "Notifications"),
+  sidebarLink("language", "Language"),
+  sidebarLink("desktop_windows", "Desktop"),
+])}
+${sidebarGroup("", [
+  sidebarLink("campaign", "What's New"),
+  sidebarLink("memory", "Source Code"),
+  sidebarLink("science", "Advanced"),
+  sidebarLink("coffee", "Donate"),
+  sidebarLink("logout", "Log Out"),
+])}
+<div class="e2e-append"><span>Stoat for Desktop 1.3.0</span></div>
+</div></div></div></div><div><div class="settings_cont"><div></div></div></div>`;
       document.body.append(settingsPage);
-      const pluginsEntry = await waitFor(() => settingsPage.querySelector("a.button[data-arachnid-entry]"), 3000, 50);
+
+      // группы боковой панели: «Мои боты» — у пользователя, «Обратная
+      // связь» — между «Исходным кодом» и «Расширенными», «Stoat» скрыта, у
+      // последней группы — заголовок «О программе», перед ней — «О клиенте»
+      // со ссылками на репозиторий клиента
+      const groupLabels = (group) =>
+        group ? [...group.lastElementChild.querySelectorAll(":scope > a.button")].map((link) => link.lastElementChild.textContent) : [];
+      const groups = () => [...settingsPage.querySelector(".e2e-column").children];
+      const clientGroup = await waitFor(() => settingsPage.querySelector('[data-arachnid-category="client"]'), 3000, 50);
+      const aboutGroup = groups().at(-2);
+      const arranged = {
+        user: groupLabels(groups()[1]).join(),
+        stoatHidden: groups()[2].hasAttribute("data-arachnid-hidden"),
+        about: groupLabels(aboutGroup).join(),
+        aboutTitle: aboutGroup.firstElementChild.textContent,
+        aboutTitleClass: aboutGroup.firstElementChild.className,
+        clientBefore: aboutGroup.previousElementSibling === clientGroup,
+        clientTitle: clientGroup?.firstElementChild.textContent,
+        client: groupLabels(clientGroup).join(),
+      };
+      const opened = [];
+      const realOpen = window.open;
+      window.open = (url, target) => {
+        opened.push([url, target]);
+        return null;
+      };
+      for (const link of clientGroup?.lastElementChild.children ?? []) link.click();
+      await waitFor(() => opened.length === 3, 3000, 50);
+      window.open = realOpen;
+      // ещё один проход скрипта ничего не повторяет
+      settingsPage.querySelector(".e2e-append").append(document.createElement("span"));
+      await frame();
+      await frame();
+      arranged.groups = groups().length;
+      arranged.opened = opened.map(([url]) => url);
+      await check(
+        "настройки: группы боковой панели переставлены, «О программе» и «О клиенте» на месте",
+        arranged.user === "Profile,Sessions,My Bots" &&
+          arranged.stoatHidden &&
+          arranged.about === "What's New,Source Code,Feedback,Advanced,Donate,Log Out" &&
+          ["О программе", "About"].includes(arranged.aboutTitle) &&
+          arranged.aboutTitleClass === "e2e-group-title" &&
+          arranged.clientBefore &&
+          ["О клиенте", "About the Client"].includes(arranged.clientTitle) &&
+          groupLabels(clientGroup).length === 3 &&
+          arranged.groups === 7 &&
+          opened.length === 3 &&
+          opened.every(([url, target]) => url.startsWith("https://github.com/sssHpion007/") && target === "_blank") &&
+          arranged.opened[1].endsWith("/releases") &&
+          arranged.opened[2].endsWith("/issues"),
+        arranged,
+      );
+      const pluginsEntry = await waitFor(() => settingsPage.querySelector('a.button[data-arachnid-entry="plugins"]'), 3000, 50);
       pluginsEntry?.click();
       const qolRow = await waitFor(
         () =>
@@ -1373,6 +1449,29 @@
         "раздел «Плагины»: без «null» и «undefined»",
         qolRow && !/\b(null|undefined)\b/.test(panelText),
         panelText.slice(0, 400),
+      );
+      // папка плагинов — напротив заголовка, автор клиента и QoL — _sssHpion007
+      const pluginsHeader = settingsPage.querySelector("[data-arachnid-panel] > .arachnid-page-header");
+      const headerTitle = pluginsHeader?.querySelector(".arachnid-title")?.getBoundingClientRect();
+      const headerButton = pluginsHeader?.querySelector(".arachnid-button")?.getBoundingClientRect();
+      const qolDescription = qolRow?.querySelector(".arachnid-item-description")?.textContent ?? "";
+      const pluginsLayout = {
+        header: Boolean(pluginsHeader && headerTitle && headerButton),
+        sameRow: headerTitle && headerButton ? Math.abs(headerTitle.top + headerTitle.height / 2 - (headerButton.top + headerButton.height / 2)) < 2 : null,
+        right: headerButton ? Math.round(pluginsHeader.getBoundingClientRect().right - headerButton.right) : null,
+        bottomButtons: settingsPage.querySelectorAll("[data-arachnid-panel] > .arachnid-buttons").length,
+        cardAuthor: settingsPage.querySelector("[data-arachnid-panel] .arachnid-card")?.textContent.includes("_sssHpion007"),
+        qolAuthor: qolDescription.includes("_sssHpion007"),
+      };
+      await check(
+        "раздел «Плагины»: папка напротив заголовка, автор — _sssHpion007",
+        pluginsLayout.header &&
+          pluginsLayout.sameRow &&
+          pluginsLayout.right === 0 &&
+          pluginsLayout.bottomButtons === 0 &&
+          pluginsLayout.cardAuthor &&
+          pluginsLayout.qolAuthor,
+        pluginsLayout,
       );
       const gear = qolRow && [...qolRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
       gear?.click();
