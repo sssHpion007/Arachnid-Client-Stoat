@@ -1226,8 +1226,6 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       sidebar.addEventListener(
         "click",
         (event) => {
-          // язык могли сменить на странице «Язык»
-          void i18n.refresh();
           const link = event.target instanceof Element ? event.target.closest("a.button") : null;
           if (page && link && link.hasAttribute("data-arachnid-muted")) closePage();
         },
@@ -2016,15 +2014,9 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     queueScan();
   }
 
-  /** Открыты ли настройки при прошлой проверке */
-  let settingsOpen = false;
-
   function scan() {
     if (page && !page.panel.isConnected) closePage();
     const sidebars = document.querySelectorAll(".settings_sidebar");
-    // настройки закрыли: язык могли сменить
-    if (settingsOpen && !sidebars.length) void i18n.refresh();
-    settingsOpen = sidebars.length > 0;
     for (const sidebar of sidebars) {
       if (!isUserSettings(sidebar)) continue;
       ensureEntry(sidebar);

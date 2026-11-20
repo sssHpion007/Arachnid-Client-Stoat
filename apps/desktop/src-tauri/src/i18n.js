@@ -4,9 +4,9 @@
 //
 // Язык интерфейса for-web хранит в IndexedDB (localforage, хранилище
 // `@<id пользователя>`, ключ `locale`); пока его нет — первый язык браузера,
-// как у for-web. Хранилище перечитывается при возврате в окно, переходах в
-// настройках и их закрытии (settings.js): после смены языка подписи
-// обновляются без перезагрузки.
+// как у for-web. Хранилище перечитывается, как только for-web запишет в него
+// язык, а также при возврате в окно: после смены языка подписи обновляются
+// без перезагрузки.
 
 (() => {
   "use strict";
@@ -149,10 +149,16 @@
 
   const listeners = new Set();
   let reading = null;
+  /** Хранилище изменилось, пока шло чтение: прочитать ещё раз */
+  let stale = false;
 
   /** Перечитать язык интерфейса; если он сменился — сообщить подписчикам */
   function refresh() {
-    reading ??= storedLanguage()
+    if (reading) {
+      stale = true;
+      return reading;
+    }
+    reading = storedLanguage()
       .catch(() => null)
       .then((stored) => {
         const next = stored ?? preferred();
@@ -167,9 +173,38 @@
         }
         return language;
       })
-      .finally(() => (reading = null));
+      .finally(() => {
+        reading = null;
+        if (stale) {
+          stale = false;
+          void refresh();
+        }
+      });
     return reading;
   }
+
+  /**
+   * Запись языка for-web: localforage кладёт `put(value, "locale")` в
+   * хранилище `@<id пользователя>` (через 1,2 с после выбора — так for-web
+   * откладывает запись на диск). Когда запись сохранена, язык перечитывается.
+   */
+  function watchStoredLanguage() {
+    if (typeof IDBObjectStore === "undefined") return;
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      const request = put.apply(this, args);
+      try {
+        if (args[1] === "locale" && this.name.startsWith("@")) {
+          this.transaction.addEventListener("complete", () => void refresh(), { once: true });
+        }
+      } catch {
+        // запись страницы важнее подписей клиента
+      }
+      return request;
+    };
+  }
+
+  watchStoredLanguage();
 
   /** Подписаться на смену языка; возвращает отписку */
   function onChange(listener) {

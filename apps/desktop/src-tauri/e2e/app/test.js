@@ -581,6 +581,29 @@
           typeof tray?.show === "string" && tray.show.length > 0 && typeof i18n.text("settings").pluginSettings === "function",
           { locale: i18n?.locale(), tray },
         );
+
+        // язык сменили на странице «Язык» for-web: подписи клиента меняются,
+        // как только for-web запишет язык в хранилище, без других событий
+        const auth = localStorage.getItem("auth");
+        localStorage.setItem("auth", JSON.stringify({ session: { token: "e2e-language", userId: "E2ELANGUAGE" } }));
+        const userStore = localforage.createInstance({ name: "localforage", storeName: "@E2ELANGUAGE" });
+        const before = i18n.language();
+        const wanted = before.startsWith("de") ? "fr" : "de";
+        const seen = [];
+        const unsubscribe = i18n.onChange((language) => seen.push(language));
+        const showLabel = () => i18n.messages("tray").show;
+        await userStore.setItem("locale", { lang: wanted, options: {} });
+        const switched = await waitFor(() => i18n.language() === wanted, 1000, 20);
+        await check(
+          "смена языка for-web: подписи клиента сразу после записи в хранилище",
+          switched && seen.includes(wanted) && showLabel() === (wanted === "de" ? "App anzeigen" : "Afficher l’application"),
+          { before, wanted, now: i18n.language(), seen, label: showLabel() },
+        );
+        unsubscribe();
+        await userStore.dropInstance();
+        if (auth === null) localStorage.removeItem("auth");
+        else localStorage.setItem("auth", auth);
+        await i18n.refresh();
         await check(
           "plugin.storage: записано и прочитано",
           report.stored?.text === "привет",
