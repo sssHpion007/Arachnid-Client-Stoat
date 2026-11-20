@@ -3,23 +3,13 @@ name: release
 # Выпуск для Windows, Linux и macOS:
 #   * установщики — Arachnid-Client-Setup.exe (NSIS), .deb, .rpm, .dmg;
 #   * одиночные файлы (portable: данные — в папке рядом с ними) —
-#     «Arachnid Client.exe», «Arachnid Client.AppImage», «Arachnid Client.app.zip»
+#     ArachnidClient.exe, ArachnidClient.AppImage, ArachnidClient.app.zip
 #     (приложение macOS — это папка .app, файлом его можно выложить только так).
 #
-# Тег v* — сборка и релиз с этими файлами. Отправка рабочей ветки, в которой
-# меняется сборка (этот файл, tauri.conf.json, Cargo.toml), — только сборка,
-# чтобы проверить её до тега; файлы лежат в артефактах запуска.
+# Тег v* — сборка и релиз с этими файлами.
 on:
   push:
     tags: ["v*"]
-    branches: ["arena/**"]
-    paths:
-      - .github/workflows/release.yml
-      - .github/release-notes.md
-      - apps/desktop/src-tauri/tauri.conf.json
-      - apps/desktop/src-tauri/Info.plist
-      - apps/desktop/src-tauri/Cargo.toml
-      - Cargo.toml
   workflow_dispatch:
 
 concurrency:
@@ -92,15 +82,15 @@ jobs:
               tauri --bundles nsis
               pick "$out/Arachnid-Client-Setup.exe" "$target"/release/bundle/nsis/*-setup.exe
               tauri --no-bundle --features portable
-              pick "$out/Arachnid Client.exe" "$target/release/arachnid-client.exe"
+              pick "$out/ArachnidClient.exe" "$target/release/arachnid-client.exe"
               ;;
             Linux)
               tauri --bundles deb,rpm
               pick "$out/Arachnid-Client-Setup.deb" "$target"/release/bundle/deb/*.deb
               pick "$out/Arachnid-Client-Setup.rpm" "$target"/release/bundle/rpm/*.rpm
               tauri --bundles appimage --features portable
-              pick "$out/Arachnid Client.AppImage" "$target"/release/bundle/appimage/*.AppImage
-              chmod +x "$out/Arachnid Client.AppImage"
+              pick "$out/ArachnidClient.AppImage" "$target"/release/bundle/appimage/*.AppImage
+              chmod +x "$out/ArachnidClient.AppImage"
               ;;
             macOS)
               bundle="$target/universal-apple-darwin/release/bundle"
@@ -110,7 +100,7 @@ jobs:
               app="$bundle/macos/Arachnid Client.app"
               [ -d "$app" ] || { echo "::error::не найден Arachnid Client.app"; exit 1; }
               # ditto сохраняет ссылки и подпись внутри пакета
-              ditto -c -k --sequesterRsrc --keepParent "$app" "$out/Arachnid Client.app.zip"
+              ditto -c -k --sequesterRsrc --keepParent "$app" "$out/ArachnidClient.app.zip"
               ;;
           esac
           ls -la "$out"
@@ -148,8 +138,5 @@ jobs:
           # черновик, пока не загружены все файлы: релиз не виден недоделанным
           gh release create "$tag" --draft --verify-tag \
             --title "Arachnid Client ${tag#v}" --notes-file .github/release-notes.md
-          for file in dist/*; do
-            # пробел в имени GitHub меняет на точку; подпись оставляет имя как есть
-            gh release upload "$tag" "$file#$(basename "$file")" --clobber
-          done
+          gh release upload "$tag" dist/* --clobber
           gh release edit "$tag" --draft=false --latest

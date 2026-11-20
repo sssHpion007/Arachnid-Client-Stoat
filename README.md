@@ -34,7 +34,7 @@ webview (WebView2 в Windows) вместо встроенного Chromium.
 | Уведомления, звонки, демонстрация экрана | веб-API WebView2: системные уведомления Windows, выбор экрана; микрофон, камера и звук — без запросов, только для клиента |
 | Масштаб и перезагрузка | Ctrl + колесо / Ctrl + `+` `-` `0`, F5 / Ctrl + R |
 | Имя сессии | вход создаёт сессию с именем «Arachnid Client», а не «Stoat for Web (edge-chromium on Windows 10)» — так она и видна в «Сессиях» Stoat ([docs/desktop.md](docs/desktop.md#имя-сессии)) |
-| Portable-режим | одиночный файл из релиза (`Arachnid Client.exe`, `.AppImage`, `.app`) хранит вход, сессию и настройки в папке рядом с собой; обычная сборка — если рядом с ней лежит `config.toml` |
+| Portable-режим | одиночный файл из релиза (`ArachnidClient.exe`, `.AppImage`, `.app`) хранит вход, сессию и настройки в папке рядом с собой; обычная сборка — если рядом с ней лежит `config.toml` |
 
 Раздел настроек «ПК» и версия оболочки в настройках — родные страницы for-web:
 он показывает их, когда находит договор `window.native` / `window.desktopConfig`.
@@ -77,9 +77,9 @@ docs/                     документация
 
 | Система | Установщик | Без установки |
 |---|---|---|
-| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `Arachnid Client.exe` |
-| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `Arachnid Client.AppImage` |
-| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `Arachnid Client.app.zip` |
+| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `ArachnidClient.exe` |
+| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `ArachnidClient.AppImage` |
+| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `ArachnidClient.app.zip` |
 
 Без установки клиент хранит вход, настройки, темы и плагины в папке рядом с
 собой, поэтому положите файл в отдельную папку. Официальный Stoat при этом не

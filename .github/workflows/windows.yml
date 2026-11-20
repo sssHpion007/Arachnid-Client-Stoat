@@ -1,7 +1,7 @@
 name: windows
 
 # Быстрая сборка только под Windows: тот же одиночный файл
-# «Arachnid Client.exe», что в релизе (portable: данные рядом с ним). Без
+# ArachnidClient.exe, что в релизе (portable: данные рядом с ним). Без
 # тегов, без релизов, без macOS/Linux — чтобы проверка изменений занимала
 # минуты, а не полчаса.
 #
@@ -41,17 +41,17 @@ jobs:
         working-directory: apps/desktop/src-tauri
         run: npx --yes "@tauri-apps/cli@2" build --no-bundle --features portable
 
-      - name: Arachnid Client.exe
+      - name: ArachnidClient.exe
         shell: bash
         run: |
           mkdir -p dist
-          cp target/release/arachnid-client.exe "dist/Arachnid Client.exe"
+          cp target/release/arachnid-client.exe "dist/ArachnidClient.exe"
           ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: arachnid-client-windows-x86_64
-          path: dist/Arachnid Client.exe
+          path: dist/ArachnidClient.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -77,7 +77,7 @@ jobs:
 
       - name: Проверка
         shell: pwsh
-        run: ./apps/desktop/src-tauri/e2e/run.ps1 -Exe "artifact/Arachnid Client.exe"
+        run: ./apps/desktop/src-tauri/e2e/run.ps1 -Exe "artifact/ArachnidClient.exe"
 
       - uses: actions/upload-artifact@v4
         if: always()
