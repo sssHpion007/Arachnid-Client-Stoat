@@ -1638,22 +1638,90 @@ ${sidebarGroup("", [
         browserMenu,
       );
 
+      // Профиль (ProfileJoined for-web): плитка «Joined» — полоса «Участник
+      // с» во всю ширину в конце профиля, даты со значками Stoat и сервера;
+      // одинокая квадратная плитка в ряду — во всю ширину
+      const profileServer = document.createElement("div");
+      profileServer.setAttribute("aria-label", "Тестовый сервер");
+      profileServer.innerHTML = '<div><a href="/server/01E2E"><img src="/icons/e2e-wide" alt=""></a></div>';
+      document.body.append(profileServer);
+      const profileTile = (title) =>
+        `<div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>${title}</span></div>`;
+      const profilePortal = document.createElement("div");
+      profilePortal.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:340px">
+        <div style="grid-column:1/3;height:120px"></div>
+        ${profileTile("Roles")}${profileTile("Badges")}${profileTile("Status")}
+        <div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>Joined</span><span><div>Stoat</div></span><span>12 Mar 2023</span><span><div>Тестовый сервер</div></span><span>05 Jan 2024</span></div>
+        <div style="grid-column:1/3;height:60px"></div>
+      </div>`;
+      document.getElementById("floating").append(profilePortal);
+      const profileGrid = profilePortal.firstElementChild;
+      const [, , , statusTile, joinedTile, bioTile] = profileGrid.children;
+      const joinedFormat = new Intl.DateTimeFormat(/^ru\b/i.test(navigator.language) ? "ru" : undefined, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+      const joinedDates = () =>
+        Array.from(joinedTile.querySelectorAll(".arachnid-joined-date"), (date) => ({
+          text: date.textContent,
+          icon: date.querySelector("img")?.getAttribute("src") ?? null,
+        }));
+      await waitFor(() => joinedTile.querySelector(".arachnid-joined"), 3000, 50);
+      const joinedSeen = {
+        dates: joinedDates(),
+        width: Math.round(joinedTile.getBoundingClientRect().width),
+        belowBio: joinedTile.getBoundingClientRect().top > bioTile.getBoundingClientRect().top,
+        hidden: Array.from(joinedTile.querySelectorAll(":scope > span"), (span) => getComputedStyle(span).display),
+        lone: statusTile.hasAttribute("data-arachnid-lone") && Math.round(statusTile.getBoundingClientRect().width) === 340,
+      };
+      await check(
+        "профиль: «Joined» — полоса во всю ширину в конце, даты со значком сервера, одинокая плитка во всю ширину",
+        joinedSeen.dates.length === 2 &&
+          joinedSeen.dates[0].text === joinedFormat.format(new Date(2023, 2, 12)) &&
+          joinedSeen.dates[1].text === joinedFormat.format(new Date(2024, 0, 5)) &&
+          joinedSeen.dates[1].icon === "/icons/e2e-wide" &&
+          joinedSeen.width === 340 &&
+          joinedSeen.belowBio &&
+          joinedSeen.hidden.every((display) => display === "none") &&
+          joinedSeen.lone,
+        joinedSeen,
+      );
+      // Solid обновляет текст скрытых узлов — полоса следует за ним
+      joinedTile.children[2].textContent = "13 Mar 2023";
+      const joinedUpdated = await waitFor(
+        () => joinedDates()[0]?.text === joinedFormat.format(new Date(2023, 2, 13)),
+        3000,
+        50,
+      );
+      await check("профиль: полоса «Участник с» следует за датой for-web", joinedUpdated, joinedDates());
+
       qolInput("interface")?.click();
       const interfaceOff = await waitFor(
         () =>
           !document.getElementById("arachnid-interface-style") &&
           rippleTransition(earlyRipple) === "0.015s" &&
-          rightClick(plainText),
+          rightClick(plainText) &&
+          !joinedTile.hasAttribute("data-arachnid-joined") &&
+          !joinedTile.querySelector(".arachnid-joined") &&
+          !statusTile.hasAttribute("data-arachnid-lone"),
         3000,
         50,
       );
       qolInput("interface")?.click();
       const interfaceOn = await waitFor(
-        () => document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0s" && !rightClick(plainText),
+        () =>
+          document.getElementById("arachnid-interface-style") &&
+          rippleTransition(earlyRipple) === "0s" &&
+          !rightClick(plainText) &&
+          joinedTile.querySelector(".arachnid-joined") &&
+          statusTile.hasAttribute("data-arachnid-lone"),
         3000,
         50,
       );
       menuArea.remove();
+      profilePortal.remove();
+      profileServer.remove();
       await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
         ripple: rippleTransition(earlyRipple),
       });

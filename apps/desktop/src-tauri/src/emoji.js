@@ -137,8 +137,9 @@
 // стили реакций и значков уходят вместе с ним). У плагина есть настройки
 // (шестерёнка в его строке): `interface` — реакции, значки ролей, заголовки
 // групп участников, подсветка кнопок при наведении (см. «подсветка при
-// наведении» ниже) и меню браузера там, где у for-web нет своего (см. «меню
-// браузера»), `emoji_picker` — окно эмодзи. Они действуют сразу:
+// наведении» ниже), меню браузера там, где у for-web нет своего (см. «меню
+// браузера»), и дата присоединения в профиле (см. «дата присоединения»),
+// `emoji_picker` — окно эмодзи. Они действуют сразу:
 // стили и значки ролей меняются на месте, пункт «Скачать изображение» в меню
 // сообщения появляется и пропадает сразу, окно эмодзи меняется со следующего
 // открытия.
@@ -216,6 +217,10 @@
   const ROLE_ICON_SIZE = 16;
   /** Значок роли шире стольких высот вписывается, а не растягивает строку */
   const ROLE_ICON_MAX_RATIO = 3;
+  /** Пометка плитки «Joined» профиля, которая стала полосой «Участник с» */
+  const JOINED_MARK = "data-arachnid-joined";
+  /** Пометка плитки профиля, оставшейся в ряду одной: она во всю ширину */
+  const LONE_MARK = "data-arachnid-lone";
 
   /**
    * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
@@ -255,6 +260,9 @@
         favorite: "Добавить в избранное",
         unfavorite: "Убрать из избранного",
         failed: "Не удалось сохранить изображение",
+        memberSince: "Участник с",
+        onStoat: (date) => `В Stoat с ${date}`,
+        onServer: (name, date) => `На сервере «${name}» с ${date}`,
       }
     : {
         favorites: "Favorites",
@@ -272,6 +280,9 @@
         favorite: "Add to Favorites",
         unfavorite: "Remove from Favorites",
         failed: "Could not save the image",
+        memberSince: "Member since",
+        onStoat: (date) => `On Stoat since ${date}`,
+        onServer: (name, date) => `On ${name} since ${date}`,
       };
 
   /** Картинка стандартного эмодзи — как unicodeEmojiUrl for-web */
@@ -611,6 +622,80 @@ ${MESSAGE_ROLE_ICON} {
 }
 ${MESSAGE_ROLE_ICON} > img {
   object-fit: contain;
+}
+[${JOINED_MARK}] {
+  grid-column: 1 / -1;
+  order: 1;
+  aspect-ratio: auto;
+  overflow: visible;
+  padding: 10px var(--gap-lg, 15px);
+  gap: 6px;
+}
+[${JOINED_MARK}] > :not(.arachnid-joined) { display: none; }
+[${LONE_MARK}] {
+  grid-column: 1 / -1;
+  aspect-ratio: auto;
+}
+.arachnid-joined {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.arachnid-joined-title {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.03125rem;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.arachnid-joined-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.arachnid-joined-date {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.arachnid-joined-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+span.arachnid-joined-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--md-sys-color-on-primary-container);
+  background: var(--md-sys-color-primary-container);
+}
+/* подсказка — как TooltipBase for-web */
+.arachnid-joined-date:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: var(--gap-md, 8px);
+  border-radius: var(--borderRadius-md, 12px);
+  color: white;
+  background: black;
+  font-size: 0.6875rem;
+  line-height: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
 }
 `;
 
@@ -1560,6 +1645,276 @@ ${MESSAGE_ROLE_ICON} > img {
     }
   }
 
+  // ─────────────────────────── дата присоединения ───────────────────────────
+  // Плитка «Joined» профиля (ProfileJoined.tsx for-web) — квадрат с крупным
+  // заголовком, который по-русски («Присоединившиеся») не влезает в плитку, и
+  // датами в формате L с месяцем словом («12.март.2023»). Она становится
+  // низкой полосой во всю ширину в конце профиля, как «Участник с» в Discord:
+  // короткий заголовок и даты со значками Stoat и сервера, подсказка — при
+  // наведении. Узлы for-web остаются в плитке, только скрыты: Solid
+  // продолжает их обновлять, а полоса перерисовывается по их тексту.
+  //
+  // Профиль — карточка по щелчку на ник (UserCard) и окно профиля
+  // (UserProfileModal) — открывается в #floating: в Portal FloatingManager
+  // или в своём Portal окна (Dialog: Portal → Scrim → окно). Поэтому плитка
+  // ищется только в том, что добавилось на верхние уровни #floating, а не,
+  // например, в строках прокручиваемого окна эмодзи.
+  //
+  // Без плитки в ряду квадратных плиток может остаться одна — она
+  // растягивается во всю ширину (LONE_MARK), чтобы рядом не было дыры.
+
+  /** Плитки профиля, ставшие полосой: плитка → { observer, grid } */
+  const joinedCards = new Map();
+  /** Сетки профиля с такой плиткой: сетка → наблюдатель её состава */
+  const profileGrids = new Map();
+  let profileRoots = [];
+  let profileQueued = false;
+
+  /** Узлы for-web плитки (без своей полосы) */
+  const ownChildren = (card) => Array.from(card.children).filter((child) => !child.classList.contains("arachnid-joined"));
+
+  /**
+   * Плитка «Joined»: заголовок, «Stoat» (подпись не переводится), дата и,
+   * если профиль открыт из сервера, имя сервера и дата — всё Text (span)
+   */
+  function isJoinedCard(element) {
+    const children = ownChildren(element);
+    if (children.length !== 3 && children.length !== 5) return false;
+    if (!children.every((child) => child.localName === "span")) return false;
+    return children[1].textContent.trim() === "Stoat";
+  }
+
+  /** Названия месяцев для сравнения: без точек, строчными */
+  const monthCache = new Map();
+  function monthNames(locale) {
+    if (monthCache.has(locale)) return monthCache.get(locale);
+    let months = null;
+    try {
+      months = Array.from({ length: 12 }, (_, month) => {
+        const date = new Date(2000, month, 15);
+        const names = new Set();
+        for (const style of ["long", "short"]) {
+          names.add(new Intl.DateTimeFormat(locale, { month: style }).format(date));
+          // в дате месяц бывает в другом падеже («марта»)
+          const part = new Intl.DateTimeFormat(locale, { day: "numeric", month: style })
+            .formatToParts(date)
+            .find((item) => item.type === "month");
+          if (part) names.add(part.value);
+        }
+        return Array.from(names, (name) => name.toLocaleLowerCase(locale).replaceAll(".", "")).filter(Boolean);
+      });
+    } catch {
+      months = null;
+    }
+    monthCache.set(locale, months);
+    return months;
+  }
+
+  /**
+   * Дата, как её показывает for-web: формат L языка с месяцем словом (MMM),
+   * в любом порядке — день числом до 31, год четырьмя цифрами, месяц
+   * словом. Месяц узнаётся по названиям языков системы и английским; если
+   * не узнан — null, и показывается текст for-web как есть.
+   */
+  function parseShownDate(shown) {
+    const tokens = shown.trim().split(/[\s.,/\-]+/).filter(Boolean);
+    const year = tokens.filter((token) => /^\d{4}$/.test(token));
+    const day = tokens.filter((token) => /^\d{1,2}$/.test(token));
+    const words = tokens.filter((token) => !/^\d+$/.test(token));
+    if (year.length !== 1 || day.length !== 1 || words.length !== 1) return null;
+    const locales = [...new Set([...(navigator.languages ?? []), navigator.language, "en"].filter(Boolean))];
+    for (const locale of locales) {
+      const months = monthNames(locale);
+      if (!months) continue;
+      const word = words[0].toLocaleLowerCase(locale).replaceAll(".", "");
+      const found = [];
+      months.forEach((names, month) => {
+        if (names.some((name) => name.startsWith(word) || word.startsWith(name))) found.push(month);
+      });
+      if (found.length !== 1) continue;
+      const date = new Date(Number(year[0]), found[0], Number(day[0]));
+      if (date.getMonth() !== found[0]) return null;
+      return date;
+    }
+    return null;
+  }
+
+  const dateFormat = new Intl.DateTimeFormat(russian ? "ru" : undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  const showDate = (shown) => {
+    const date = parseShownDate(shown);
+    return date ? dateFormat.format(date) : shown.trim();
+  };
+
+  /** Значок Stoat — значок вкладки веб-клиента */
+  const stoatIcon = () => document.querySelector('link[rel~="icon"]')?.href ?? null;
+
+  /**
+   * Значок сервера — из списка серверов слева (ServerList for-web: обёртка
+   * подсказки с aria-label — именем сервера, в ней ссылка на сервер с
+   * картинкой). Сначала — открытый сейчас сервер, если имя совпадает.
+   */
+  function serverIcon(name) {
+    const entries = Array.from(document.querySelectorAll('div[aria-label] > div > a[href^="/server/"]')).filter(
+      (link) => link.parentElement.parentElement.getAttribute("aria-label") === name,
+    );
+    const current = /^\/server\/([^/]+)/.exec(location.pathname)?.[1];
+    const link = entries.find((entry) => entry.getAttribute("href").startsWith(`/server/${current}`)) ?? entries[0];
+    return link?.querySelector("img")?.src ?? null;
+  }
+
+  /** Значок: картинка или, если её нет, первая буква имени в кружке */
+  function joinedIcon(src, name) {
+    if (src) return h("img", { class: "arachnid-joined-icon", src, alt: "", draggable: "false" });
+    return h("span", { class: "arachnid-joined-icon", "aria-hidden": "true" }, Array.from(name.trim())[0] ?? "?");
+  }
+
+  /** Перерисовать полосу по тексту узлов for-web, если он изменился */
+  function renderJoined(card) {
+    const [, , created, server, joined] = ownChildren(card).map((child) => child.textContent);
+    const key = JSON.stringify([created, server, joined]);
+    let strip = card.querySelector(":scope > .arachnid-joined");
+    if (strip?.dataset.key === key) return;
+    strip?.remove();
+    const createdText = showDate(created ?? "");
+    const dates = [
+      h(
+        "span",
+        { class: "arachnid-joined-date", "data-tip": text.onStoat(createdText) },
+        joinedIcon(stoatIcon(), "Stoat"),
+        createdText,
+      ),
+    ];
+    if (server !== undefined && joined !== undefined) {
+      const name = server.trim();
+      const joinedText = showDate(joined);
+      dates.push(
+        h(
+          "span",
+          { class: "arachnid-joined-date", "data-tip": text.onServer(name, joinedText) },
+          joinedIcon(serverIcon(name), name),
+          joinedText,
+        ),
+      );
+    }
+    strip = h(
+      "div",
+      { class: "arachnid-joined", "data-key": key },
+      h("span", { class: "arachnid-joined-title" }, text.memberSince),
+      h("div", { class: "arachnid-joined-dates" }, ...dates),
+    );
+    card.append(strip);
+  }
+
+  /**
+   * Одинокая квадратная плитка в последнем ряду своей группы — во всю
+   * ширину. Группа — подряд идущие квадратные плитки (aspect-ratio 1/1
+   * ProfileCard) между плитками во всю ширину.
+   */
+  function fitLone(grid) {
+    for (const marked of grid.querySelectorAll(`:scope > [${LONE_MARK}]`)) marked.removeAttribute(LONE_MARK);
+    const columns = getComputedStyle(grid).gridTemplateColumns.split(" ").filter(Boolean).length;
+    if (columns < 2) return;
+    let run = [];
+    const flush = () => {
+      if (run.length % columns === 1) run.at(-1).setAttribute(LONE_MARK, "");
+      run = [];
+    };
+    for (const child of grid.children) {
+      if (child.hasAttribute(JOINED_MARK)) continue;
+      const style = getComputedStyle(child);
+      if (style.display === "none") continue;
+      if (style.aspectRatio === "1 / 1") run.push(child);
+      else flush();
+    }
+    flush();
+  }
+
+  function adoptJoined(card) {
+    if (joinedCards.has(card)) return;
+    card.setAttribute(JOINED_MARK, "");
+    renderJoined(card);
+    const observer = new MutationObserver(() => {
+      if (isJoinedCard(card)) renderJoined(card);
+    });
+    observer.observe(card, { childList: true, subtree: true, characterData: true });
+    const grid = card.parentElement;
+    joinedCards.set(card, { observer, grid });
+    if (grid && !profileGrids.has(grid)) {
+      const gridObserver = new MutationObserver(() => fitLone(grid));
+      gridObserver.observe(grid, { childList: true });
+      profileGrids.set(grid, gridObserver);
+    }
+    if (grid) fitLone(grid);
+  }
+
+  function releaseJoined(card, { restore }) {
+    const entry = joinedCards.get(card);
+    if (!entry) return;
+    entry.observer.disconnect();
+    joinedCards.delete(card);
+    if (restore) {
+      card.removeAttribute(JOINED_MARK);
+      card.querySelector(":scope > .arachnid-joined")?.remove();
+    }
+    const grid = entry.grid;
+    if (!grid || Array.from(joinedCards.values()).some((other) => other.grid === grid)) return;
+    profileGrids.get(grid)?.disconnect();
+    profileGrids.delete(grid);
+    if (restore) for (const marked of grid.querySelectorAll(`:scope > [${LONE_MARK}]`)) marked.removeAttribute(LONE_MARK);
+  }
+
+  function scanProfiles() {
+    for (const card of joinedCards.keys()) if (!card.isConnected) releaseJoined(card, { restore: false });
+    const roots = profileRoots;
+    profileRoots = [];
+    if (!interfaceOn) return;
+    for (const root of roots) {
+      if (!root.isConnected || root.nodeType !== Node.ELEMENT_NODE) continue;
+      if (root.localName === "div" && isJoinedCard(root)) adoptJoined(root);
+      for (const element of root.querySelectorAll("div")) if (isJoinedCard(element)) adoptJoined(element);
+    }
+  }
+
+  function queueProfiles(root) {
+    if (root) profileRoots.push(root);
+    if (profileQueued) return;
+    profileQueued = true;
+    requestAnimationFrame(() => {
+      profileQueued = false;
+      scanProfiles();
+    });
+  }
+
+  /** Сколько уровней #floating просматривать: сам он, Portal и Scrim окна */
+  const PROFILE_DEPTH = 3;
+
+  /** Записи наблюдателя документа: что добавилось на верхние уровни #floating */
+  function observeProfiles(record) {
+    const floating = document.getElementById("floating");
+    if (!floating) return;
+    let node = record.target;
+    for (let level = 0; node && node !== floating && level < PROFILE_DEPTH; level += 1) node = node.parentElement;
+    if (node !== floating) return;
+    if (record.removedNodes.length > 0 && joinedCards.size > 0) queueProfiles(null);
+    for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) queueProfiles(node);
+  }
+
+  function watchProfiles() {
+    const floating = document.getElementById("floating");
+    if (floating) queueProfiles(floating);
+  }
+
+  /** Вернуть профилям вид for-web */
+  function unwatchProfiles() {
+    for (const card of Array.from(joinedCards.keys())) releaseJoined(card, { restore: true });
+    profileRoots = [];
+  }
+
   // ─────────────────────── подсветка при наведении ───────────────────────
   // Подсветку кнопок при наведении и нажатии рисует md-ripple
   // (@material/web, Ripple.tsx for-web): IconButton (GIF, эмодзи в поле
@@ -1651,10 +2006,12 @@ ${MESSAGE_ROLE_ICON} > img {
     if (wanted) {
       ensureStyle(INTERFACE_STYLE_ID, INTERFACE_STYLE);
       watchRoleIcons();
+      watchProfiles();
       addEventListener("contextmenu", onBrowserMenu);
     } else {
       document.getElementById(INTERFACE_STYLE_ID)?.remove();
       unwatchRoleIcons();
+      unwatchProfiles();
       removeEventListener("contextmenu", onBrowserMenu);
     }
     applyRipple();
@@ -1735,6 +2092,7 @@ ${MESSAGE_ROLE_ICON} > img {
   function observe(records) {
     let wanted = waiting.size > 0;
     for (const record of records) {
+      if (interfaceOn) observeProfiles(record);
       if (pickers.size > 0 && record.removedNodes.length > 0) wanted = true;
       for (const node of record.addedNodes) {
         if (chatCandidate) considerMenu(node);
