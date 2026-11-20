@@ -42,10 +42,9 @@
     ? {
         plugins: "Плагины",
         about: "Настольный клиент Stoat: темы, плагины и QuickCSS.",
-        core: (api) => `Ядро клиента всегда включено · API плагинов ${api}`,
         builtin: "Встроенный",
         builtinDescription: {
-          "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, избранные GIF, крупные эмодзи в реакциях, значки ролей целиком и горячие клавиши.",
+          "builtin:qol": "Исправления и улучшения качества жизни.",
         },
         // подписи настроек встроенных плагинов; requires — от какого
         // флажка настройка зависит
@@ -145,10 +144,9 @@
     : {
         plugins: "Plugins",
         about: "Desktop client for Stoat: themes, plugins and QuickCSS.",
-        core: (api) => `The client core is always on · Plugin API ${api}`,
         builtin: "Built-in",
         builtinDescription: {
-          "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, favorite GIFs, larger emoji in reactions, uncropped role icons and keybinds.",
+          "builtin:qol": "Fixes and quality of life improvements.",
         },
         builtinSettings: {
           "builtin:qol": {
@@ -943,13 +941,6 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           overview?.author
             ? h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.author(overview.author))
             : null,
-          // ядро — первая строка раздела, его не выключить
-          h(
-            "span",
-            { class: "arachnid-label", style: { color: "inherit", display: "flex", alignItems: "center", gap: "4px" } },
-            h("span", { class: "material-symbols-outlined", style: { fontSize: "14px" }, "aria-hidden": "true" }, "lock"),
-            text.core(overview?.apiVersion ?? 1),
-          ),
         ),
       ),
       overview?.reloadNeeded

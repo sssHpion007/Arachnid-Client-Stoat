@@ -244,7 +244,7 @@ struct Builtin {
 const BUILTINS: &[Builtin] = &[Builtin {
     id: "builtin:qol",
     name: "Quality of Life",
-    description: "Разделы в окне эмодзи, избранные GIF, крупные реакции, значки ролей целиком, горячие клавиши",
+    description: "Исправления и улучшения качества жизни.",
     enabled_by_default: true,
     code: desktop::qol_script,
     settings: qol_settings,
