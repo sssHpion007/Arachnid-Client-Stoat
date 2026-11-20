@@ -15,8 +15,8 @@
 // 3. выбранный вручную набор остаётся; окно выбора эмодзи получает разделы
 //    в колонке и заголовки разделов в сетке, отрисованы только видимые
 //    строки, щелчок по эмодзи доходит до ячейки for-web, а прокрутка не
-//    заставляет клиент искать окно по всему документу; в окне нет меню
-//    браузера (кроме поля поиска), на эмодзи — своё меню: эмодзи
+//    заставляет клиент искать окно по всему документу; на эмодзи — своё
+//    меню: эмодзи
 //    добавляется в «Избранное» и убирается оттуда, команда сохранения
 //    принимает только картинки; в меню сообщения for-web на эмодзи —
 //    «Скачать изображение»;
@@ -35,7 +35,8 @@
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
 //    сразу (избранное в окне GIF, окно сразу на избранном, исправления
-//    интерфейса, в том числе подсветка md-ripple без перехода, пункт меню
+//    интерфейса, в том числе подсветка md-ripple без перехода и меню
+//    браузера только в полях ввода и при выделенном тексте, пункт меню
 //    сообщения для эмодзи); вход
 //    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
 //    остаётся).
@@ -830,19 +831,14 @@
         .map((image) => image.alt);
       await check("окно эмодзи: разделы как в Discord (сердца — в «Символах»)", firstRow[0] === "🩷" && firstRow[1] === "❤️", firstRow);
 
-      // Меню эмодзи: в окне нет меню браузера (кроме поля поиска), на
-      // эмодзи — своё меню со скачиванием и избранным.
+      // Меню эмодзи: на эмодзи — своё меню со скачиванием и избранным, на
+      // пустом месте окна его нет.
       const emojiMenu = () => document.querySelector("[data-arachnid-emoji-menu]");
       const menuItems = () => Array.from(emojiMenu()?.querySelectorAll(".arachnid-emoji-menu-item") ?? []);
       const menuLabels = () => menuItems().map((item) => item.lastElementChild.textContent);
-      const emptyAllowed = rightClick(standard.querySelector('[role="heading"]'));
-      const railAllowed = rightClick(picker.rail);
-      const fieldAllowed = rightClick(picker.input);
-      await check(
-        "окно эмодзи: без меню браузера на пустом месте, в поле поиска — как обычно",
-        !emptyAllowed && !railAllowed && fieldAllowed && !emojiMenu(),
-        { emptyAllowed, railAllowed, fieldAllowed },
-      );
+      rightClick(standard.querySelector('[role="heading"]'));
+      rightClick(picker.rail);
+      await check("окно эмодзи: на пустом месте своего меню нет", !emojiMenu());
       picker.grid.scrollTop = 0;
       await frame();
       await frame();
@@ -1407,18 +1403,44 @@
         { early: rippleTransition(earlyRipple), late: rippleTransition(lateRipple) },
       );
 
+      // Меню браузера (WebView2: «Обновить», «Печать»…) там, где у for-web
+      // нет своего: только в полях ввода и при выделенном тексте
+      const plainText = document.createElement("div");
+      plainText.textContent = "просто текст";
+      const plainField = document.createElement("input");
+      const editableText = document.createElement("div");
+      editableText.contentEditable = "true";
+      editableText.textContent = "редактируемый";
+      const menuArea = document.createElement("div");
+      menuArea.append(plainText, plainField, editableText);
+      document.body.append(menuArea);
+      getSelection().removeAllRanges();
+      const browserMenu = { plain: rightClick(plainText), field: rightClick(plainField), editable: rightClick(editableText) };
+      getSelection().selectAllChildren(plainText);
+      browserMenu.selected = rightClick(plainText);
+      getSelection().removeAllRanges();
+      await check(
+        "меню браузера скрыто везде, кроме полей ввода и выделенного текста",
+        !browserMenu.plain && browserMenu.field && browserMenu.editable && browserMenu.selected,
+        browserMenu,
+      );
+
       qolInput("interface")?.click();
       const interfaceOff = await waitFor(
-        () => !document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0.015s",
+        () =>
+          !document.getElementById("arachnid-interface-style") &&
+          rippleTransition(earlyRipple) === "0.015s" &&
+          rightClick(plainText),
         3000,
         50,
       );
       qolInput("interface")?.click();
       const interfaceOn = await waitFor(
-        () => document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0s",
+        () => document.getElementById("arachnid-interface-style") && rippleTransition(earlyRipple) === "0s" && !rightClick(plainText),
         3000,
         50,
       );
+      menuArea.remove();
       await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
         ripple: rippleTransition(earlyRipple),
       });

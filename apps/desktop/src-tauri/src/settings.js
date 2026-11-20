@@ -55,11 +55,11 @@
           "builtin:qol": {
             interface: {
               label: "Исправление деталей интерфейса",
-              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников, подсветка кнопок не застревает после наведения.",
+              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников, подсветка кнопок не застревает после наведения, нет меню браузера («Обновить», «Печать») — оно остаётся только в полях ввода и на выделенном тексте.",
             },
             emoji_picker: {
               label: "Улучшенное меню эмодзи",
-              hint: "Разделы, «Избранное» и «Часто используемые», как в Discord; меню правой кнопки на эмодзи («Скачать изображение», «Добавить в избранное») вместо меню браузера. Окно меняется со следующего открытия.",
+              hint: "Разделы, «Избранное» и «Часто используемые», как в Discord; меню правой кнопки на эмодзи («Скачать изображение», «Добавить в избранное»). Окно меняется со следующего открытия.",
             },
             favorite_gifs: {
               label: "Меню избранного для GIF",
@@ -125,11 +125,11 @@
           "builtin:qol": {
             interface: {
               label: "Interface Fixes",
-              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles, button highlights that no longer stick after hover.",
+              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles, button highlights that no longer stick after hover, no browser menu (“Reload”, “Print”) — it stays only in text fields and on selected text.",
             },
             emoji_picker: {
               label: "Enhanced Emoji Picker",
-              hint: "Sections, “Favorites” and “Frequently Used”, like in Discord; a right-click menu on emoji (“Download Image”, “Add to Favorites”) instead of the browser one. The picker changes the next time it opens.",
+              hint: "Sections, “Favorites” and “Frequently Used”, like in Discord; a right-click menu on emoji (“Download Image”, “Add to Favorites”). The picker changes the next time it opens.",
             },
             favorite_gifs: {
               label: "Favorite GIFs",

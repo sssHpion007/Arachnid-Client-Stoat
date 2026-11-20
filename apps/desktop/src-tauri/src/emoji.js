@@ -120,8 +120,7 @@
 //
 // * правый щелчок по эмодзи в окне — своё меню в стиле ContextMenu for-web:
 //   «Скачать изображение» и «Добавить в избранное» / «Убрать из
-//   избранного». Меню браузера («Обновить» и т. п.) в окне не показывается
-//   нигде, кроме поля поиска;
+//   избранного»;
 // * «Избранное» — блок над «Часто используемыми» и кнопка со звёздочкой в
 //   колонке, как в Discord: эмодзи в порядке добавления, в localStorage
 //   отдельно для каждого аккаунта;
@@ -135,8 +134,9 @@
 // `plugin` — и выключается в разделе «Плагины» (страница перезагружается —
 // стили реакций и значков уходят вместе с ним). У плагина есть настройки
 // (шестерёнка в его строке): `interface` — реакции, значки ролей, заголовки
-// групп участников и подсветка кнопок при наведении (см. «подсветка при
-// наведении» ниже), `emoji_picker` — окно эмодзи. Они действуют сразу:
+// групп участников, подсветка кнопок при наведении (см. «подсветка при
+// наведении» ниже) и меню браузера там, где у for-web нет своего (см. «меню
+// браузера»), `emoji_picker` — окно эмодзи. Они действуют сразу:
 // стили и значки ролей меняются на месте, пункт «Скачать изображение» в меню
 // сообщения появляется и пропадает сразу, окно эмодзи меняется со следующего
 // открытия.
@@ -1253,23 +1253,16 @@ ${MESSAGE_ROLE_ICON} > img {
       return { key, name: previewName(image) ?? knownName(key), src: image.src };
     }
 
-    // Меню браузера («Обновить», «Сохранить картинку как…») в окне не
-    // показывается — только в поле поиска, где оно нужно для вставки
-    // текста. На эмодзи — своё меню. Обработчик стоит на всём окне в фазе
+    // На эмодзи — своё меню. Обработчик стоит на всём окне в фазе
     // перехвата: меню for-web на картинках ячеек (если оно есть) не
-    // открывается вместе с ним.
+    // открывается вместе с ним. Меню браузера на остальном месте окна
+    // убирает настройка `interface` (см. «меню браузера» ниже) — для всего
+    // интерфейса сразу.
     function onContextMenu(event) {
-      const editable = event
-        .composedPath()
-        .some((node) => node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node.isContentEditable);
-      if (editable) return;
+      const entry = emojiAt(event.target);
+      if (!entry) return;
       event.preventDefault();
       event.stopPropagation();
-      const entry = emojiAt(event.target);
-      if (!entry) {
-        closeMenu();
-        return;
-      }
       showMenu(event.clientX, event.clientY, emojiMenuEntries(entry));
     }
     root.addEventListener("contextmenu", onContextMenu, true);
@@ -1543,6 +1536,29 @@ ${MESSAGE_ROLE_ICON} > img {
   }
 
   // ─────────────────────────── настройки ───────────────────────────
+  // ─────────────────────────── меню браузера ───────────────────────────
+  // Правый щелчок там, где у for-web нет своего меню, открывает меню
+  // WebView2: «Назад», «Обновить», «Сохранить как», «Печать», «Сохранить
+  // картинку как…» — в мессенджере всё это не нужно. Обработчик стоит на окне
+  // в фазе всплытия, то есть срабатывает после обработчиков for-web и
+  // плагинов: если они уже открыли своё меню (preventDefault), он ничего не
+  // делает, а иначе отменяет меню WebView2. Меню остаётся только там, где
+  // оно нужно:
+  //
+  // * в полях ввода и редактируемом тексте — «Вырезать», «Вставить»,
+  //   подсказки проверки орфографии и «Добавить в словарь»;
+  // * при выделенном тексте — «Копировать» (например, в профиле).
+  const isEditable = (node) =>
+    node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node.isContentEditable === true;
+
+  function onBrowserMenu(event) {
+    if (event.defaultPrevented) return;
+    if (event.composedPath().some(isEditable)) return;
+    const selection = getSelection();
+    if (selection && !selection.isCollapsed && selection.toString().trim() !== "") return;
+    event.preventDefault();
+  }
+
   const INTERFACE_STYLE_ID = "arachnid-interface-style";
   let interfaceOn = false;
 
@@ -1554,9 +1570,11 @@ ${MESSAGE_ROLE_ICON} > img {
     if (wanted) {
       ensureStyle(INTERFACE_STYLE_ID, INTERFACE_STYLE);
       watchRoleIcons();
+      addEventListener("contextmenu", onBrowserMenu);
     } else {
       document.getElementById(INTERFACE_STYLE_ID)?.remove();
       unwatchRoleIcons();
+      removeEventListener("contextmenu", onBrowserMenu);
     }
     applyRipple();
   }
