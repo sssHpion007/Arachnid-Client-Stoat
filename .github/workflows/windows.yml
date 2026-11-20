@@ -1,8 +1,9 @@
 name: windows
 
-# Быстрая сборка только под Windows: нужен один архив, который можно
-# распаковать и запустить. Без тегов, без релизов, без macOS/Linux —
-# чтобы проверка изменений занимала минуты, а не полчаса.
+# Быстрая сборка только под Windows: тот же одиночный файл
+# «Arachnid Client.exe», что в релизе (portable: данные рядом с ним). Без
+# тегов, без релизов, без macOS/Linux — чтобы проверка изменений занимала
+# минуты, а не полчаса.
 #
 # Тестовая сборка делается прямо из рабочей ветки (arena/…), без слияния в
 # main: ветка отправляется на GitHub, когда нужна сборка для проверки.
@@ -34,30 +35,23 @@ jobs:
       - name: Тесты приложения
         run: cargo test -p arachnid-client
 
+      # как в release.yml: сборка Tauri CLI с возможностью portable
       - name: Сборка приложения
-        run: cargo build --release -p arachnid-client
+        shell: bash
+        working-directory: apps/desktop/src-tauri
+        run: npx --yes "@tauri-apps/cli@2" build --no-bundle --features portable
 
-      - name: Собрать папку и архив
+      - name: Arachnid Client.exe
         shell: bash
         run: |
-          mkdir -p dist/Arachnid-Client
-          cp target/release/arachnid-client.exe dist/Arachnid-Client/
-          mkdir -p dist/Arachnid-Client/logs
-          # свои темы (*.css) и плагины (*.js), см. docs/extensions.md
-          mkdir -p dist/Arachnid-Client/themes dist/Arachnid-Client/plugins
-          # config.toml рядом с exe включает portable-режим: вход и настройки
-          # хранятся в этой же папке
-          cp bootstrap/config.toml dist/Arachnid-Client/
-          cp bootstrap/README.txt dist/Arachnid-Client/
-          cd dist
-          powershell -Command "Compress-Archive -Path Arachnid-Client -DestinationPath 'arachnid-client-windows-x86_64.zip' -Force"
-          ls -la
-          du -h arachnid-client-windows-x86_64.zip
+          mkdir -p dist
+          cp target/release/arachnid-client.exe "dist/Arachnid Client.exe"
+          ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
           name: arachnid-client-windows-x86_64
-          path: dist/arachnid-client-windows-x86_64.zip
+          path: dist/Arachnid Client.exe
           if-no-files-found: error
           retention-days: 30
 
@@ -78,16 +72,12 @@ jobs:
           name: arachnid-client-windows-x86_64
           path: artifact
 
-      - name: Распаковать
-        shell: pwsh
-        run: Expand-Archive artifact/arachnid-client-windows-x86_64.zip -DestinationPath app
-
       - name: localforage для тестовой страницы
         run: npm install --no-save --no-package-lock --prefix apps/desktop/src-tauri/e2e localforage@1.10.0
 
       - name: Проверка
         shell: pwsh
-        run: ./apps/desktop/src-tauri/e2e/run.ps1 -Exe app/Arachnid-Client/arachnid-client.exe
+        run: ./apps/desktop/src-tauri/e2e/run.ps1 -Exe "artifact/Arachnid Client.exe"
 
       - uses: actions/upload-artifact@v4
         if: always()

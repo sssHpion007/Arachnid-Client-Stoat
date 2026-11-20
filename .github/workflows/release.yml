@@ -1,176 +1,155 @@
 name: release
 
-# Собирает клиент и раскладывает файлы, которые скачивает бутстрап:
-#   * portable-архив (zip/tar.gz) — распаковал в папку и запустил .exe
-#   * установщики (msi/nsis, deb/appimage, dmg)
-# Запуск: тег v* или вручную из вкладки Actions.
+# Выпуск для Windows, Linux и macOS:
+#   * установщики — Arachnid-Client-Setup.exe (NSIS), .deb, .rpm, .dmg;
+#   * одиночные файлы (portable: данные — в папке рядом с ними) —
+#     «Arachnid Client.exe», «Arachnid Client.AppImage», «Arachnid Client.app.zip»
+#     (приложение macOS — это папка .app, файлом его можно выложить только так).
+#
+# Тег v* — сборка и релиз с этими файлами. Отправка рабочей ветки, в которой
+# меняется сборка (этот файл, tauri.conf.json, Cargo.toml), — только сборка,
+# чтобы проверить её до тега; файлы лежат в артефактах запуска.
 on:
   push:
     tags: ["v*"]
+    branches: ["arena/**"]
+    paths:
+      - .github/workflows/release.yml
+      - .github/release-notes.md
+      - apps/desktop/src-tauri/tauri.conf.json
+      - apps/desktop/src-tauri/Info.plist
+      - apps/desktop/src-tauri/Cargo.toml
+      - Cargo.toml
   workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 env:
   CARGO_TERM_COLOR: always
-
-# нужно, чтобы tauri-action мог создать черновик релиза и залить установщики
-permissions:
-  contents: write
+  # Tauri CLI той же второй версии, что и крейты tauri
+  TAURI_CLI: "@tauri-apps/cli@2"
 
 jobs:
-  bootstrap:
-    name: bootstrap-скрипты
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Проверка синтаксиса
-        run: bash -n bootstrap/bootstrap.sh && chmod +x bootstrap/bootstrap.sh
-      - uses: actions/upload-artifact@v4
-        with:
-          name: bootstrap
-          path: |
-            bootstrap/bootstrap.sh
-            bootstrap/bootstrap.ps1
-
-  portable:
-    name: portable (${{ matrix.asset }})
-    # у приватного репозитория нет macOS-минут: такие джобы отменяются после
-    # 15 минут ожидания раннера, поэтому выпуск от них не зависит
-    continue-on-error: true
+  build:
+    name: сборка (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            asset: arachnid-client-windows-x86_64
-            bin: target/release/arachnid-client.exe
-            pack: zip
-          - os: ubuntu-22.04
-            asset: arachnid-client-linux-x86_64
-            bin: target/release/arachnid-client
-            pack: tar.gz
-          - os: macos-latest
-            asset: arachnid-client-macos-aarch64
-            bin: target/release/arachnid-client
-            pack: tar.gz
-
+          - name: Windows
+            os: windows-latest
+          - name: Linux
+            os: ubuntu-22.04
+          - name: macOS
+            os: macos-latest
+            # один файл и для Apple Silicon, и для Intel
+            targets: aarch64-apple-darwin,x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Linux-зависимости
-        if: matrix.os == 'ubuntu-22.04'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf libssl-dev libgtk-3-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.targets || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: portable-${{ matrix.os }}
+          key: release-${{ matrix.os }}
 
       - name: Тесты приложения
         run: cargo test -p arachnid-client
 
-      - name: Сборка клиента
-        run: cargo build --release -p arachnid-client
-
-      - name: Собрать portable-архив
+      # Сначала установщики обычной сборкой, затем одиночный файл сборкой с
+      # возможностью portable (данные рядом с файлом). Вторая сборка
+      # перекомпилирует только сам клиент.
+      - name: Установщики и одиночный файл
         shell: bash
         run: |
-          mkdir -p dist/Arachnid-Client
-          cp "${{ matrix.bin }}" dist/Arachnid-Client/
-          mkdir -p dist/Arachnid-Client/logs
-          mkdir -p dist/Arachnid-Client/themes dist/Arachnid-Client/plugins
-          cp bootstrap/config.toml dist/Arachnid-Client/
-          cp bootstrap/README.txt dist/Arachnid-Client/
-          cd dist
-          if [ "${{ matrix.pack }}" = "zip" ]; then
-            (command -v 7z >/dev/null && 7z a -tzip "${{ matrix.asset }}.zip" Arachnid-Client) \
-              || powershell -Command "Compress-Archive -Path Arachnid-Client -DestinationPath '${{ matrix.asset }}.zip'"
-          else
-            tar czf "${{ matrix.asset }}.tar.gz" Arachnid-Client
-          fi
-          ls -la
+          set -euo pipefail
+          out="$GITHUB_WORKSPACE/dist"
+          mkdir -p "$out"
+          cd apps/desktop/src-tauri
+          tauri() { npx --yes "$TAURI_CLI" build "$@"; }
+          # pick <куда> <собранный файл>: шаблон должен дать ровно один файл
+          pick() {
+            if [ "$#" -ne 2 ] || [ ! -e "$2" ]; then
+              echo "::error::не найден файл для $(basename "$1")"
+              exit 1
+            fi
+            cp "$2" "$1"
+          }
+          target="$GITHUB_WORKSPACE/target"
+          case "$RUNNER_OS" in
+            Windows)
+              tauri --bundles nsis
+              pick "$out/Arachnid-Client-Setup.exe" "$target"/release/bundle/nsis/*-setup.exe
+              tauri --no-bundle --features portable
+              pick "$out/Arachnid Client.exe" "$target/release/arachnid-client.exe"
+              ;;
+            Linux)
+              tauri --bundles deb,rpm
+              pick "$out/Arachnid-Client-Setup.deb" "$target"/release/bundle/deb/*.deb
+              pick "$out/Arachnid-Client-Setup.rpm" "$target"/release/bundle/rpm/*.rpm
+              tauri --bundles appimage --features portable
+              pick "$out/Arachnid Client.AppImage" "$target"/release/bundle/appimage/*.AppImage
+              chmod +x "$out/Arachnid Client.AppImage"
+              ;;
+            macOS)
+              bundle="$target/universal-apple-darwin/release/bundle"
+              tauri --target universal-apple-darwin --bundles dmg
+              pick "$out/Arachnid-Client-Setup.dmg" "$bundle"/dmg/*.dmg
+              tauri --target universal-apple-darwin --bundles app --features portable
+              app="$bundle/macos/Arachnid Client.app"
+              [ -d "$app" ] || { echo "::error::не найден Arachnid Client.app"; exit 1; }
+              # ditto сохраняет ссылки и подпись внутри пакета
+              ditto -c -k --sequesterRsrc --keepParent "$app" "$out/Arachnid Client.app.zip"
+              ;;
+          esac
+          ls -la "$out"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.asset }}
-          path: |
-            dist/*.zip
-            dist/*.tar.gz
-
-  installers:
-    name: установщики (${{ matrix.os }})
-    continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-22.04, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Linux-зависимости
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
-            librsvg2-dev patchelf libssl-dev libgtk-3-dev
-
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: installer-${{ matrix.os }}
-
-      - name: Установщики (Tauri)
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: apps/desktop/src-tauri
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && format('Arachnid Client {0}', github.ref_name) || '' }}
-          releaseBody: |
-            ## Установка
-
-            **Самое простое** — portable-архив: распакуйте в любую папку и запустите
-            `arachnid-client.exe`. Рядом с ним лежит `config.toml`: вход и настройки
-            хранятся в этой же папке, её можно переносить.
-
-            Либо установщик: `*-setup.exe` (NSIS) или `.msi`.
-
-            Бутстрап (`bootstrap.sh` / `bootstrap.ps1`) сам скачает portable-архив
-            и развернёт всё в отдельной папке.
-          releaseDraft: true
-          prerelease: false
+          name: release-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
-    name: приложить файлы к релизу
-    needs: [bootstrap, portable, installers]
+    name: релиз
+    needs: build
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
-          path: artifacts
-      - name: Загрузить всё в релиз
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Релиз с файлами
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # релиз обычно создаёт tauri-action из джобы установщиков; если он
-          # не появился — создаём сами
-          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 || \
-            gh release create "${GITHUB_REF_NAME}" \
-              --title "Arachnid Client ${GITHUB_REF_NAME}" \
-              --notes "Настольный клиент Stoat: официальный веб-клиент в окне Tauri."
-
-          # заливаем по одному файлу: отсутствие части артефактов
-          # (например, macOS) не должно ломать выпуск
-          for file in artifacts/bootstrap/*.sh artifacts/bootstrap/*.ps1 \
-                      artifacts/*/*.zip artifacts/*/*.tar.gz; do
-            [ -f "$file" ] || continue
-            echo "загружаю $file"
-            gh release upload "${GITHUB_REF_NAME}" "$file" --clobber
+          set -euo pipefail
+          ls -la dist
+          tag="$GITHUB_REF_NAME"
+          # черновик, пока не загружены все файлы: релиз не виден недоделанным
+          gh release create "$tag" --draft --verify-tag \
+            --title "Arachnid Client ${tag#v}" --notes-file .github/release-notes.md
+          for file in dist/*; do
+            # пробел в имени GitHub меняет на точку; подпись оставляет имя как есть
+            gh release upload "$tag" "$file#$(basename "$file")" --clobber
           done
+          gh release edit "$tag" --draft=false --latest

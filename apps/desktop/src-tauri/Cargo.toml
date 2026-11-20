@@ -9,6 +9,10 @@ authors.workspace = true
 repository.workspace = true
 default-run = "arachnid-client"
 
+[features]
+# Одиночный файл из релиза: данные всегда рядом с ним (portable-режим, src/lib.rs)
+portable = []
+
 [lib]
 name = "arachnid_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
