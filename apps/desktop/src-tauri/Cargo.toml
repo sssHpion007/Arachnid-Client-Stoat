@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+authors.workspace = true
 repository.workspace = true
 default-run = "arachnid-client"
 
@@ -35,12 +36,49 @@ open = "5"
 discord-rich-presence = "1"
 # секции regexp() в @-moz-document тем UserCSS
 regex = "1"
+# картинки наборов эмодзи сжаты Brotli (src/emoji_packs.rs)
+brotli-decompressor = "5"
+# эмодзи из системного шрифта Segoe UI Emoji (src/system_emoji.rs): слои
+# глифов COLR и контуры — read-fonts, последовательность кодовых точек →
+# глиф — harfrust (на том же read-fonts)
+read-fonts = "0.47"
+harfrust = "0.16"
+# картинки эмодзи отдаются странице растром (src/emoji_raster.rs): SVG наборов
+# рисует resvg, слои системного шрифта — tiny-skia из того же resvg. Без
+# текста, системных шрифтов и растровых форматов кроме PNG
+resvg = { version = "0.50", default-features = false }
+# нативная часть плагинов — модули WebAssembly в песочнице (src/plugin_host.rs):
+# интерпретатор на чистом Rust, без JIT и без доступа модуля к системе
+wasmi = { version = "1.1", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+# модули WebAssembly для тестов пишутся текстом (WAT)
+wat = "1.239"
 
 # экономия памяти в фоне: ICoreWebView2_19::MemoryUsageTargetLevel (те же
 # версии, что у Tauri и wry)
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38"
 windows-core = "0.61"
+# чёткие значки окна и трея из ресурса exe (те же версии, что у Tauri)
+tray-icon = { version = "0.24", default-features = false }
+# WinHTTP (src/http.rs), окно «Сохранить как» для картинок эмодзи
+# (src/image_save.rs), хуки горячих клавиш (src/hotkeys.rs) и прочие
+# вызовы Windows
+windows = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Networking_WinHttp",
+  "Win32_Security",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+  "Win32_UI_HiDpi",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+  "Win32_UI_WindowsAndMessaging",
+] }
 
 [[bin]]
 name = "arachnid-client"

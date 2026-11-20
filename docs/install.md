@@ -60,7 +60,7 @@ Arachnid-Client/
 ├── webview/         вход, сессия, кэш веб-клиента (создаёт клиент)
 ├── themes/          свои темы *.css (docs/extensions.md)
 ├── plugins/         плагины *.js в формате Avia Client
-├── quickcss.css     свой CSS (создаётся из меню трея)
+├── quickcss.css     свой CSS (создаётся редактором QuickCSS)
 ├── extensions.json  включённые темы и плагины (создаёт клиент)
 ├── logs/            журналы
 └── vendor/          api-root.json, checksums.txt, сборка

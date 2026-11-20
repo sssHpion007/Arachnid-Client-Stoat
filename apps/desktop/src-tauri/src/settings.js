@@ -1,5 +1,6 @@
-// Настройки веб-клиента: раздел «Плагины», выбор темы в «Внешнем виде» и
-// подпись Arachnid Client.
+// Настройки веб-клиента: раздел «Плагины», выбор темы в «Внешнем виде»,
+// группы списка настроек («О клиенте», «О программе») и подпись Arachnid
+// Client.
 //
 // for-web открыт с сервера Stoat, его исходники здесь не меняются. Поэтому
 // раздел добавляется в уже отрисованные настройки, как это делают клиентские
@@ -41,9 +42,73 @@
     ? {
         plugins: "Плагины",
         about: "Настольный клиент Stoat: темы, плагины и QuickCSS.",
-        pluginsIntro:
-          "Плагины — файлы .js в папке plugins. Они выполняются на странице Stoat с теми же правами, что и сам клиент, включая доступ к аккаунту: включайте только те, которым доверяете.",
-        noPlugins: "Плагинов пока нет. Положите файл .js в папку plugins — он появится здесь.",
+        builtin: "Встроенный",
+        builtinDescription: {
+          "builtin:qol": "Исправления и улучшения качества жизни.",
+        },
+        // подписи настроек встроенных плагинов; requires — от какого
+        // флажка настройка зависит
+        builtinSettings: {
+          "builtin:qol": {
+            interface: {
+              label: "Исправление деталей интерфейса",
+              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников, подсветка кнопок не застревает после наведения, нет меню браузера («Обновить», «Печать») — оно остаётся только в полях ввода и на выделенном тексте.",
+            },
+            emoji_picker: {
+              label: "Улучшенное меню эмодзи",
+              hint: "Разделы, «Избранное» и «Часто используемые», как в Discord; меню правой кнопки на эмодзи («Скачать изображение», «Добавить в избранное»). Окно меняется со следующего открытия.",
+            },
+            favorite_gifs: {
+              label: "Меню избранного для GIF",
+              hint: "Плитка «Избранное» в окне GIF, пункты в меню правой кнопки; GIF играют только под указателем.",
+            },
+            gifs_open_favorites: {
+              label: "Открывать окно GIF сразу на избранном",
+              hint: "Вернуться к Gifbox — стрелкой «Назад».",
+              requires: "favorite_gifs",
+            },
+            hotkeys: {
+              label: "Горячие клавиши",
+              hint: "Сочетания клавиш и кнопки мыши (средняя, боковые) для звонка и окна клиента — работают, даже когда клиент свёрнут. Назначаются в разделе «Горячие клавиши» после «ПК». Пока настройка включена, сочетания браузера (F5, F11, Ctrl+R) не работают, а боковые кнопки мыши не листают страницы.",
+            },
+          },
+        },
+        hotkeys: "Горячие клавиши",
+        hotkeysIntro:
+          "Работают везде, даже когда клиент свёрнут или спрятан в трей. В окне клиента сочетание выполняет только своё действие, в других программах доходит и до них. Действия звонка — как кнопки в карточке звонка.",
+        hotkeysInactive: "Горячие клавиши заработают, когда «Quality of Life» запустится снова — после перезагрузки клиента.",
+        hotkeyActions: {
+          toggle_mute: "Микрофон",
+          toggle_deafen: "Звук",
+          disconnect: "Завершить звонок",
+          toggle_camera: "Камера",
+          toggle_screenshare: "Демонстрация экрана",
+          toggle_window: "Скрыть окно в трей",
+        },
+        hotkeyNone: "Не назначено",
+        hotkeyRecording: "Нажмите сочетание клавиш или кнопку мыши… Esc — отмена",
+        assignHotkey: "Назначить",
+        clearHotkey: "Убрать сочетание",
+        keyNames: {
+          win: "Win",
+          space: "Пробел",
+          middle: "Средняя кнопка мыши",
+          x1: "Кнопка мыши «Назад»",
+          x2: "Кнопка мыши «Вперёд»",
+          key: (code) => `Клавиша ${code}`,
+        },
+        network: (hosts) => `Доступ в сеть: ${hosts}`,
+        needsGrant: "Ждёт разрешения на доступ в сеть",
+        broken: (error) => `Не загружен: ${error}`,
+        allow: "Разрешить",
+        cancel: "Отмена",
+        pluginSettings: (name) => `Настройки: ${name}`,
+        resetPlugin: "Сбросить настройки",
+        permissionsTitle: (name) => `Разрешить «${name}» доступ в сеть?`,
+        permissionsIntro:
+          "Плагин сможет отправлять запросы к этим адресам от имени клиента, в обход ограничений страницы:",
+        permissionsHint:
+          "Другие адреса ему недоступны. Если новая версия плагина попросит больше, клиент спросит снова.",
         reloadNeeded: "Изменения плагинов вступят в силу после перезагрузки клиента.",
         reload: "Перезагрузить",
         willStart: "Запустится после перезагрузки",
@@ -51,10 +116,15 @@
         pluginActions: "Действия плагинов",
         openPlugins: "Папка плагинов",
         openThemes: "Папка тем",
-        quickCss: "Изменить QuickCSS",
+        quickCss: "QuickCSS",
+        quickCssHint: "Свой CSS поверх клиента и темы. Изменения применяются сразу и сохраняются в quickcss.css.",
+        saving: "Сохранение…",
+        saved: "Сохранено",
+        saveFailed: (message) => `Не сохранено: ${message}`,
+        openInEditor: "Открыть в редакторе",
+        done: "Готово",
         theme: "Тема",
         defaultTheme: "Stoat (по умолчанию)",
-        themesHint: "Свои темы — файлы .css в папке themes. У выбранной темы здесь появятся её настройки.",
         themeSettings: "Настройки темы",
         noThemeSettings: "У этой темы нет своих настроек.",
         unsupported: (name) =>
@@ -62,13 +132,81 @@
         reset: "Сбросить настройки темы",
         author: (name) => `Автор: ${name}`,
         version: (value) => `Версия ${value}`,
+        // группы боковой панели настроек
+        aboutApp: "О программе",
+        aboutClient: "О клиенте",
+        sourceCode: "Исходный код",
+        releases: "Обновления",
+        issues: "Сообщить о проблеме",
       }
     : {
         plugins: "Plugins",
         about: "Desktop client for Stoat: themes, plugins and QuickCSS.",
-        pluginsIntro:
-          "Plugins are .js files in the plugins folder. They run on the Stoat page with the same rights as the client itself, including access to your account: only enable the ones you trust.",
-        noPlugins: "No plugins yet. Put a .js file into the plugins folder and it will show up here.",
+        builtin: "Built-in",
+        builtinDescription: {
+          "builtin:qol": "Fixes and quality of life improvements.",
+        },
+        builtinSettings: {
+          "builtin:qol": {
+            interface: {
+              label: "Interface Fixes",
+              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles, button highlights that no longer stick after hover, no browser menu (“Reload”, “Print”) — it stays only in text fields and on selected text.",
+            },
+            emoji_picker: {
+              label: "Enhanced Emoji Picker",
+              hint: "Sections, “Favorites” and “Frequently Used”, like in Discord; a right-click menu on emoji (“Download Image”, “Add to Favorites”). The picker changes the next time it opens.",
+            },
+            favorite_gifs: {
+              label: "Favorite GIFs",
+              hint: "A “Favorites” tile in the GIF picker and right-click menu items; GIFs play only on hover.",
+            },
+            gifs_open_favorites: {
+              label: "Open the GIF Picker on Favorites",
+              hint: "The Back arrow returns to Gifbox.",
+              requires: "favorite_gifs",
+            },
+            hotkeys: {
+              label: "Keybinds",
+              hint: "Key combinations and mouse buttons (middle, side) for calls and the client window — they work even while the client is minimized. Set them in the “Keybinds” page after “Desktop”. While this is on, browser shortcuts (F5, F11, Ctrl+R) do nothing and the side mouse buttons do not go back or forward.",
+            },
+          },
+        },
+        hotkeys: "Keybinds",
+        hotkeysIntro:
+          "They work everywhere, even while the client is minimized or hidden in the tray. In the client window a keybind only does its action; other programs receive it as well. Call actions work like the buttons on the call card.",
+        hotkeysInactive: "Keybinds start working when “Quality of Life” runs again — after the client reloads.",
+        hotkeyActions: {
+          toggle_mute: "Microphone",
+          toggle_deafen: "Sound",
+          disconnect: "End Call",
+          toggle_camera: "Camera",
+          toggle_screenshare: "Screen Share",
+          toggle_window: "Hide Window to Tray",
+        },
+        hotkeyNone: "Not set",
+        hotkeyRecording: "Press a key combination or a mouse button… Esc cancels",
+        assignHotkey: "Set",
+        clearHotkey: "Remove Keybind",
+        keyNames: {
+          win: "Win",
+          space: "Space",
+          middle: "Middle Mouse Button",
+          x1: "Mouse Back Button",
+          x2: "Mouse Forward Button",
+          key: (code) => `Key ${code}`,
+        },
+        network: (hosts) => `Network access: ${hosts}`,
+        needsGrant: "Waiting for network permission",
+        broken: (error) => `Not loaded: ${error}`,
+        allow: "Allow",
+        cancel: "Cancel",
+        pluginSettings: (name) => `Settings: ${name}`,
+        resetPlugin: "Reset Settings",
+        permissionsTitle: (name) => `Allow “${name}” to access the network?`,
+        permissionsIntro:
+          "The plugin will be able to send requests to these addresses on behalf of the client, bypassing the page's restrictions:",
+        permissionsHint:
+          "Other addresses stay closed to it. If a newer version of the plugin asks for more, the client will ask again.",
         reloadNeeded: "Plugin changes take effect after the client reloads.",
         reload: "Reload",
         willStart: "Starts after reload",
@@ -76,10 +214,15 @@
         pluginActions: "Plugin Actions",
         openPlugins: "Plugins Folder",
         openThemes: "Themes Folder",
-        quickCss: "Edit QuickCSS",
+        quickCss: "QuickCSS",
+        quickCssHint: "Your own CSS on top of the client and the theme. Changes apply instantly and are saved to quickcss.css.",
+        saving: "Saving…",
+        saved: "Saved",
+        saveFailed: (message) => `Not saved: ${message}`,
+        openInEditor: "Open in Editor",
+        done: "Done",
         theme: "Theme",
         defaultTheme: "Stoat (default)",
-        themesHint: "Custom themes are .css files in the themes folder. The selected theme shows its own settings here.",
         themeSettings: "Theme Settings",
         noThemeSettings: "This theme has no settings of its own.",
         unsupported: (name) =>
@@ -87,6 +230,11 @@
         reset: "Reset Theme Settings",
         author: (name) => `By ${name}`,
         version: (value) => `Version ${value}`,
+        aboutApp: "About",
+        aboutClient: "About the Client",
+        sourceCode: "Source Code",
+        releases: "Releases",
+        issues: "Report an Issue",
       };
 
   const BRAND = "Arachnid Client";
@@ -96,12 +244,18 @@
   const WELCOME = "Welcome to the new appearance menu";
   /** Значок пункта «ПК» в боковой панели */
   const DESKTOP_ICON = "desktop_windows";
+  /** Значок пункта «Горячие клавиши» (шрифтом, как у «ПК») */
+  const HOTKEYS_ICON = "keyboard";
   /**
-   * Значок «extension» из @material-design-icons/svg (outlined), как у
-   * закомментированного пункта plugins в for-web.
+   * Значок «extension» из Material Symbols (@material-symbols/svg-400,
+   * outlined) — набор, которым for-web рисует и значок «ПК». У него
+   * визуальный центр посередине; у старого extension из
+   * @material-design-icons тело пазла сидит ниже соседних значков.
    */
-  const EXTENSION_PATH =
-    "M10.5 4.5c.28 0 .5.22.5.5v2h6v6h2c.28 0 .5.22.5.5s-.22.5-.5.5h-2v6h-2.12c-.68-1.75-2.39-3-4.38-3s-3.7 1.25-4.38 3H4v-2.12c1.75-.68 3-2.39 3-4.38 0-1.99-1.24-3.7-2.99-4.38L4 7h6V5c0-.28.22-.5.5-.5m0-2A2.5 2.5 0 0 0 8 5H4c-1.1 0-1.99.9-1.99 2v3.8h.29c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-.3c0-1.49 1.21-2.7 2.7-2.7s2.7 1.21 2.7 2.7v.3H17c1.1 0 2-.9 2-2v-4a2.5 2.5 0 0 0 0-5V7c0-1.1-.9-2-2-2h-4a2.5 2.5 0 0 0-2.5-2.5z";
+  const EXTENSION_ICON = {
+    viewBox: "0 -960 960 960",
+    path: "M356-120H180q-24 0-42-18t-18-42v-176q44-5 75.5-34.5T227-463q0-43-31.5-72.5T120-570v-176q0-24 18-42t42-18h177q11-40 39.5-67t68.5-27q40 0 68.5 27t39.5 67h173q24 0 42 18t18 42v173q40 11 65.5 41.5T897-461q0 40-25.5 67T806-356v176q0 24-18 42t-42 18H570q-5-48-35.5-77.5T463-227q-41 0-71.5 29.5T356-120Zm-176-60h130q25-61 69.89-84t83-23Q501-287 546-264t70 84h130v-235h45q20 0 33-13t13-33q0-20-13-33t-33-13h-45v-239H511v-48q0-20-13-33t-33-13q-20 0-33 13t-13 33v48H180v130q48.15 17.82 77.58 59.69Q287-514.45 287-462.78 287-412 257.5-370T180-310v130Zm285-281Z",
+  };
 
   // ─────────────────────────────── элементы ───────────────────────────────
 
@@ -125,6 +279,15 @@
     return element;
   }
 
+  /**
+   * Заменить детей элемента. Пропуски (`null`, `false`) отбрасываются, как в
+   * `h`: replaceChildren сам вывел бы их текстом «null».
+   */
+  const setChildren = (element, ...children) =>
+    element.replaceChildren(
+      ...children.flat().filter((child) => child !== undefined && child !== null && child !== false),
+    );
+
   /** Значок Material Symbols (шрифт for-web) */
   const icon = (name) =>
     h("span", { class: "material-symbols-outlined arachnid-icon", "aria-hidden": "true" }, name);
@@ -147,6 +310,10 @@
 .arachnid-page, .arachnid-column { display: flex; flex-direction: column; gap: var(--gap-md, 12px); }
 .arachnid-page { gap: var(--gap-lg, 16px); padding-bottom: 80px; color: var(--md-sys-color-on-surface); }
 .arachnid-title { line-height: 1.75rem; font-size: 1.375rem; font-weight: 550; }
+/* заголовок страницы for-web с кнопками справа («Внешний вид») */
+[data-arachnid-title-row] { display: flex !important; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+[data-arachnid-title-row] > .arachnid-buttons { line-height: normal; }
+.arachnid-page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .arachnid-subtitle { line-height: 1.25rem; font-size: 0.875rem; letter-spacing: 0.00625rem; font-weight: 550; }
 .arachnid-label { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
 .arachnid-card {
@@ -188,6 +355,36 @@
 .arachnid-item-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .arachnid-item-description { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; white-space: pre-line; overflow-wrap: anywhere; }
 .arachnid-item-note { color: var(--md-sys-color-tertiary); }
+.arachnid-item-icon[data-blank] { background: transparent; }
+/* варианты CategoryButton for-web: tertiary — вариант списка, tertiaryAlt — выбранный */
+.arachnid-item[data-variant="tertiary"] {
+  --color: var(--md-sys-color-on-tertiary-container); --mdui-color-primary: var(--color);
+  background: var(--md-sys-color-tertiary-container); color: var(--color);
+}
+.arachnid-item[data-variant="tertiaryAlt"] {
+  --color: var(--md-sys-color-on-tertiary); --mdui-color-primary: var(--color);
+  background: var(--md-sys-color-tertiary); color: var(--color);
+}
+.arachnid-item[data-variant="tertiary"][data-clickable]:hover {
+  background: color-mix(in srgb, var(--color) 8%, var(--md-sys-color-tertiary-container));
+}
+.arachnid-item[data-variant="tertiaryAlt"][data-clickable]:hover {
+  background: color-mix(in srgb, var(--color) 8%, var(--md-sys-color-tertiary));
+}
+/* CategoryButton.Select for-web: список под строкой раскрывается по высоте */
+.arachnid-collapse-list {
+  display: flex; flex-direction: column; gap: var(--gap-xs, 2px); height: 0;
+  border-radius: var(--borderRadius-md, 12px); overflow-y: auto; scrollbar-width: none;
+  opacity: 0; pointer-events: none; transition: 0.3s;
+}
+.arachnid-collapse[data-open] .arachnid-collapse-list { opacity: 1; pointer-events: auto; }
+.arachnid-collapse > .arachnid-item { transition: background-color 0.1s ease-in-out, margin 0.3s; }
+.arachnid-collapse[data-open] > .arachnid-item { margin-bottom: var(--gap-xs, 2px); }
+.arachnid-collapse-chevron { width: 24px; height: 24px; display: grid; place-items: center; flex-shrink: 0; }
+.arachnid-collapse-chevron > .arachnid-icon { font-size: 18px; transition: transform 0.3s; }
+.arachnid-collapse[data-open] .arachnid-collapse-chevron > .arachnid-icon { transform: rotate(180deg); }
+.arachnid-collapse-list mdui-radio { pointer-events: none; }
+.arachnid-radio { width: 20px; height: 20px; margin: 10px; accent-color: currentColor; pointer-events: none; }
 .arachnid-buttons { display: flex; flex-wrap: wrap; gap: var(--gap-sm, 8px); }
 .arachnid-button {
   height: 40px; padding: 0 24px; border: none; flex-shrink: 0;
@@ -253,6 +450,70 @@
 .arachnid-slider > :first-child { flex: 1; }
 .arachnid-slider input[type="range"] { accent-color: var(--md-sys-color-primary); }
 .arachnid-slider-value { min-width: 4em; text-align: right; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.arachnid-scrim {
+  position: fixed; inset: 0; z-index: 999; box-sizing: border-box; padding: 80px;
+  display: grid; place-items: center;
+  background: rgba(0, 0, 0, 0.32); background: rgba(from var(--md-sys-color-scrim) r g b / 0.32);
+  /* клиент за окном размыт; появляется и исчезает вместе с подложкой */
+  backdrop-filter: blur(8px);
+  animation: arachnid-fade 0.1s forwards;
+}
+@media (max-width: 768px) { .arachnid-scrim { padding: 30px; } }
+.arachnid-scrim[data-closing] { animation: arachnid-fade 0.2s reverse forwards; pointer-events: none; }
+.arachnid-dialog {
+  box-sizing: border-box; width: min(960px, 100%); height: min(720px, 100%); padding: 24px;
+  display: flex; flex-direction: column; border-radius: 28px; user-select: none;
+  color: var(--md-sys-color-on-surface); background: var(--md-sys-color-surface-container-high);
+  animation: arachnid-rise 0.3s cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+.arachnid-scrim[data-closing] .arachnid-dialog { animation: arachnid-sink 0.2s cubic-bezier(0.3, 0, 0.8, 0.15) forwards; }
+.arachnid-dialog-title { line-height: 2rem; font-size: 1.5rem; font-weight: 400; margin-block-end: 16px; }
+.arachnid-dialog-content { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+.arachnid-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-block-start: 24px; }
+.arachnid-dialog[data-compact] { width: min(560px, 100%); height: auto; max-height: 100%; }
+.arachnid-dialog[data-compact] .arachnid-dialog-content { overflow-y: auto; font-size: 0.875rem; line-height: 1.25rem; }
+/* пояснение под флажком — с начала его подписи: у mdui-checkbox значок 40px
+   и по 10px над и под подписью */
+.arachnid-setting-hint { padding-inline-start: 40px; margin-top: -6px; }
+label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start: 32px; margin-top: 2px; }
+.arachnid-hosts { margin: 0; padding-inline-start: 20px; font-family: var(--fonts-monospace, monospace); overflow-wrap: anywhere; }
+.arachnid-item-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* сочетание горячей клавиши: клавиши плашками */
+.arachnid-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 2px; }
+.arachnid-key {
+  padding: 1px 8px; border-radius: 6px; font-size: 0.8125rem; line-height: 1.25rem; font-weight: 500;
+  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);
+  box-shadow: inset 0 -1px 0 var(--md-sys-color-outline-variant);
+}
+.arachnid-item[data-recording] { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
+.arachnid-icon-button {
+  width: 40px; height: 40px; padding: 0; border: none; display: grid; place-items: center; cursor: pointer;
+  border-radius: var(--borderRadius-full, 9999px); background: transparent; color: inherit;
+}
+.arachnid-icon-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.arachnid-dialog-status { flex: 1; min-width: 0; }
+.arachnid-dialog-status[data-error] { color: var(--md-sys-color-error); }
+.arachnid-code {
+  flex: 1; min-height: 0; display: flex; overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant); border-radius: var(--borderRadius-md, 12px);
+  background: var(--md-sys-color-surface-container-lowest);
+}
+.arachnid-code:focus-within { border-color: var(--md-sys-color-primary); }
+.arachnid-code-lines, .arachnid-code textarea {
+  margin: 0; font-family: var(--fonts-monospace, monospace); font-size: 13px; line-height: 20px;
+}
+.arachnid-code-lines {
+  flex-shrink: 0; min-width: 3ch; padding: 12px 8px 40px 12px; overflow: hidden;
+  white-space: pre; text-align: right; color: var(--md-sys-color-outline); user-select: none;
+}
+.arachnid-code textarea {
+  flex: 1; min-width: 0; padding: 12px; border: none; outline: none; resize: none;
+  white-space: pre; overflow: auto; tab-size: 2; user-select: text;
+  background: transparent; color: var(--md-sys-color-on-surface); caret-color: var(--md-sys-color-primary);
+}
+@keyframes arachnid-fade { from { opacity: 0; } }
+@keyframes arachnid-rise { from { opacity: 0; transform: translateY(20px); } }
+@keyframes arachnid-sink { to { opacity: 0; transform: translateY(-20px); } }
 `;
 
   function mountStyle() {
@@ -303,7 +564,8 @@
             }
           : undefined,
       },
-      h("div", { class: "arachnid-item-icon" }, icon(iconName)),
+      // без значка — пустое место под ним, как icon="blank" у CategoryButton
+      h("div", { class: "arachnid-item-icon", dataset: iconName ? undefined : { blank: "" } }, iconName ? icon(iconName) : null),
       h(
         "div",
         { class: "arachnid-item-content" },
@@ -321,6 +583,24 @@
       { type: "button", class: "arachnid-button", dataset: variant ? { variant } : undefined, onClick },
       iconName ? icon(iconName) : null,
       label,
+    );
+
+  /** Кнопка-значок внутри строки: щелчок не переключает саму строку */
+  const iconButton = (name, label, onClick) =>
+    h(
+      "button",
+      {
+        type: "button",
+        class: "arachnid-icon-button",
+        title: label,
+        "aria-label": label,
+        onClick: (event) => {
+          event.stopPropagation();
+          onClick();
+        },
+        onKeydown: (event) => event.stopPropagation(),
+      },
+      icon(name),
     );
 
   /** Открытая сейчас шторка выбора: закрывается при открытии другой */
@@ -438,6 +718,80 @@
     return trigger;
   }
 
+  /** Радиокнопка for-web (mdui-radio), если она уже зарегистрирована */
+  function radio(checked) {
+    if (customElements.get("mdui-radio")) {
+      const control = h("mdui-radio", { tabIndex: -1 });
+      control.checked = checked;
+      return control;
+    }
+    const control = h("input", { type: "radio", class: "arachnid-radio", tabIndex: -1 });
+    control.checked = checked;
+    return control;
+  }
+
+  /** Наибольшая высота раскрытого списка, как MAX_HEIGHT у CategoryButton */
+  const CATEGORY_SELECT_HEIGHT = 340;
+
+  /**
+   * Выбор как CategoryButton.Select в for-web (выбор языка): строка со
+   * значком, заголовком и выбранным вариантом, под ней раскрывается список
+   * вариантов с радиокнопками. Щелчок по варианту выбирает его и сворачивает
+   * список.
+   */
+  function categorySelect({ iconName, title, value, options, onChange }) {
+    const current = options.find((option) => option.value === value) ?? options[0];
+    let opened = false;
+
+    const chevron = h("span", { class: "arachnid-collapse-chevron" }, icon("keyboard_arrow_down"));
+    const summary = item({
+      iconName,
+      title,
+      description: current?.label ?? "",
+      action: chevron,
+      onClick: () => toggle(),
+    });
+    summary.setAttribute("aria-expanded", "false");
+
+    const rows = options.map((option) => {
+      const selected = option.value === current?.value;
+      const row = item({
+        iconName: null,
+        title: option.label,
+        description: option.description,
+        action: radio(selected),
+        onClick: () => {
+          toggle(false);
+          if (option.value !== value) onChange(option.value);
+        },
+      });
+      row.dataset.variant = selected ? "tertiaryAlt" : "tertiary";
+      row.setAttribute("role", "radio");
+      row.setAttribute("aria-checked", String(selected));
+      row.tabIndex = -1;
+      return row;
+    });
+    const list = h("div", { class: "arachnid-collapse-list", role: "radiogroup", "aria-label": title }, rows);
+    const wrapper = h("div", { class: "arachnid-collapse" }, summary, list);
+
+    function toggle(next = !opened) {
+      if (next === opened) return;
+      opened = next;
+      wrapper.toggleAttribute("data-open", opened);
+      summary.setAttribute("aria-expanded", String(opened));
+      for (const row of rows) row.tabIndex = opened ? 0 : -1;
+      const full = list.scrollHeight;
+      list.style.height = `${opened ? Math.min(full, CATEGORY_SELECT_HEIGHT) : 0}px`;
+      // длинный список — сразу на выбранном варианте
+      if (opened && full > CATEGORY_SELECT_HEIGHT) {
+        const selected = rows[options.indexOf(current)];
+        if (selected) list.scrollTop += selected.getBoundingClientRect().top - list.getBoundingClientRect().top;
+      }
+    }
+
+    return h("div", { class: "arachnid-group" }, wrapper);
+  }
+
   /** Поле ввода с плавающей подписью; onCommit — по Enter или уходу с поля */
   function field({ label, value, type, onCommit, extra }) {
     const input = h("input", { type: type ?? "text", value, spellcheck: "false" });
@@ -486,6 +840,8 @@
       .then((next) => {
         overview = next;
         if (rerender) renderAll();
+        // пункт «Горячие клавиши» зависит от настроек «Quality of Life»
+        else queueScan();
       })
       .catch((error) => {
         console.warn(`[Arachnid] ${command}:`, error);
@@ -496,32 +852,51 @@
   const openFolder = (target) => void invoke("extensions_open", { target });
 
   // ───────────────────────────── раздел «Плагины» ─────────────────────────────
-  /** Открытый раздел: { sidebar, entry, column, panel, observer } */
+  /** Открытый свой раздел: { kind, sidebar, entry, column, panel, observer };
+   *  kind — "plugins" или "hotkeys" */
   let page = null;
 
   function renderPluginsPage() {
-    if (!page?.panel.isConnected) return;
+    if (page?.kind !== "plugins" || !page.panel.isConnected) return;
     openSelect?.();
     const plugins = overview?.plugins ?? [];
     const menu = desktop.pluginMenu();
 
     const list = plugins.map((plugin) => {
-      const details = [
-        plugin.description,
-        [plugin.author && text.author(plugin.author), plugin.version && text.version(plugin.version), plugin.file]
-          .filter(Boolean)
-          .join(" · "),
+      const name = plugin.name ?? plugin.file;
+      const tags = [
+        plugin.builtin && text.builtin,
+        plugin.author && text.author(plugin.author),
+        plugin.version && text.version(plugin.version),
+        plugin.native && "WebAssembly",
+        !plugin.builtin && plugin.file,
       ].filter(Boolean);
-      const note =
-        plugin.enabled && !plugin.running ? text.willStart : !plugin.enabled && plugin.running ? text.willStop : null;
+      const details = [
+        (plugin.builtin && text.builtinDescription[plugin.file]) || plugin.description,
+        plugin.network.length ? text.network(plugin.network.join(", ")) : null,
+        tags.join(" · "),
+      ].filter(Boolean);
+      const waiting = plugin.enabled && !plugin.granted && !plugin.error;
+      let note = null;
+      if (plugin.error) note = text.broken(plugin.error);
+      else if (waiting) note = text.needsGrant;
+      else if (plugin.enabled && !plugin.running) note = text.willStart;
+      else if (!plugin.enabled && plugin.running) note = text.willStop;
       const box = checkbox(plugin.enabled);
+      const extra = [
+        waiting ? iconButton("lock_open", text.allow, () => askPermissions(plugin)) : null,
+        plugin.settings.length ? iconButton("settings", text.pluginSettings(name), () => openPluginSettings(plugin.file)) : null,
+      ].filter(Boolean);
       return item({
-        iconName: "extension",
-        title: plugin.name ?? plugin.file,
+        iconName: plugin.builtin ? "auto_awesome" : plugin.folder ? "folder_special" : "extension",
+        title: name,
         description: details.join("\n"),
         note,
-        action: box,
+        action: extra.length ? h("div", { class: "arachnid-item-actions" }, extra, box) : box,
         onClick: () => {
+          if (!plugin.enabled && plugin.error) return;
+          // сеть — только после согласия в окне разрешений
+          if (!plugin.enabled && !plugin.granted) return askPermissions(plugin);
           box.checked = !plugin.enabled;
           void change("extensions_set_plugin", { file: plugin.file, enabled: !plugin.enabled });
         },
@@ -541,8 +916,15 @@
       ];
     });
 
-    page.panel.replaceChildren(
-      h("span", { class: "arachnid-title" }, text.plugins),
+    setChildren(
+      page.panel,
+      // заголовок, напротив него — папка плагинов
+      h(
+        "div",
+        { class: "arachnid-page-header" },
+        h("span", { class: "arachnid-title" }, text.plugins),
+        button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
+      ),
       h(
         "div",
         { class: "arachnid-card" },
@@ -552,6 +934,9 @@
           { class: "arachnid-card-text" },
           h("span", { class: "arachnid-card-title" }, `${BRAND} ${version}`),
           h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.about),
+          overview?.author
+            ? h("span", { class: "arachnid-label", style: { color: "inherit" } }, text.author(overview.author))
+            : null,
         ),
       ),
       overview?.reloadNeeded
@@ -563,8 +948,7 @@
             button(text.reload, () => location.reload(), "filled"),
           )
         : null,
-      h("span", { class: "arachnid-label" }, text.pluginsIntro),
-      list.length ? h("div", { class: "arachnid-group" }, list) : h("span", { class: "arachnid-label" }, text.noPlugins),
+      list.length ? h("div", { class: "arachnid-group" }, list) : null,
       actions.length
         ? h(
             "div",
@@ -573,27 +957,192 @@
             h("div", { class: "arachnid-group" }, actions),
           )
         : null,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
-        button(text.openThemes, () => openFolder("themes"), undefined, "palette"),
-        button(text.quickCss, () => openFolder("quickCss"), undefined, "css"),
-      ),
     );
   }
 
+  // ─────────────────────────── раздел «Горячие клавиши» ───────────────────────────
+  // Назначения хранит Rust (hotkeys.rs); здесь — последний ответ:
+  // { active, recording, bindings, actions }.
+  let hotkeys = null;
+  let hotkeysError = null;
+
+  const QOL = "builtin:qol";
+  /** Значки действий по порядку раздела */
+  const HOTKEY_ICONS = {
+    toggle_mute: "mic",
+    toggle_deafen: "headset",
+    disconnect: "call_end",
+    toggle_camera: "videocam",
+    toggle_screenshare: "screen_share",
+    toggle_window: "web_asset",
+  };
+
+  /** Названия клавиш по виртуальным кодам Windows (у остальных — правила
+   *  в keyName) */
+  const KEY_NAMES = new Map([
+    [0x08, "Backspace"],
+    [0x09, "Tab"],
+    [0x0c, "Clear"],
+    [0x0d, "Enter"],
+    [0x13, "Pause"],
+    [0x14, "Caps Lock"],
+    [0x1b, "Esc"],
+    [0x21, "Page Up"],
+    [0x22, "Page Down"],
+    [0x23, "End"],
+    [0x24, "Home"],
+    [0x25, "←"],
+    [0x26, "↑"],
+    [0x27, "→"],
+    [0x28, "↓"],
+    [0x2c, "Print Screen"],
+    [0x2d, "Insert"],
+    [0x2e, "Delete"],
+    [0x5d, "Menu"],
+    [0x6a, "Num *"],
+    [0x6b, "Num +"],
+    [0x6d, "Num -"],
+    [0x6e, "Num ."],
+    [0x6f, "Num /"],
+    [0x90, "Num Lock"],
+    [0x91, "Scroll Lock"],
+    [0xad, "Volume Mute"],
+    [0xae, "Volume Down"],
+    [0xaf, "Volume Up"],
+    [0xb0, "Next Track"],
+    [0xb1, "Previous Track"],
+    [0xb2, "Stop"],
+    [0xb3, "Play/Pause"],
+    [0xba, ";"],
+    [0xbb, "="],
+    [0xbc, ","],
+    [0xbd, "-"],
+    [0xbe, "."],
+    [0xbf, "/"],
+    [0xc0, "`"],
+    [0xdb, "["],
+    [0xdc, "\\"],
+    [0xdd, "]"],
+    [0xde, "'"],
+    [0xe2, "\\"],
+  ]);
+
+  function keyName(code) {
+    if (code === 0x20) return text.keyNames.space;
+    // цифры и латинские буквы — коды их символов
+    if ((code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a)) return String.fromCharCode(code);
+    if (code >= 0x60 && code <= 0x69) return `Num ${code - 0x60}`;
+    if (code >= 0x70 && code <= 0x87) return `F${code - 0x6f}`;
+    return KEY_NAMES.get(code) ?? text.keyNames.key(code);
+  }
+
+  /** Клавиши сочетания hotkeys.rs: «ctrl+shift+key:120» → Ctrl, Shift, F9 */
+  function comboParts(combo) {
+    return combo.split("+").map((part) => {
+      if (part === "ctrl") return "Ctrl";
+      if (part === "shift") return "Shift";
+      if (part === "alt") return "Alt";
+      if (part === "win") return text.keyNames.win;
+      if (part.startsWith("mouse:")) return text.keyNames[part.slice("mouse:".length)] ?? part;
+      if (part.startsWith("key:")) return keyName(Number(part.slice("key:".length)));
+      return part;
+    });
+  }
+
+  /** Раздел виден, пока включены «Quality of Life» и её настройка `hotkeys` */
+  function hotkeysEnabled() {
+    const qol = overview?.plugins?.find((plugin) => plugin.file === QOL);
+    return Boolean(qol?.enabled && qol.values?.hotkeys === "1");
+  }
+
+  /** Команда hotkeys.rs, которая возвращает новое состояние */
+  function hotkeysCommand(command, args) {
+    return invoke(command, args).then(
+      (next) => {
+        hotkeys = next;
+        hotkeysError = null;
+        renderHotkeysPage();
+      },
+      (error) => {
+        console.warn(`[Arachnid] ${command}:`, error);
+        hotkeysError = error?.message ?? String(error);
+        renderHotkeysPage();
+      },
+    );
+  }
+
+  const refreshHotkeys = () => hotkeysCommand("hotkeys_overview");
+
+  function renderHotkeysPage() {
+    if (page?.kind !== "hotkeys" || !page.panel.isConnected) return;
+    const rows = (hotkeys?.actions ?? []).map((action) => {
+      const combo = hotkeys.bindings[action];
+      const recording = hotkeys.recording === action;
+      let description = text.hotkeyNone;
+      if (recording) description = text.hotkeyRecording;
+      else if (combo) {
+        description = h(
+          "span",
+          { class: "arachnid-keys" },
+          comboParts(combo).map((part) => h("span", { class: "arachnid-key" }, part)),
+        );
+      }
+      const buttons = [
+        combo && !recording
+          ? iconButton("backspace", text.clearHotkey, () => void hotkeysCommand("hotkeys_set", { action, code: null }))
+          : null,
+        recording
+          ? button(text.cancel, () => void hotkeysCommand("hotkeys_record", { action: null }), "text")
+          : button(text.assignHotkey, () => void hotkeysCommand("hotkeys_record", { action })),
+      ];
+      const row = item({
+        iconName: HOTKEY_ICONS[action] ?? "keyboard",
+        title: text.hotkeyActions[action] ?? action,
+        description,
+        action: h("div", { class: "arachnid-item-actions" }, buttons),
+      });
+      row.dataset.arachnidHotkey = action;
+      if (recording) row.dataset.recording = "";
+      return row;
+    });
+
+    setChildren(
+      page.panel,
+      h("div", { class: "arachnid-page-header" }, h("span", { class: "arachnid-title" }, text.hotkeys)),
+      h("span", { class: "arachnid-label" }, text.hotkeysIntro),
+      // настройку включили, а «Quality of Life» ещё не запущена
+      hotkeys && !hotkeys.active
+        ? h(
+            "div",
+            { class: "arachnid-banner", role: "status" },
+            icon("restart_alt"),
+            h("span", {}, text.hotkeysInactive),
+            button(text.reload, () => location.reload(), "filled"),
+          )
+        : null,
+      hotkeysError
+        ? h("span", { class: "arachnid-label", role: "alert", style: { color: "var(--md-sys-color-error)" } }, hotkeysError)
+        : null,
+      rows.length ? h("div", { class: "arachnid-group" }, rows) : null,
+    );
+  }
+
+  function renderPage() {
+    renderPluginsPage();
+    renderHotkeysPage();
+  }
+
   /** Показать раздел вместо текущей страницы настроек */
-  function openPage(sidebar, entry) {
+  function openPage(sidebar, entry, kind) {
     const content = sidebar.nextElementSibling;
     const column = content?.querySelector(".settings_cont")?.firstElementChild;
     if (!column) return;
-    if (page?.column === column && page.panel.isConnected) return;
+    if (page?.column === column && page.kind === kind && page.panel.isConnected) return;
     closePage();
 
     const panel = h("div", { class: "arachnid-page", dataset: { arachnidPanel: "" } });
     column.append(panel);
-    column.dataset.arachnidContentPage = "plugins";
+    column.dataset.arachnidContentPage = kind;
     // подсветка открытой страницы for-web — класс варианта Panda, а не
     // атрибут: она гасится, пока открыт раздел
     for (const link of selectedLinks(sidebar)) link.setAttribute("data-arachnid-muted", "");
@@ -613,14 +1162,20 @@
     });
     observer.observe(column, { childList: true });
 
-    page = { sidebar, entry, column, panel, observer };
+    page = { kind, sidebar, entry, column, panel, observer };
     content.scrollTop = 0;
-    renderPluginsPage();
+    renderPage();
     void refresh();
+    if (kind === "hotkeys") void refreshHotkeys();
   }
 
   function closePage() {
     if (!page) return;
+    // ушли из раздела, не нажав сочетание: запись отменяется
+    if (page.kind === "hotkeys" && hotkeys?.recording) {
+      hotkeys = { ...hotkeys, recording: null };
+      void invoke("hotkeys_record", { action: null }).catch(() => {});
+    }
     page.observer.disconnect();
     page.panel.remove();
     delete page.column.dataset.arachnidContentPage;
@@ -717,8 +1272,12 @@
     return Boolean(node || sidebar.querySelector("[data-arachnid-footer]") || findDesktopEntry(sidebar));
   }
 
-  /** Пункт «Плагины»: копия «Внешнего вида» со значком extension */
-  function createEntry(sidebar, template) {
+  /**
+   * Свой пункт — копия пункта for-web: «Плагины» (копия «Внешнего вида» со
+   * значком extension) или «Горячие клавиши» (копия «ПК» со значком
+   * keyboard). `svgIcon` — значок для пункта со значком svg.
+   */
+  function createEntry(sidebar, template, { kind, label: title, symbol: symbolName, svgIcon }) {
     const entry = template.cloneNode(true);
     entry.className = plainClass(sidebar) ?? template.className;
     entry.removeAttribute("id");
@@ -726,28 +1285,29 @@
     entry.removeAttribute("data-arachnid-muted");
     entry.setAttribute("aria-selected", "false");
     entry.setAttribute("role", "button");
-    entry.dataset.arachnidEntry = "plugins";
+    entry.dataset.arachnidEntry = kind;
 
     const svg = entry.querySelector("svg");
     let label;
     if (svg) {
-      svg.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg", "path"));
-      svg.firstChild.setAttribute("d", EXTENSION_PATH);
-      svg.setAttribute("viewBox", "0 0 24 24");
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", svgIcon.path);
+      svg.replaceChildren(path);
+      svg.setAttribute("viewBox", svgIcon.viewBox);
       label = svg.nextElementSibling;
     } else {
       // значок шрифтом Material Symbols
       const symbol = entry.querySelector(".material-symbols-outlined");
-      if (symbol) symbol.textContent = "extension";
+      if (symbol) symbol.textContent = symbolName;
       label = symbol?.nextElementSibling;
     }
     // подпись — самый вложенный элемент (OverflowingText)
     while (label?.firstElementChild) label = label.firstElementChild;
-    (label ?? entry).textContent = text.plugins;
+    (label ?? entry).textContent = title;
 
     entry.addEventListener("click", (event) => {
       event.preventDefault();
-      openPage(sidebar, entry);
+      openPage(sidebar, entry, kind);
     });
     return entry;
   }
@@ -761,10 +1321,18 @@
     const appearanceEntry = findAppearanceEntry(sidebar);
     if (!appearanceEntry) return;
 
-    let entry = sidebar.querySelector("a.button[data-arachnid-entry]");
-    if (!entry) entry = createEntry(sidebar, appearanceEntry);
+    let entry = sidebar.querySelector('a.button[data-arachnid-entry="plugins"]');
+    if (!entry) {
+      entry = createEntry(sidebar, appearanceEntry, {
+        kind: "plugins",
+        label: text.plugins,
+        symbol: "extension",
+        svgIcon: EXTENSION_ICON,
+      });
+    }
     // for-web мог перерисовать список: пункт остаётся после «Внешнего вида»
     if (appearanceEntry.nextElementSibling !== entry) appearanceEntry.after(entry);
+    ensureHotkeysEntry(sidebar);
 
     if (!sidebar.dataset.arachnidListening) {
       sidebar.dataset.arachnidListening = "";
@@ -782,9 +1350,218 @@
     }
   }
 
+  /**
+   * Пункт «Горячие клавиши» сразу после «ПК» — пока включена настройка
+   * `hotkeys` «Quality of Life». Выключили — пункт и раздел убираются.
+   */
+  function ensureHotkeysEntry(sidebar) {
+    const desktopEntry = findDesktopEntry(sidebar);
+    let entry = sidebar.querySelector('a.button[data-arachnid-entry="hotkeys"]');
+    if (!desktopEntry || !hotkeysEnabled()) {
+      if (page?.kind === "hotkeys" && page.sidebar === sidebar) closePage();
+      entry?.remove();
+      return;
+    }
+    if (!entry) {
+      entry = createEntry(sidebar, desktopEntry, { kind: "hotkeys", label: text.hotkeys, symbol: HOTKEYS_ICON });
+    }
+    if (desktopEntry.nextElementSibling !== entry) desktopEntry.after(entry);
+  }
+
+  // ─────────────────────────── группы боковой панели ───────────────────────────
+  // Порядок for-web (UserSettings.tsx): «Настройки пользователя» (профиль,
+  // сессии), «Stoat» (мои боты, обратная связь), «Настройки клиента» (с «ПК»)
+  // и группа без заголовка: «Что нового», «Исходный код», «Расширенные»,
+  // «Пожертвовать», «Выйти». Клиент меняет её так:
+  //
+  // * «Мои боты» — в «Настройки пользователя», «Обратная связь» — между
+  //   «Исходным кодом» и «Расширенными»; опустевшая группа «Stoat» скрыта;
+  // * у последней группы — заголовок «О программе»;
+  // * перед ней — своя группа «О клиенте» со ссылками на репозиторий клиента.
+  //
+  // Группы узнаются по месту относительно группы с «ПК», пункты — по месту в
+  // группе (заголовки и подписи зависят от языка), а там, где for-web рисует
+  // значки шрифтом Material Symbols, — ещё и по значку. Узнанные пункты
+  // помечаются (data-arachnid-role): перенесённые остаются узнаваемыми.
+  // Если for-web перерисует список, новые пункты снова окажутся на своих
+  // местах — они переносятся заново, а старые убираются.
+
+  /** Пункты группы «Stoat» и последней группы по порядку; значки — из for-web main */
+  const STOAT_ROLES = [
+    { role: "bots", symbol: "smart_toy" },
+    { role: "feedback", symbol: "rate_review" },
+  ];
+  const ABOUT_ROLES = [
+    { role: "news", symbol: "campaign" },
+    { role: "source", symbol: "memory" },
+    { role: "advanced", symbol: "science" },
+    { role: "donate", symbol: "coffee" },
+  ];
+
+  /** Ссылки группы «О клиенте»: путь от адреса репозитория */
+  const CLIENT_LINKS = [
+    { id: "source", symbol: "code", label: text.sourceCode, path: "" },
+    { id: "releases", symbol: "new_releases", label: text.releases, path: "/releases" },
+    { id: "issues", symbol: "bug_report", label: text.issues, path: "/issues" },
+  ];
+
+  /** Значок пункта шрифтом Material Symbols; null — значок svg */
+  const symbolOf = (link) => link.querySelector(".material-symbols-outlined")?.textContent.trim() ?? null;
+
+  /** Пункты for-web в списке группы (без своих) */
+  const ownLinks = (list) =>
+    [...list.children].filter((child) => child.matches("a.button") && !child.hasAttribute("data-arachnid-entry"));
+
+  /**
+   * Группа for-web — `Column` с заголовком (span) и списком пунктов (div);
+   * `titled` — у неё должен быть заголовок.
+   */
+  function isCategory(element, titled) {
+    if (!element || element.hasAttribute("data-arachnid-category")) return false;
+    const list = element.lastElementChild;
+    if (list?.localName !== "div") return false;
+    const title = element.firstElementChild;
+    return titled ? title !== list && title.localName === "span" : true;
+  }
+
+  /** Соседняя группа for-web (свои группы пропускаются) */
+  function siblingCategory(element, forward) {
+    let next = forward ? element.nextElementSibling : element.previousElementSibling;
+    while (next?.hasAttribute("data-arachnid-category")) next = forward ? next.nextElementSibling : next.previousElementSibling;
+    return next;
+  }
+
+  /** Группы боковой панели или null, если разметка не та */
+  function sidebarCategories(sidebar) {
+    const client = findDesktopEntry(sidebar)?.parentElement?.parentElement;
+    if (!client || client === sidebar || !sidebar.contains(client) || !isCategory(client, true)) return null;
+    const stoat = siblingCategory(client, false);
+    const user = stoat && siblingCategory(stoat, false);
+    const about = siblingCategory(client, true);
+    if (!isCategory(stoat, true) || !isCategory(user, true) || !isCategory(about, false)) return null;
+    return { user, stoat, client, about };
+  }
+
+  /**
+   * Пометить пункты списка ролями, если там ровно эти пункты for-web (или,
+   * для последней группы, они и «Выйти»). Старые пункты с теми же ролями —
+   * от прошлой отрисовки for-web — убираются.
+   */
+  function markRoles(sidebar, list, roles, extra) {
+    const links = ownLinks(list).filter((link) => !link.dataset.arachnidRole);
+    if (links.length !== roles.length + extra) return;
+    const fits = roles.every(({ symbol }, index) => {
+      const shown = symbolOf(links[index]);
+      return shown === null || shown === symbol;
+    });
+    if (!fits) return;
+    roles.forEach(({ role }, index) => {
+      for (const old of sidebar.querySelectorAll(`a.button[data-arachnid-role="${role}"]`)) old.remove();
+      links[index].dataset.arachnidRole = role;
+    });
+  }
+
+  /** Заголовок группы — с классом заголовка for-web */
+  function categoryTitle(template, label) {
+    return h("span", { class: template.className, dataset: { arachnidTitle: "" } }, label);
+  }
+
+  /** Ссылка группы «О клиенте» — копия пункта «ПК» со своим значком */
+  function clientLink(sidebar, template, link) {
+    const entry = template.cloneNode(true);
+    entry.className = plainClass(sidebar) ?? template.className;
+    entry.removeAttribute("id");
+    entry.removeAttribute("href");
+    entry.removeAttribute("data-arachnid-muted");
+    entry.setAttribute("aria-selected", "false");
+    entry.setAttribute("role", "link");
+    entry.dataset.arachnidEntry = `client-${link.id}`;
+    const symbol = entry.querySelector(".material-symbols-outlined");
+    symbol.textContent = link.symbol;
+    let label = symbol.nextElementSibling;
+    while (label?.firstElementChild) label = label.firstElementChild;
+    (label ?? entry).textContent = link.label;
+    entry.addEventListener("click", (event) => {
+      event.preventDefault();
+      // ссылки for-web открываются так же: window.open, клиент отдаёт их системе
+      const open = () => overview?.repository && window.open(`${overview.repository}${link.path}`, "_blank");
+      if (overview) open();
+      else void refresh().then(open);
+    });
+    return entry;
+  }
+
+  function arrangeSidebar(sidebar) {
+    const categories = sidebarCategories(sidebar);
+    if (!categories) return;
+    const { user, stoat, about } = categories;
+    if (!overview) void refresh();
+
+    markRoles(sidebar, stoat.lastElementChild, STOAT_ROLES, 0);
+    markRoles(sidebar, about.lastElementChild, ABOUT_ROLES, 1);
+    const role = (name) => sidebar.querySelector(`a.button[data-arachnid-role="${name}"]`);
+
+    const bots = role("bots");
+    if (bots && bots.parentElement !== user.lastElementChild) user.lastElementChild.append(bots);
+    const feedback = role("feedback");
+    const advanced = role("advanced");
+    if (feedback && advanced && feedback.nextElementSibling !== advanced) advanced.before(feedback);
+    stoat.toggleAttribute("data-arachnid-hidden", !stoat.lastElementChild.querySelector("a.button"));
+
+    const titleTemplate = user.firstElementChild;
+    if (!about.querySelector(":scope > [data-arachnid-title]")) about.prepend(categoryTitle(titleTemplate, text.aboutApp));
+
+    let client = sidebar.querySelector('[data-arachnid-category="client"]');
+    if (!client) {
+      const template = findDesktopEntry(sidebar);
+      client = h(
+        "div",
+        { class: about.className, dataset: { arachnidCategory: "client" } },
+        categoryTitle(titleTemplate, text.aboutClient),
+        h(
+          "div",
+          { class: about.lastElementChild.className },
+          CLIENT_LINKS.map((link) => clientLink(sidebar, template, link)),
+        ),
+      );
+    }
+    if (about.previousElementSibling !== client) about.before(client);
+  }
+
   // ───────────────────────────── «Внешний вид» ─────────────────────────────
-  /** Обработанная страница: { root, picker, colours, block } */
+  /** Обработанная страница: { root, picker, colours, block, title, label, actions } */
   let appearance = null;
+
+  /** Текст заголовка страницы for-web (без своих кнопок) */
+  const titleText = (title, actions) =>
+    [...title.childNodes]
+      .filter((node) => node !== actions)
+      .map((node) => node.textContent)
+      .join("")
+      .trim();
+
+  /**
+   * Кнопки «Папка тем» и «QuickCSS» — справа напротив заголовка «Внешний
+   * вид», как «Папка плагинов» в «Плагинах». Заголовок — первый элемент
+   * колонки (Text с Breadcrumbs): он один на все страницы настроек, поэтому
+   * кнопки стоят в нём, только пока открыт «Внешний вид» и заголовок тот
+   * же — for-web меняет его сразу при переходе, а страница уходит после
+   * анимации.
+   */
+  function syncAppearanceActions() {
+    const current = appearance;
+    if (!current?.title) return;
+    const shown = current.root.isConnected && current.title.isConnected && titleText(current.title, current.actions) === current.label;
+    if (!shown) return hideAppearanceActions(current);
+    current.title.setAttribute("data-arachnid-title-row", "");
+    if (current.actions.parentElement !== current.title) current.title.append(current.actions);
+  }
+
+  function hideAppearanceActions(current) {
+    if (!current.title) return;
+    current.actions.remove();
+    current.title.removeAttribute("data-arachnid-title-row");
+  }
 
   /** Найти «Внешний вид» в колонке страницы настроек */
   function findAppearance(column) {
@@ -800,6 +1577,7 @@
     const column = content.querySelector(".settings_cont")?.firstElementChild;
     if (!column) return;
     if (appearance?.root.isConnected && column.contains(appearance.root)) return;
+    if (appearance) hideAppearanceActions(appearance);
     appearance = null;
     const found = findAppearance(column);
     if (!found) return;
@@ -815,7 +1593,29 @@
     if (colours && coloursTitle === "Colours") colours.after(block);
     else welcome.after(block);
 
-    appearance = { root, picker, colours: coloursTitle === "Colours" ? colours : null, block };
+    // те же кнопки, что «Папка плагинов» в разделе «Плагины»
+    const actions = h(
+      "div",
+      { class: "arachnid-buttons", dataset: { arachnidAppearance: "actions" } },
+      button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
+      button(text.quickCss, openQuickCss, undefined, "css"),
+    );
+    // заголовок страницы — span перед блоком страницы; если его нет
+    // (разметка for-web изменилась), кнопки остаются над выбором темы
+    const title = column.firstElementChild;
+    const titled = title?.localName === "span" && !title.contains(root);
+    if (!titled) picker.before(actions);
+
+    appearance = {
+      root,
+      picker,
+      colours: coloursTitle === "Colours" ? colours : null,
+      block,
+      title: titled ? title : null,
+      label: titled ? titleText(title, actions) : "",
+      actions,
+    };
+    syncAppearanceActions();
     renderAppearance();
     void refresh();
   }
@@ -833,25 +1633,26 @@
       ? [active.description, [active.author && text.author(active.author), active.version && text.version(active.version)].filter(Boolean).join(" · ")]
           .filter(Boolean)
           .join("\n")
-      : text.themesHint;
+      : null;
 
-    appearance.picker.replaceChildren(
-      select({
-        label: text.theme,
+    setChildren(
+      appearance.picker,
+      // как выбор языка в for-web
+      categorySelect({
+        iconName: "palette",
+        title: text.theme,
         value: active?.file ?? "",
         options: [
           { value: "", label: text.defaultTheme },
-          ...themes.map((theme) => ({ value: theme.file, label: theme.name ?? theme.file })),
+          ...themes.map((theme) => ({
+            value: theme.file,
+            label: theme.name ?? theme.file,
+            description: theme.author ? text.author(theme.author) : undefined,
+          })),
         ],
         onChange: (file) => void change("extensions_set_theme", { file: file || null }),
       }),
       details ? h("span", { class: "arachnid-label", style: { whiteSpace: "pre-line" } }, details) : null,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.openThemes, () => openFolder("themes"), "text", "folder_open"),
-        button(text.quickCss, () => openFolder("quickCss"), "text", "css"),
-      ),
     );
 
     appearance.block.toggleAttribute("data-arachnid-hidden", !active);
@@ -861,6 +1662,7 @@
   /** Настройки выбранной темы — на месте блока «Colours» */
   function themeSettings(theme) {
     const title = h("span", { class: "arachnid-subtitle" }, text.themeSettings);
+    if (theme.error) return [title, h("span", { class: "arachnid-label" }, text.broken(theme.error))];
     if (!theme.supported) return [title, h("span", { class: "arachnid-label" }, text.unsupported(theme.preprocessor))];
     if (!theme.settings.length) return [title, h("span", { class: "arachnid-label" }, text.noThemeSettings)];
 
@@ -868,15 +1670,40 @@
       // поле уже показывает новое значение: перерисовывать не нужно
       void change("extensions_set_theme_value", { file: theme.file, name, value }, false);
 
-    const controls = theme.settings.map((setting) => {
-      const value = theme.values[setting.name] ?? setting.default;
+    return [
+      title,
+      ...settingControls(theme.settings, theme.values, set),
+      h(
+        "div",
+        { class: "arachnid-buttons" },
+        button(text.reset, () => void change("extensions_reset_theme", { file: theme.file }), "text", "restart_alt"),
+      ),
+    ];
+  }
+
+  /**
+   * Поля настроек темы или плагина-папки (`usercss::Setting`): флажок,
+   * выбор, ползунок, число, цвет, текст. `set(name, value)` сохраняет.
+   */
+  function settingControls(settings, values, set) {
+    return settings.map((setting) => {
+      const value = values[setting.name] ?? setting.default;
       switch (setting.kind) {
         case "checkbox": {
           const box = checkbox(value === "1", setting.label);
           const input = box instanceof HTMLInputElement ? box : box.querySelector?.("input") ?? box;
+          input.dataset.arachnidSetting = setting.name;
+          input.disabled = Boolean(setting.disabled);
           input.addEventListener("change", () => set(setting.name, input.checked ? "1" : "0"));
           if (input.classList?.contains("arachnid-checkbox")) input.style.pointerEvents = "auto";
-          return box;
+          if (!setting.hint) return box;
+          // пояснение — под подписью флажка
+          return h(
+            "div",
+            { class: "arachnid-column", style: { gap: "0" } },
+            box,
+            h("span", { class: "arachnid-label arachnid-setting-hint" }, setting.hint),
+          );
         }
         case "select":
           return select({
@@ -938,23 +1765,362 @@
           return field({ label: setting.label, value, onCommit: (next) => set(setting.name, next) });
       }
     });
+  }
 
-    return [
-      title,
-      ...controls,
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.reset, () => void change("extensions_reset_theme", { file: theme.file }), "text", "restart_alt"),
-      ),
-    ];
+  // ─────────────────────────────── окна ───────────────────────────────
+  // Окно поверх клиента, как Dialog в for-web (Material 3: подложка,
+  // карточка 28px, кнопки-текст справа внизу): QuickCSS, настройки и
+  // разрешения плагинов. Закрывается по Esc, кнопкой или щелчком мимо.
+
+  let dialogs = 0;
+
+  /**
+   * Показать окно; `onClose` вызывается один раз, до анимации закрытия.
+   * `compact` — небольшое окно по содержимому. Возвращает `{ close }`.
+   */
+  function openDialog({ title, content, actions, dataset, compact, onClose }) {
+    mountStyle();
+    openSelect?.();
+    const opener = document.activeElement;
+    const titleId = `arachnid-dialog-title-${++dialogs}`;
+    let closed = false;
+
+    function close() {
+      if (closed) return;
+      closed = true;
+      onClose?.();
+      scrim.setAttribute("data-closing", "");
+      setTimeout(() => scrim.remove(), 200);
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    }
+
+    const dialog = h(
+      "div",
+      {
+        class: "arachnid-dialog",
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": titleId,
+        dataset: compact ? { compact: "" } : undefined,
+      },
+      h("span", { class: "arachnid-dialog-title", id: titleId }, title),
+      h("div", { class: "arachnid-dialog-content" }, content),
+      h("div", { class: "arachnid-dialog-actions" }, actions),
+    );
+
+    // закрывает только щелчок, который и начался, и закончился на подложке:
+    // выделение текста, отпущенное за краем окна, его не закрывает
+    let pressedOutside = false;
+    const scrim = h(
+      "div",
+      {
+        class: "arachnid-scrim",
+        dataset,
+        onPointerdown: (event) => (pressedOutside = event.target === scrim),
+        onClick: (event) => {
+          if (pressedOutside && event.target === scrim) close();
+          pressedOutside = false;
+        },
+        // клавиши остаются в окне: сочетания for-web (Esc закрывает
+        // настройки) слушают document.body
+        onKeydown: (event) => {
+          event.stopPropagation();
+          if (event.key === "Escape" && !event.isComposing) {
+            event.preventDefault();
+            close();
+          }
+        },
+        onKeyup: (event) => event.stopPropagation(),
+      },
+      dialog,
+    );
+
+    (document.getElementById("floating") ?? document.body).append(scrim);
+    return { close };
+  }
+
+  /**
+   * Настройки плагина — окно, как у QuickCSS: у плагина-папки — из
+   * plugin.toml, у встроенного — свои (подписи и пояснения из
+   * text.builtinSettings). Значение сохраняется сразу.
+   */
+  function openPluginSettings(file) {
+    const plugin = overview?.plugins?.find((entry) => entry.file === file);
+    if (!plugin || !document.body) return;
+    const own = (plugin.builtin && text.builtinSettings[file]) || {};
+    const body = h("div", { class: "arachnid-column" });
+    const set = (name, value) => {
+      // зависимые флажки доступны, только пока включён их флажок
+      for (const [dependent, about] of Object.entries(own)) {
+        if (about.requires !== name) continue;
+        const input = body.querySelector(`[data-arachnid-setting="${CSS.escape(dependent)}"]`);
+        if (input) input.disabled = value !== "1";
+      }
+      void change("extensions_set_plugin_value", { file, name, value }, false);
+    };
+    const fill = () => {
+      const current = overview?.plugins?.find((entry) => entry.file === file);
+      if (!current) return;
+      const settings = current.settings.map((setting) => {
+        const about = own[setting.name];
+        if (!about) return setting;
+        return {
+          ...setting,
+          label: about.label ?? setting.label,
+          hint: about.hint,
+          disabled: about.requires !== undefined && current.values[about.requires] !== "1",
+        };
+      });
+      body.replaceChildren(...settingControls(settings, current.values, set));
+    };
+    const dialog = openDialog({
+      title: text.pluginSettings(plugin.name ?? file),
+      compact: true,
+      dataset: { arachnidPluginSettings: file },
+      content: body,
+      actions: [
+        button(text.resetPlugin, () => void change("extensions_reset_plugin", { file }).then(fill), "text", "restart_alt"),
+        button(text.done, () => dialog.close(), "text"),
+      ],
+    });
+    fill();
+  }
+
+  /** Спросить разрешение на сеть и включить плагин */
+  function askPermissions(plugin) {
+    if (!document.body) return;
+    const dialog = openDialog({
+      title: text.permissionsTitle(plugin.name ?? plugin.file),
+      compact: true,
+      dataset: { arachnidPermissions: plugin.file },
+      content: [
+        h("span", {}, text.permissionsIntro),
+        h("ul", { class: "arachnid-hosts" }, plugin.network.map((host) => h("li", {}, host))),
+        h("span", { class: "arachnid-label" }, text.permissionsHint),
+      ],
+      actions: [
+        button(text.cancel, () => dialog.close(), "text"),
+        button(
+          text.allow,
+          () => {
+            dialog.close();
+            void change("extensions_set_plugin", { file: plugin.file, enabled: true, grant: true });
+          },
+          "filled",
+        ),
+      ],
+    });
+  }
+
+  // ─────────────────────────────── QuickCSS ───────────────────────────────
+  // Редактор quickcss.css — окно поверх клиента, как Dialog в for-web
+  // (Material 3: подложка, карточка 28px, кнопки-текст справа внизу). Текст
+  // применяется и сохраняется сам через долю секунды после правки, поэтому
+  // окно можно закрыть в любой момент: Esc, «Готово» или щелчок мимо.
+
+  /** Отступ, который вставляет Tab */
+  const INDENT = "  ";
+  /** Пауза после правки до сохранения, мс */
+  const SAVE_DELAY = 300;
+
+  /** Открытый редактор: `{ reload, close }` */
+  let quickCss = null;
+
+  function openQuickCss() {
+    if (quickCss) {
+      quickCss.focus();
+      return;
+    }
+    if (!document.body) return;
+
+    // saved — текст, который сейчас в файле (null, пока не загружен)
+    const state = { saved: null, timer: 0, saving: null, again: false, closed: false, lines: 0 };
+
+    const status = h("span", { class: "arachnid-label arachnid-dialog-status", role: "status" });
+    const gutter = h("div", { class: "arachnid-code-lines", "aria-hidden": "true" });
+    const textarea = h("textarea", {
+      spellcheck: "false",
+      autocapitalize: "off",
+      autocomplete: "off",
+      wrap: "off",
+      "aria-label": "QuickCSS",
+      disabled: true,
+      onInput: changed,
+      onScroll: () => (gutter.scrollTop = textarea.scrollTop),
+      onKeydown: onEditorKey,
+    });
+
+    const setStatus = (message, error = false) => {
+      status.textContent = message;
+      status.toggleAttribute("data-error", error);
+    };
+
+    function updateLines() {
+      let count = 1;
+      for (let at = textarea.value.indexOf("\n"); at !== -1; at = textarea.value.indexOf("\n", at + 1)) count++;
+      if (count === state.lines) return;
+      state.lines = count;
+      gutter.textContent = Array.from({ length: count }, (_, index) => index + 1).join("\n");
+      gutter.scrollTop = textarea.scrollTop;
+    }
+
+    function changed() {
+      updateLines();
+      clearTimeout(state.timer);
+      state.timer = setTimeout(save, SAVE_DELAY);
+    }
+
+    /** Сохранить текущий текст; правки во время сохранения уйдут следом */
+    function save() {
+      clearTimeout(state.timer);
+      state.timer = 0;
+      if (state.saved === null) return Promise.resolve();
+      if (state.saving) {
+        state.again = true;
+        return state.saving;
+      }
+      const css = textarea.value;
+      if (css === state.saved) return Promise.resolve();
+      setStatus(text.saving);
+      state.saving = invoke("extensions_set_quick_css", { css })
+        .then(() => {
+          state.saved = css;
+          if (!state.timer && textarea.value === css) setStatus(text.saved);
+        })
+        .catch((error) => setStatus(text.saveFailed(error?.message ?? String(error)), true))
+        .finally(() => {
+          state.saving = null;
+          if (state.again) {
+            state.again = false;
+            void save();
+          }
+        });
+      return state.saving;
+    }
+
+    /** quickcss.css изменили в другой программе: показать, если здесь нет своих правок */
+    function reload() {
+      const untouched = () => !state.closed && !state.timer && !state.saving && textarea.value === state.saved;
+      if (state.saved === null || !untouched()) return;
+      invoke("extensions_quick_css").then(
+        (css) => {
+          if (!untouched() || css === state.saved) return;
+          const { selectionStart, selectionEnd, scrollTop } = textarea;
+          state.saved = css;
+          textarea.value = css;
+          textarea.setSelectionRange(Math.min(selectionStart, css.length), Math.min(selectionEnd, css.length));
+          textarea.scrollTop = scrollTop;
+          updateLines();
+        },
+        () => {},
+      );
+    }
+
+    /** Вставить текст так, чтобы работала отмена (Ctrl+Z) */
+    function insert(value) {
+      const viaHistory = typeof document.execCommand === "function" && document.execCommand("insertText", false, value);
+      if (!viaHistory) {
+        textarea.setRangeText(value, textarea.selectionStart, textarea.selectionEnd, "end");
+        textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+
+    /** Tab и Shift+Tab: отступ строки или выделенных строк */
+    function indent(outdent) {
+      const { value, selectionStart: start, selectionEnd: end } = textarea;
+      if (!outdent && start === end) {
+        insert(INDENT);
+        return;
+      }
+      const from = value.lastIndexOf("\n", start - 1) + 1;
+      // выделение до начала строки эту строку не захватывает
+      const last = end > start && value[end - 1] === "\n" ? end - 1 : end;
+      const to = value.indexOf("\n", last) === -1 ? value.length : value.indexOf("\n", last);
+      const block = value.slice(from, to);
+      const lines = block.split("\n");
+      const next = lines.map((line) => (outdent ? line.replace(/^( {1,2}|\t)/, "") : INDENT + line)).join("\n");
+      if (next === block) return;
+      const shift = next.split("\n")[0].length - lines[0].length;
+      textarea.setSelectionRange(from, to);
+      insert(next);
+      if (start === end) {
+        const caret = Math.max(from, start + shift);
+        textarea.setSelectionRange(caret, caret);
+      } else {
+        textarea.setSelectionRange(from, from + next.length);
+      }
+    }
+
+    /** Enter: новая строка с тем же отступом, после «{» — на шаг глубже */
+    function newline() {
+      const { value, selectionStart: start, selectionEnd: end } = textarea;
+      const line = value.slice(value.lastIndexOf("\n", start - 1) + 1, start);
+      const current = /^[ \t]*/.exec(line)[0];
+      const opens = line.trimEnd().endsWith("{");
+      if (opens && value[end] === "}") {
+        insert(`\n${current}${INDENT}\n${current}`);
+        const caret = start + 1 + current.length + INDENT.length;
+        textarea.setSelectionRange(caret, caret);
+      } else {
+        insert(`\n${current}${opens ? INDENT : ""}`);
+      }
+    }
+
+    function onEditorKey(event) {
+      if (event.isComposing || event.altKey) return;
+      const command = event.ctrlKey || event.metaKey;
+      if (event.key === "Tab" && !command) {
+        event.preventDefault();
+        indent(event.shiftKey);
+      } else if (event.key === "Enter" && !command && !event.shiftKey) {
+        event.preventDefault();
+        newline();
+      } else if (command && !event.shiftKey && event.code === "KeyS") {
+        event.preventDefault();
+        void save();
+      }
+    }
+
+    const dialog = openDialog({
+      title: "QuickCSS",
+      dataset: { arachnidQuickcss: "" },
+      content: [h("span", { class: "arachnid-label" }, text.quickCssHint), h("div", { class: "arachnid-code" }, gutter, textarea)],
+      actions: [
+        status,
+        // внешний редактор откроет уже сохранённый текст
+        button(text.openInEditor, () => void save().then(() => openFolder("quickCss")), "text", "open_in_new"),
+        button(text.done, () => dialog.close(), "text"),
+      ],
+      onClose: () => {
+        state.closed = true;
+        void save();
+        quickCss = null;
+      },
+    });
+    quickCss = { reload, close: dialog.close, focus: () => textarea.focus() };
+    updateLines();
+
+    invoke("extensions_quick_css").then(
+      (css) => {
+        if (state.closed) return;
+        state.saved = css;
+        textarea.value = css;
+        textarea.disabled = false;
+        updateLines();
+        textarea.focus();
+        textarea.setSelectionRange(0, 0);
+      },
+      (error) => setStatus(error?.message ?? String(error), true),
+    );
   }
 
   // ─────────────────────────────── обход ───────────────────────────────
 
   function renderAll() {
-    renderPluginsPage();
+    renderPage();
     renderAppearance();
+    // пункт «Горячие клавиши» зависит от настроек «Quality of Life»
+    queueScan();
   }
 
   function scan() {
@@ -962,9 +2128,11 @@
     for (const sidebar of document.querySelectorAll(".settings_sidebar")) {
       if (!isUserSettings(sidebar)) continue;
       ensureEntry(sidebar);
+      arrangeSidebar(sidebar);
       const content = sidebar.nextElementSibling;
       if (content) enhanceAppearance(content);
     }
+    syncAppearanceActions();
   }
 
   // Настройки открываются и перерисовываются в любой момент: проверка раз в
@@ -983,6 +2151,9 @@
   desktop.subscribe((type) => {
     if (type === "extensions") void refresh();
     else if (type === "menu") renderPluginsPage();
+    else if (type === "quickcss") quickCss?.reload();
+    else if (type === "open-quickcss") openQuickCss();
+    else if (type === "hotkeys") void refreshHotkeys();
   });
 
   function start() {

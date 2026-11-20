@@ -688,12 +688,18 @@ pub fn render(css: &str, meta: &Meta, values: &BTreeMap<String, String>, app_url
         }
         return out;
     }
-    let mut prelude = String::from(":root {\n");
-    for setting in &meta.settings {
-        prelude.push_str(&format!("  --{}: {};\n", setting.name, value_of(setting)));
+    css_variables(&meta.settings, values) + &body
+}
+
+/// Настройки переменными CSS: `:root { --<имя>: <значение>; }`.
+pub fn css_variables(settings: &[Setting], values: &BTreeMap<String, String>) -> String {
+    let mut css = String::from(":root {\n");
+    for setting in settings {
+        let value = setting.css_value(values.get(&setting.name).map(String::as_str));
+        css.push_str(&format!("  --{}: {};\n", setting.name, value));
     }
-    prelude.push_str("}\n");
-    prelude + &body
+    css.push_str("}\n");
+    css
 }
 
 /// Раскрыть `@-moz-document`: подходящие секции остаются без обёртки,

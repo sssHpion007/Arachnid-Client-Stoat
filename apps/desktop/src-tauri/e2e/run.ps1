@@ -1,0 +1,109 @@
+# Проверка клиента в настоящем WebView2: собранный exe открывает тестовую
+# страницу (app/) как веб-клиент своего инстанса, страница проходит шаги
+# (app/test.js) и присылает итог серверу (server.py).
+#
+#   pwsh run.ps1 -Exe <путь к arachnid-client.exe>
+#
+# Нужны Python 3 и localforage в e2e/node_modules:
+#   npm install --no-save --prefix apps/desktop/src-tauri/e2e localforage@1.10.0
+param(
+  [Parameter(Mandatory = $true)][string]$Exe,
+  [int]$TimeoutSeconds = 300
+)
+
+$ErrorActionPreference = "Stop"
+$here = $PSScriptRoot
+$work = Join-Path ([System.IO.Path]::GetTempPath()) "arachnid-e2e"
+if (Test-Path $work) { Remove-Item -Recurse -Force $work }
+$data = Join-Path $work "data"
+$out = Join-Path $work "out"
+New-Item -ItemType Directory -Force -Path $data, $out | Out-Null
+
+# свой каталог данных: чистый профиль WebView2 и адрес тестового инстанса
+Set-Content -Encoding utf8 -Path (Join-Path $data "config.toml") -Value @"
+[instance]
+app_url = "http://127.0.0.1:8765/app/"
+"@
+
+# плагин-папка для проверки API плагинов: выключен, пока его не включит test.js
+Copy-Item -Recurse -Path (Join-Path $here "plugins") -Destination (Join-Path $data "plugins")
+
+$server = Start-Process -PassThru -NoNewWindow -FilePath python `
+  -ArgumentList @((Join-Path $here "server.py"), $out) `
+  -RedirectStandardOutput (Join-Path $work "server.out.txt") `
+  -RedirectStandardError (Join-Path $work "server.err.txt")
+Start-Sleep -Seconds 2
+
+$env:ARACHNID_CLIENT_DIR = $data
+$env:RUST_LOG = "info"
+$client = Start-Process -PassThru -FilePath (Resolve-Path $Exe)
+
+$result = Join-Path $out "result.json"
+$deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+while (-not (Test-Path $result) -and (Get-Date) -lt $deadline -and -not $client.HasExited) {
+  Start-Sleep -Seconds 1
+}
+$exited = $client.HasExited
+
+Stop-Process -Id $client.Id -Force -ErrorAction SilentlyContinue
+Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+# Итог и журналы ещё и аннотациями GitHub: их видно в сводке запуска и через
+# API, без скачивания журнала задания.
+function Annotate([string]$Level, [string]$Title, [string[]]$Lines) {
+  if (-not $env:GITHUB_ACTIONS) { return }
+  $text = ($Lines -join "`n")
+  if ($text.Length -gt 30000) { $text = $text.Substring($text.Length - 30000) }
+  $text = $text.Replace("%", "%25").Replace("`r", "%0D").Replace("`n", "%0A")
+  $Title = $Title.Replace("%", "%25").Replace(":", "%3A").Replace(",", "%2C")
+  Write-Host "::$Level title=$Title::$text"
+}
+$serverLog = @()
+if (Test-Path (Join-Path $out "server.log")) { $serverLog += Get-Content (Join-Path $out "server.log") }
+if (Test-Path (Join-Path $work "server.err.txt")) { $serverLog += Get-Content (Join-Path $work "server.err.txt") }
+if ($serverLog.Count -eq 0) { $serverLog = @("(сервер ничего не записал)") }
+$clientLog = @(Get-ChildItem -Path (Join-Path $data "logs") -File -ErrorAction SilentlyContinue |
+  ForEach-Object { Get-Content $_.FullName })
+Annotate "notice" "e2e: страница" $serverLog
+Annotate "notice" "e2e: журнал клиента" ($clientLog | Select-Object -Last 80)
+
+Write-Host "──────── server.log ────────"
+if (Test-Path (Join-Path $out "server.log")) { Get-Content (Join-Path $out "server.log") }
+Write-Host "──────── журнал клиента ────────"
+Get-ChildItem -Path (Join-Path $data "logs") -File -ErrorAction SilentlyContinue |
+  ForEach-Object { Get-Content $_.FullName }
+
+# журналы — для артефакта проверки
+$logs = Join-Path $here "logs"
+New-Item -ItemType Directory -Force -Path $logs | Out-Null
+Copy-Item -Recurse -Force -Path (Join-Path $out "*") -Destination $logs -ErrorAction SilentlyContinue
+Copy-Item -Recurse -Force -Path (Join-Path $data "logs") -Destination $logs -ErrorAction SilentlyContinue
+
+if (-not (Test-Path $result)) {
+  $reason = if ($exited) { "клиент завершился (код $($client.ExitCode)), не дождавшись итога" } else { "итога нет за $TimeoutSeconds с" }
+  Annotate "error" "e2e: $reason" @("см. аннотации со страницей и журналом клиента")
+  Write-Error $reason
+}
+
+$checks = (Get-Content -Raw $result | ConvertFrom-Json).results
+$failed = @($checks | Where-Object { -not $_.ok })
+Write-Host "──────── итог ────────"
+foreach ($check in $checks) {
+  $mark = if ($check.ok) { "OK  " } else { "FAIL" }
+  Write-Host "$mark [шаг $($check.step)] $($check.name)"
+}
+# аннотация обрезается: сначала проваленные проверки и замеры
+$ordered = @($failed) + @($checks | Where-Object { $_.ok -and $_.measured }) + @($checks | Where-Object { $_.ok -and -not $_.measured })
+$summary = foreach ($check in $ordered) {
+  $mark = if ($check.ok) { "OK  " } else { "FAIL" }
+  # подробности — у проваленных проверок и у замеров
+  $details = if (($check.ok -and -not $check.measured) -or $null -eq $check.details) { "" } else { " — " + ($check.details | ConvertTo-Json -Compress -Depth 5) }
+  "$mark [шаг $($check.step)] $($check.name)$details"
+}
+if ($failed.Count -gt 0) {
+  Annotate "error" "e2e: не прошло $($failed.Count) из $($checks.Count)" $summary
+  Write-Error "не прошло проверок: $($failed.Count) из $($checks.Count)"
+}
+Annotate "notice" "e2e: все проверки прошли ($($checks.Count))" $summary
+Write-Host "все проверки прошли: $($checks.Count)"

@@ -1,0 +1,5 @@
+/* Стили плагина: действуют, пока он запущен; url() — от папки плагина. */
+#e2e-folder-probe {
+  width: var(--size);
+  background-image: url(img/dot.png);
+}

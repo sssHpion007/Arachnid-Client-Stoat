@@ -187,13 +187,14 @@
 
   // ─────────────────────────────── события ───────────────────────────────
   // Раздел «Плагины» и выбор темы (settings.js) узнают отсюда, что темы,
-  // плагины или пункты AviaMenu изменились.
+  // плагины или пункты AviaMenu изменились, «Quality of Life» (hotkeys.js) —
+  // что нажата горячая клавиша.
   const listeners = new Set();
 
-  function emit(type) {
+  function emit(type, detail) {
     for (const listener of listeners) {
       try {
-        listener(type);
+        listener(type, detail);
       } catch (error) {
         console.error("[Arachnid]", error);
       }
@@ -321,6 +322,97 @@
   // меню от прошлой загрузки страницы больше не действует
   syncMenu();
 
+  // ───────────────────────────── API плагинов ─────────────────────────────
+  // Плагин-папка (plugins/<id>/plugin.toml) выполняется как тело функции с
+  // объектом `plugin` (extensions.rs, folder_plugin_script): хранилище,
+  // настройки из раздела «Плагины», файлы своей папки, запросы к адресам из
+  // [permissions] network и нативный модуль WebAssembly. Права проверяет
+  // Rust; здесь — только удобная обёртка над командами. Описание для
+  // авторов — docs/extensions.md.
+  const pluginSettings = new Map(); // id → { values, listeners }
+
+  /** Ошибка команды ({ kind, message }) — как обычная ошибка JavaScript */
+  const pluginError = (error) => {
+    const wrapped = new Error(typeof error?.message === "string" ? error.message : String(error));
+    if (typeof error?.kind === "string") wrapped.kind = error.kind;
+    return wrapped;
+  };
+
+  /** Путь внутри папки плагина — частями, как в адресе */
+  const assetPath = (path) =>
+    String(path)
+      .split("/")
+      .filter((part) => part !== "" && part !== ".")
+      .map(encodeURIComponent)
+      .join("/");
+
+  function pluginApi(info) {
+    const id = info.id;
+    const state = { values: Object.freeze({ ...info.settings }), listeners: new Set() };
+    pluginSettings.set(id, state);
+    const call = (command, args) =>
+      invoke(command, { plugin: id, ...args }).catch((error) => {
+        throw pluginError(error);
+      });
+    return Object.freeze({
+      id,
+      apiVersion: info.apiVersion,
+      manifest: Object.freeze({
+        name: info.name,
+        version: info.version,
+        author: info.author,
+        description: info.description,
+      }),
+      /** Значения настроек из plugin.toml: флажок — boolean, число — number */
+      get settings() {
+        return state.values;
+      },
+      onSettingsChange(listener) {
+        if (typeof listener !== "function") throw new TypeError("listener must be a function");
+        state.listeners.add(listener);
+        return () => state.listeners.delete(listener);
+      },
+      storage: Object.freeze({
+        get: (key) => call("plugin_storage_get", { key: String(key) }),
+        // null удаляет ключ, как и delete
+        set: (key, value) => call("plugin_storage_set", { key: String(key), value: value ?? null }),
+        delete: (key) => call("plugin_storage_set", { key: String(key), value: null }),
+      }),
+      /** Адрес файла из папки плагина (картинки, звуки, шрифты) */
+      asset: (path) => info.assetBase + assetPath(path),
+      /** Адреса, к которым пользователь разрешил запросы */
+      network: Object.freeze([...info.network]),
+      fetch(url, options = {}) {
+        const request = {
+          url: String(url),
+          method: options.method,
+          // Headers, массив пар или объект — одним объектом
+          headers: Object.fromEntries(new Headers(options.headers ?? {})),
+          body: options.body ?? undefined,
+          responseType: options.responseType ?? "text",
+        };
+        return call("plugin_fetch", { request });
+      },
+      native: Object.freeze({
+        available: Boolean(info.native),
+        call: (name, input = null) => call("plugin_native_call", { function: String(name), input }),
+      }),
+    });
+  }
+
+  function pluginSettingsChanged(id, values) {
+    const state = pluginSettings.get(id);
+    if (!state) return;
+    state.values = Object.freeze({ ...values });
+    for (const listener of state.listeners) {
+      try {
+        listener(state.values);
+      } catch (error) {
+        console.error(`[${id}]`, error);
+      }
+    }
+  }
+
   // Rust сообщает об изменениях, сделанных не со страницы: окно развернули
   // кнопкой системы или перетаскиванием к краю экрана, сохранили тему,
   // выбрали тему или плагин в трее. settings.js подписывается на события.
@@ -333,7 +425,19 @@
       },
       runMenuItem,
       pluginMenu: menuEntries,
+      // объект `plugin` для плагина-папки и новые значения его настроек
+      plugin: pluginApi,
+      pluginSettingsChanged,
       extensionsChanged: () => emit("extensions"),
+      // quickcss.css изменили в другой программе / «Изменить QuickCSS» в трее
+      quickCssChanged: () => emit("quickcss"),
+      openQuickCss: () => emit("open-quickcss"),
+      // скачивание, удаление и ход загрузки наборов эмодзи (emoji_packs.rs)
+      emojiPacksChanged: () => emit("emoji-packs"),
+      // горячие клавиши (hotkeys.rs): нажатое действие звонка выполняет
+      // hotkeys.js, записанное сочетание показывает settings.js
+      hotkey: (action) => emit("hotkey", String(action)),
+      hotkeysChanged: () => emit("hotkeys"),
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -342,6 +446,49 @@
   });
 
   applySpellcheck();
+
+  // ───────────────────────────── имя сессии ─────────────────────────────
+  // for-web называет сессию при входе сам — «Stoat for Web (edge-chromium on
+  // Windows 10)» (Controller.ts): это поле friendly_name запроса
+  // POST /auth/session/login (и его повтора с кодом MFA). Под этим именем
+  // сессия и видна в «Сессиях» Stoat. Мост ставит в этом поле «Arachnid
+  // Client», поэтому сессия сразу создаётся с нужным именем. Запрос уходит
+  // через fetch (stoat-api), поэтому мост, который выполняется раньше
+  // скриптов страницы, оборачивает fetch; остальные запросы проходят как
+  // есть. Имя, которое задано не for-web, не меняется.
+  const SESSION_NAME = "Arachnid Client";
+  const GENERATED_NAME = /^(Stoat|Revolt) for Web\b/;
+  const LOGIN_PATH = /\/auth\/session\/login$/;
+  const pageFetch = window.fetch;
+
+  /** Параметры запроса входа с именем сессии; другие запросы — те же */
+  function namedLogin(input, init) {
+    if (typeof init?.body !== "string" || String(init.method ?? "GET").toUpperCase() !== "POST") return init;
+    let url;
+    try {
+      url = new URL(input instanceof Request ? input.url : String(input), location.href);
+    } catch {
+      return init;
+    }
+    if (!LOGIN_PATH.test(url.pathname)) return init;
+    let data;
+    try {
+      data = JSON.parse(init.body);
+    } catch {
+      return init;
+    }
+    if (data === null || typeof data !== "object" || Array.isArray(data)) return init;
+    const name = data.friendly_name;
+    if (typeof name === "string" && !GENERATED_NAME.test(name)) return init;
+    return { ...init, body: JSON.stringify({ ...data, friendly_name: SESSION_NAME }) };
+  }
+
+  if (typeof pageFetch === "function") {
+    window.fetch = function fetch(input, init) {
+      const args = arguments.length > 1 ? [input, namedLogin(input, init)] : [input];
+      return Reflect.apply(pageFetch, window, args);
+    };
+  }
 
   // ───────────────────────────── меню трея ─────────────────────────────
   // Подписи как в Stoat for Desktop; на русской системе — по-русски.

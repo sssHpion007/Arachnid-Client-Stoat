@@ -25,9 +25,11 @@ use tauri::webview::NewWindowResponse;
 use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEvent};
 use tauri_plugin_autostart::ManagerExt as _;
 
+use crate::emoji_packs::{self, EmojiPacks};
+use crate::hotkeys::{self, Hotkeys};
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
-use crate::{CmdResult, CommandError, extensions};
+use crate::{CmdResult, CommandError, extensions, icon, media};
 
 /// Метка главного окна (как в `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
@@ -48,6 +50,37 @@ const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
 /// Раздел «Плагины», выбор темы в «Внешнем виде» и подпись Arachnid Client в
 /// настройках веб-клиента; выполняется после моста.
 const SETTINGS_SCRIPT: &str = include_str!("settings.js");
+
+/// Значения Arachnid Client для настроек веб-клиента (набор эмодзи Twemoji),
+/// записываются до того, как for-web их прочитает.
+const DEFAULTS_SCRIPT: &str = include_str!("defaults.js");
+
+/// Разделы с заголовками и «Часто используемые» в окне выбора эмодзи, как в
+/// Discord, крупные эмодзи в реакциях и значки ролей без обрезки: встроенный
+/// плагин «Quality of Life» (`extensions.rs`), его можно выключить в разделе
+/// «Плагины».
+const EMOJI_SCRIPT: &str = include_str!("emoji.js");
+
+/// Избранные GIF в окне выбора GIF: та же «Quality of Life» (`emoji.js` и
+/// этот скрипт выполняются вместе).
+const GIFS_SCRIPT: &str = include_str!("gifs.js");
+
+/// Горячие клавиши той же «Quality of Life»: настройка и действия звонка;
+/// сочетания ловит `hotkeys.rs`.
+const HOTKEYS_SCRIPT: &str = include_str!("hotkeys.js");
+
+/// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
+/// 0.16.3) для `emoji.js`.
+const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
+
+/// Эмодзи for-web по разделам Discord (собирает `tools/emoji_categories.mjs`).
+const EMOJI_CATEGORIES: &str = include_str!("emoji_categories.json");
+
+/// Скачивание и удаление наборов эмодзи в шторке выбора набора.
+const EMOJI_PACKS_SCRIPT: &str = include_str!("emoji_packs.js");
+
+/// Первая страница окна в Windows, пока подключаются обработчики WebView2.
+const BLANK_PAGE: &str = "about:blank";
 
 /// Приложение Discord, от имени которого показывается статус (`discordRpc.ts`).
 const DISCORD_CLIENT_ID: &str = "872068124005007420";
@@ -108,7 +141,8 @@ impl Default for DesktopConfig {
             start_minimised_to_tray: false,
             spellchecker: true,
             hardware_acceleration: true,
-            discord_rpc: true,
+            // как и автозапуск: статус в Discord включает сам пользователь
+            discord_rpc: false,
             window_state: WindowState::default(),
         }
     }
@@ -349,6 +383,21 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
         .replace("__ARACHNID_VERSIONS__", &js_literal(&Versions::current()))
 }
 
+/// Скрипт окна выбора эмодзи со списком эмодзи for-web и разделами.
+fn emoji_script() -> String {
+    EMOJI_SCRIPT
+        .replace("__ARACHNID_EMOJI_MAPPING__", EMOJI_MAPPING)
+        .replace("__ARACHNID_EMOJI_CATEGORIES__", EMOJI_CATEGORIES)
+}
+
+/// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
+/// ролей (`emoji.js`), избранные GIF (`gifs.js`), горячие клавиши
+/// (`hotkeys.js`). Выполняется телом функции с объектом `plugin`, как
+/// плагин-папка: по `plugin.settings` включается каждая часть.
+pub(crate) fn qol_script() -> String {
+    format!("{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}", emoji_script())
+}
+
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
 fn js_literal<T: Serialize + ?Sized>(value: &T) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "null".into())
@@ -393,7 +442,16 @@ pub fn create_main_window(
         .find(|window| window.label == MAIN_WINDOW)
         .cloned()
         .unwrap_or_default();
-    window_config.url = WebviewUrl::External(instance.app_url.clone());
+    // В Windows окно открывается пустым, а веб-клиент — после того, как
+    // подключены обработчики WebView2 (наборы эмодзи, микрофон и камера):
+    // фильтры WebResourceRequested для запросов service worker веб-клиента
+    // действуют, только если добавлены до перехода на страницу
+    // (ICoreWebView2_22::AddWebResourceRequestedFilterWithRequestSourceKinds).
+    #[cfg(windows)]
+    let start_url = Url::parse(BLANK_PAGE).expect("about:blank — корректный адрес");
+    #[cfg(not(windows))]
+    let start_url = instance.app_url.clone();
+    window_config.url = WebviewUrl::External(start_url);
 
     let hidden = config.start_minimised_to_tray && std::env::args().any(|arg| arg == HIDDEN_ARG);
     let guard = instance.clone();
@@ -404,9 +462,11 @@ pub fn create_main_window(
         .data_directory(desktop.dir.join(WEBVIEW_DIR))
         .initialization_script(bridge_script(&config, instance))
         .initialization_script(SETTINGS_SCRIPT)
+        .initialization_script(DEFAULTS_SCRIPT)
+        .initialization_script(EMOJI_PACKS_SCRIPT)
         // как `will-navigate` в Stoat for Desktop: окно не уходит с клиента
         .on_navigation(move |url| {
-            let allowed = guard.owns(url);
+            let allowed = guard.owns(url) || url.as_str() == BLANK_PAGE;
             if !allowed {
                 tracing::info!(%url, "переход с клиента заблокирован");
             }
@@ -418,7 +478,10 @@ pub fn create_main_window(
             NewWindowResponse::Deny
         })
         // включённые плагины — после загрузки страницы клиента
-        .on_page_load(extensions::on_page_load);
+        .on_page_load(|window, payload| {
+            hotkeys::on_page_load(&window, &payload);
+            extensions::on_page_load(window, payload);
+        });
 
     #[cfg(windows)]
     if !config.hardware_acceleration {
@@ -434,6 +497,14 @@ pub fn create_main_window(
     }
 
     let window = builder.build()?;
+    icon::apply_window(&window);
+    media::allow_for_client(&window, instance);
+    emoji_packs::serve(&window, Arc::clone(&app.state::<Arc<EmojiPacks>>()));
+    hotkeys::guard_browser_keys(&window, Arc::clone(&app.state::<Arc<Hotkeys>>()));
+    // обработчики выше подключаются в главном потоке по очереди, переход —
+    // следом за ними
+    #[cfg(windows)]
+    window.navigate(instance.app_url.clone())?;
 
     // положение — в физических пикселях, как и сохранено
     if state.width >= 300 && state.height >= 300 && on_screen(&window, state) {
@@ -509,6 +580,8 @@ pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
                 }
             }
         }
+        // на мониторе с другим масштабом нужны кадры значка другого размера
+        WindowEvent::ScaleFactorChanged { .. } => icon::apply_window(&webview),
         WindowEvent::Focused(true) => MemorySaver::foreground(app),
         WindowEvent::Focused(false) => app.state::<Arc<MemorySaver>>().unfocused(),
         _ => {}
@@ -566,6 +639,7 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         builder = builder.icon(icon.clone());
     }
     let tray = builder.build(app)?;
+    icon::apply_tray(&tray);
     if let Ok(mut slot) = app.state::<Arc<Desktop>>().tray.lock() {
         *slot = Some(tray);
     }
@@ -582,6 +656,25 @@ fn toggle_window(app: &AppHandle) {
         refresh_tray(app);
     } else {
         show_main_window(app);
+    }
+}
+
+/// Горячая клавиша «Скрыть окно в трей»: окно, с которым сейчас
+/// работают, прячется (в трей, если закрытие прячет туда, иначе сворачивается),
+/// а свёрнутое, спрятанное или закрытое другими окнами — выходит вперёд.
+pub fn toggle_from_hotkey(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    let in_front = window.is_visible().unwrap_or(false)
+        && !window.is_minimized().unwrap_or(false)
+        && window.is_focused().unwrap_or(false);
+    if !in_front {
+        show_main_window(app);
+    } else if app.state::<Arc<Desktop>>().config().minimise_to_tray {
+        toggle_window(app);
+    } else {
+        let _ = window.minimize();
     }
 }
 
@@ -792,10 +885,14 @@ pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Ar
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
+    /// Как в Stoat for Desktop, кроме Discord RPC: он выключен до явного
+    /// включения пользователем.
     #[test]
-    fn defaults_match_stoat_for_desktop() {
+    fn defaults_of_first_launch() {
         let config = DesktopConfig::default();
         assert!(config.first_launch);
         assert!(config.custom_frame);
@@ -803,13 +900,13 @@ mod tests {
         assert!(!config.start_minimised_to_tray);
         assert!(config.spellchecker);
         assert!(config.hardware_acceleration);
-        assert!(config.discord_rpc);
+        assert!(!config.discord_rpc);
     }
 
     #[test]
     fn missing_fields_take_defaults() {
-        let config: DesktopConfig = serde_json::from_str(r#"{"discordRpc":false}"#).unwrap();
-        assert!(!config.discord_rpc);
+        let config: DesktopConfig = serde_json::from_str(r#"{"discordRpc":true}"#).unwrap();
+        assert!(config.discord_rpc);
         assert!(config.custom_frame);
         assert_eq!(config.window_state, WindowState::default());
     }
@@ -856,8 +953,43 @@ mod tests {
         assert!(script.contains(r#"const appOrigin = "https://stoat.chat";"#));
         assert!(script.contains(r#""customFrame":true"#));
         assert!(script.contains(env!("CARGO_PKG_VERSION")));
-        // в разделе настроек подставлять нечего: он берёт всё у моста
-        assert!(!SETTINGS_SCRIPT.contains("__ARACHNID_"));
+        assert!(
+            !emoji_script().contains("__ARACHNID_"),
+            "осталась метка в emoji.js"
+        );
+        // в остальных скриптах подставлять нечего: они берут всё у моста
+        for script in [
+            SETTINGS_SCRIPT,
+            DEFAULTS_SCRIPT,
+            EMOJI_PACKS_SCRIPT,
+            GIFS_SCRIPT,
+            HOTKEYS_SCRIPT,
+        ] {
+            assert!(!script.contains("__ARACHNID_"));
+        }
+    }
+
+    #[test]
+    fn emoji_categories_cover_mapping() {
+        let mapping: Vec<Vec<String>> = serde_json::from_str(EMOJI_MAPPING).unwrap();
+        assert!(
+            mapping.iter().all(|entry| entry.len() >= 2),
+            "у эмодзи нет имени"
+        );
+        let groups: BTreeMap<&str, Vec<&str>> = serde_json::from_str(EMOJI_CATEGORIES).unwrap();
+        // разделы — те, что знает emoji.js
+        assert_eq!(groups.len(), 8);
+        for name in groups.keys() {
+            let known = EMOJI_SCRIPT.contains(&format!(r#"id: "{name}""#));
+            assert!(known, "раздела {name} нет в emoji.js");
+        }
+        // каждый эмодзи for-web — ровно в одном разделе, и только они
+        let mut unique: Vec<&str> = mapping.iter().map(|entry| entry[0].as_str()).collect();
+        unique.sort_unstable();
+        unique.dedup();
+        let mut placed: Vec<&str> = groups.values().flatten().copied().collect();
+        placed.sort_unstable();
+        assert_eq!(placed, unique);
     }
 
     #[test]

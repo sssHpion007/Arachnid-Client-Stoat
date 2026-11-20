@@ -8,7 +8,15 @@
 - **macOS**: Xcode Command Line Tools
 
 Node.js не нужен: интерфейс (for-web) загружается с сервера инстанса и в
-сборку не входит.
+сборку не входит. Встроенный набор Twemoji (`apps/desktop/src-tauri/emoji/twemoji.bin`)
+лежит в репозитории готовым; Node.js понадобится, только чтобы пересобрать его
+из jdecked/twemoji (`emoji/pack.mjs`, команды — в начале файла).
+
+Скачиваемые наборы эмодзи (Fluent 3D, Fluent Color, Fluent Flat, Mutant Remix,
+Noto) в сборку не входят. Их собирает `.github/workflows/emoji-packs.yml`
+(`emoji/fetch.mjs` + `emoji/pack.mjs`) и выкладывает в пре-релиз
+`emoji-packs-v1` вместе с `manifest.json` (размеры файлов). Workflow запускается
+сам при изменениях в `apps/desktop/src-tauri/emoji/` и вручную.
 
 ## Клиент (Tauri)
 
@@ -35,6 +43,13 @@ cargo tauri build
 
 ## Автоматическая сборка
 
+`.github/workflows/windows.yml` собирает архив для Windows (exe, `config.toml`,
+`README.txt`, папки `themes/` и `plugins/`) при каждой отправке `main` и рабочих
+веток `arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в
+`main`: архив лежит в артефактах запуска на вкладке Actions 30 дней.
+`.github/workflows/ci.yml` (rustfmt, clippy, тесты) запускается на тех же
+ветках и на pull request.
+
 `.github/workflows/release.yml` собирает три платформы и прикладывает
 `bootstrap.sh`/`bootstrap.ps1` к релизу. Запуск:
 
@@ -56,3 +71,30 @@ ARACHNID_CLIENT_DIR=/path/to/folder ./arachnid-client
 
 или положите `config.toml` рядом с исполняемым файлом — клиент использует
 свой каталог вместо системного.
+
+## Проверка в WebView2
+
+`apps/desktop/src-tauri/e2e` — проверка собранного exe в настоящем WebView2.
+Клиент открывает тестовую страницу (`e2e/app`) как веб-клиент своего инстанса
+(`config.toml`, `app_url = "http://127.0.0.1:8765/app/"`). Страница повторяет
+то, на что опирается клиент у for-web: localforage, service worker с
+обработчиком `fetch` (как workbox), окно выбора эмодзи и шторку выбора в `#floating`. Она проверяет:
+
+- картинки Twemoji отдаёт клиент — в первой странице, под service worker и на
+  запросы самого service worker (заголовок `Server-Timing` ответа);
+- набор эмодзи по умолчанию — Twemoji при первом запуске и в прежних
+  настройках с fluent-3d, а выбранный вручную набор остаётся;
+- окно выбора эмодзи получает разделы и при перерисовке списка (прокрутке) не
+  ищется заново по документу, переход к разделу подсвечивает его, открытое
+  заново окно тоже дополняется;
+- шторка выбора получает кнопки, Mutant Remix скачивается с релиза
+  `emoji-packs-v1` и удаляется кнопками шторки, картинки скачанного набора
+  отдаёт клиент.
+
+В CI её запускает задача «проверка в WebView2» в `windows.yml` после сборки.
+Локально (Windows, Python 3, Node.js):
+
+```powershell
+npm install --no-save --prefix apps/desktop/src-tauri/e2e localforage@1.10.0
+pwsh apps/desktop/src-tauri/e2e/run.ps1 -Exe target/release/arachnid-client.exe
+```

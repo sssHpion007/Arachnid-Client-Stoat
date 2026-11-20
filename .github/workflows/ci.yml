@@ -1,9 +1,15 @@
 name: ci
 
+# рабочие ветки (arena/…) проверяются так же, как main: форматирование и
+# clippy ловят ошибки до слияния
 on:
   push:
-    branches: [main]
+    branches: [main, "arena/**"]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
