@@ -438,18 +438,25 @@
   /* у колонки for-web — промежуток между элементами, у этого блока его нет */
   margin-top: calc(-1 * var(--gap-sm, 0px));
 }
+/* Как unicodeShortcut в Discord: полоса во всю ширину колонки с линией
+   сверху и фоном окна, значок — как у остальных кнопок колонки. Прячется,
+   уезжая вниз за край колонки. */
 .arachnid-emoji-dock > .arachnid-emoji-rail-button {
   position: absolute;
   bottom: 0;
   left: 0;
+  box-sizing: border-box;
+  border-top: 1px solid var(--md-sys-color-outline-variant);
+  background: var(--md-sys-color-surface-container);
+  transition: transform 0.2s ease, opacity 0.2s ease;
 }
-.arachnid-emoji-dock > .arachnid-emoji-rail-button > span {
-  color: var(--md-sys-color-on-secondary-container);
-  background: var(--md-sys-color-secondary-container);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--md-sys-color-shadow, #000) 40%, transparent);
-}
-.arachnid-emoji-dock > .arachnid-emoji-rail-button:hover > span {
-  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
+.arachnid-emoji-dock > .arachnid-emoji-rail-button[hidden] {
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(100%);
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0s 0.2s;
 }
 .arachnid-emoji-divider {
   flex-shrink: 0;
@@ -1329,10 +1336,11 @@ ${MESSAGE_ROLE_ICON} > img {
         ? railButton("frequent", "schedule", text.frequent, () => scrollGrid(offsetOf(frequentBlock)))
         : null,
     );
-    // Кнопка перехода к стандартным эмодзи — внизу колонки поверх серверов:
-    // блок нулевой высоты, прилипающий к низу (sticky), между списком
-    // серверов и разделами, а кнопка в нём выступает вверх. Места в колонке
-    // она не занимает, поэтому её показ и скрытие ничего не сдвигают.
+    // Кнопка перехода к стандартным эмодзи — внизу колонки поверх серверов,
+    // как unicodeShortcut в Discord: блок нулевой высоты, прилипающий к низу
+    // (sticky), между списком серверов и разделами, а кнопка в нём выступает
+    // вверх. Места в колонке она не занимает, поэтому её показ и скрытие
+    // ничего не сдвигают.
     const standardButton = railButton("standard", "emoji_emotions", text.standard, jumpToStandard);
     const standardDock = h("div", { class: "arachnid-emoji-dock" }, standardButton);
     const categoryBlock = h(

@@ -743,12 +743,16 @@
       // пока разделы в колонке не видны; переход показывает разделы и прячет
       // её, а когда разделы снова уходят из вида, она возвращается.
       const standardButton = picker.rail.querySelector(".arachnid-emoji-dock > .arachnid-emoji-rail-button");
+      // кнопка выезжает снизу — замер после перехода
+      await Promise.all(standardButton?.getAnimations().map((animation) => animation.finished) ?? []);
       const railBox = picker.rail.getBoundingClientRect();
       const dockBox = standardButton?.getBoundingClientRect();
       const docked = {
         visible: standardButton ? !standardButton.hidden : null,
         bottom: dockBox && Math.round(railBox.bottom - dockBox.bottom),
         height: dockBox && Math.round(dockBox.height),
+        width: dockBox && Math.round(dockBox.width),
+        opaque: standardButton ? getComputedStyle(standardButton).backgroundColor !== "rgba(0, 0, 0, 0)" : null,
       };
       standardButton?.click();
       const jumped = await waitFor(() => standardButton?.hidden, 3000, 50);
@@ -762,6 +766,7 @@
         docked.visible &&
           docked.bottom === 0 &&
           docked.height === 40 &&
+          docked.width === 40 &&
           jumped &&
           categoriesTop >= 0 &&
           categoriesTop < railBox.height - 40 &&
