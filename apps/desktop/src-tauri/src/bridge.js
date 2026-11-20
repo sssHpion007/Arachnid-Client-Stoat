@@ -187,13 +187,14 @@
 
   // ─────────────────────────────── события ───────────────────────────────
   // Раздел «Плагины» и выбор темы (settings.js) узнают отсюда, что темы,
-  // плагины или пункты AviaMenu изменились.
+  // плагины или пункты AviaMenu изменились, «Quality of Life» (hotkeys.js) —
+  // что нажата горячая клавиша.
   const listeners = new Set();
 
-  function emit(type) {
+  function emit(type, detail) {
     for (const listener of listeners) {
       try {
-        listener(type);
+        listener(type, detail);
       } catch (error) {
         console.error("[Arachnid]", error);
       }
@@ -433,6 +434,10 @@
       openQuickCss: () => emit("open-quickcss"),
       // скачивание, удаление и ход загрузки наборов эмодзи (emoji_packs.rs)
       emojiPacksChanged: () => emit("emoji-packs"),
+      // горячие клавиши (hotkeys.rs): нажатое действие звонка выполняет
+      // hotkeys.js, записанное сочетание показывает settings.js
+      hotkey: (action) => emit("hotkey", String(action)),
+      hotkeysChanged: () => emit("hotkeys"),
       subscribe(listener) {
         listeners.add(listener);
         return () => listeners.delete(listener);

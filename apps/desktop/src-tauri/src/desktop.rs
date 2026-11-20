@@ -26,6 +26,7 @@ use tauri::{AppHandle, Manager, State, Url, WebviewUrl, WebviewWindow, WindowEve
 use tauri_plugin_autostart::ManagerExt as _;
 
 use crate::emoji_packs::{self, EmojiPacks};
+use crate::hotkeys::{self, Hotkeys};
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
 use crate::{CmdResult, CommandError, extensions, icon, media};
@@ -63,6 +64,10 @@ const EMOJI_SCRIPT: &str = include_str!("emoji.js");
 /// Избранные GIF в окне выбора GIF: та же «Quality of Life» (`emoji.js` и
 /// этот скрипт выполняются вместе).
 const GIFS_SCRIPT: &str = include_str!("gifs.js");
+
+/// Горячие клавиши той же «Quality of Life»: настройка и действия звонка;
+/// сочетания ловит `hotkeys.rs`.
+const HOTKEYS_SCRIPT: &str = include_str!("hotkeys.js");
 
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
 /// 0.16.3) для `emoji.js`.
@@ -386,11 +391,11 @@ fn emoji_script() -> String {
 }
 
 /// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
-/// ролей (`emoji.js`), избранные GIF (`gifs.js`). Выполняется телом функции
-/// с объектом `plugin`, как плагин-папка: по `plugin.settings` включается
-/// каждая часть.
+/// ролей (`emoji.js`), избранные GIF (`gifs.js`), горячие клавиши
+/// (`hotkeys.js`). Выполняется телом функции с объектом `plugin`, как
+/// плагин-папка: по `plugin.settings` включается каждая часть.
 pub(crate) fn qol_script() -> String {
-    format!("{}\n{GIFS_SCRIPT}", emoji_script())
+    format!("{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}", emoji_script())
 }
 
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
@@ -473,7 +478,10 @@ pub fn create_main_window(
             NewWindowResponse::Deny
         })
         // включённые плагины — после загрузки страницы клиента
-        .on_page_load(extensions::on_page_load);
+        .on_page_load(|window, payload| {
+            hotkeys::on_page_load(&window, &payload);
+            extensions::on_page_load(window, payload);
+        });
 
     #[cfg(windows)]
     if !config.hardware_acceleration {
@@ -492,6 +500,7 @@ pub fn create_main_window(
     icon::apply_window(&window);
     media::allow_for_client(&window, instance);
     emoji_packs::serve(&window, Arc::clone(&app.state::<Arc<EmojiPacks>>()));
+    hotkeys::guard_browser_keys(&window, Arc::clone(&app.state::<Arc<Hotkeys>>()));
     // обработчики выше подключаются в главном потоке по очереди, переход —
     // следом за ними
     #[cfg(windows)]
@@ -647,6 +656,25 @@ fn toggle_window(app: &AppHandle) {
         refresh_tray(app);
     } else {
         show_main_window(app);
+    }
+}
+
+/// Горячая клавиша «Показать или спрятать окно»: окно, с которым сейчас
+/// работают, прячется (в трей, если закрытие прячет туда, иначе сворачивается),
+/// а свёрнутое, спрятанное или закрытое другими окнами — выходит вперёд.
+pub fn toggle_from_hotkey(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    let in_front = window.is_visible().unwrap_or(false)
+        && !window.is_minimized().unwrap_or(false)
+        && window.is_focused().unwrap_or(false);
+    if !in_front {
+        show_main_window(app);
+    } else if app.state::<Arc<Desktop>>().config().minimise_to_tray {
+        toggle_window(app);
+    } else {
+        let _ = window.minimize();
     }
 }
 
@@ -935,6 +963,7 @@ mod tests {
             DEFAULTS_SCRIPT,
             EMOJI_PACKS_SCRIPT,
             GIFS_SCRIPT,
+            HOTKEYS_SCRIPT,
         ] {
             assert!(!script.contains("__ARACHNID_"));
         }

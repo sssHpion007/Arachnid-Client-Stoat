@@ -1519,9 +1519,9 @@ ${sidebarGroup("", [
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
         qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
-          "interface=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false" &&
+          "interface=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
-          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 4,
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 5,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
       );
 
@@ -1650,6 +1650,97 @@ ${sidebarGroup("", [
         downloadOff,
         downloadOn,
       });
+      // «Горячие клавиши»: пункт сразу после «ПК» — только с настройкой,
+      // раздел назначает и убирает сочетания, нажатое сочетание жмёт кнопку
+      // карточки звонка, боковые кнопки мыши не листают страницы
+      const hotkeysEntry = () => settingsPage.querySelector('a.button[data-arachnid-entry="hotkeys"]');
+      const desktopLink = [...settingsPage.querySelectorAll("a.button")].find((link) =>
+        link.querySelector(".material-symbols-outlined")?.textContent === "desktop_windows",
+      );
+      const sideUp = () => {
+        const event = new MouseEvent("mouseup", { button: 3, bubbles: true, cancelable: true });
+        document.body.dispatchEvent(event);
+        return event.defaultPrevented;
+      };
+      const hotkeysOff = { entry: !hotkeysEntry(), active: (await invoke("hotkeys_overview")).active, side: sideUp() };
+      qolInput("hotkeys")?.click();
+      const hotkeysPlaced = await waitFor(() => hotkeysEntry() && desktopLink?.nextElementSibling === hotkeysEntry(), 3000, 50);
+      const hotkeysActive = await waitFor(async () => (await invoke("hotkeys_overview")).active, 3000, 50);
+      hotkeysEntry()?.click();
+      const hotkeyRows = await waitFor(
+        () => settingsPage.querySelectorAll('[data-arachnid-content-page="hotkeys"] [data-arachnid-panel] [data-arachnid-hotkey]').length,
+        3000,
+        50,
+      );
+      await invoke("hotkeys_set", { action: "toggle_mute", code: "ctrl+shift+key:120" });
+      await invoke("hotkeys_set", { action: "toggle_deafen", code: "mouse:x1" });
+      window.__arachnidDesktop.hotkeysChanged();
+      const muteKeys = await waitFor(
+        () => settingsPage.querySelector('[data-arachnid-hotkey="toggle_mute"] .arachnid-keys')?.textContent,
+        3000,
+        50,
+      );
+      settingsPage.querySelector('[data-arachnid-hotkey="toggle_deafen"] .arachnid-icon-button')?.click();
+      const hotkeyState = { cleared: await waitFor(async () => !(await invoke("hotkeys_overview")).bindings.toggle_deafen, 3000, 50) };
+      settingsPage.querySelector('[data-arachnid-hotkey="disconnect"] .arachnid-button')?.click();
+      hotkeyState.recording = await waitFor(
+        async () =>
+          (await invoke("hotkeys_overview")).recording === "disconnect" &&
+          settingsPage.querySelector('[data-arachnid-hotkey="disconnect"]')?.hasAttribute("data-recording"),
+        3000,
+        50,
+      );
+      settingsPage.querySelector('[data-arachnid-hotkey="disconnect"] .arachnid-button')?.click();
+      hotkeyState.cancelled = await waitFor(async () => (await invoke("hotkeys_overview")).recording === null, 3000, 50);
+
+      const callBar = document.createElement("div");
+      const callPresses = [];
+      for (const symbol of ["mic_off", "headset", "camera_video", "screen_share", "call_end"]) {
+        const callButton = document.createElement("button");
+        const symbolSpan = document.createElement("span");
+        symbolSpan.textContent = symbol;
+        callButton.append(symbolSpan);
+        callButton.disabled = symbol === "camera_video";
+        callButton.addEventListener("click", () => callPresses.push(symbol));
+        callBar.append(callButton);
+      }
+      document.getElementById("floating").append(callBar);
+      for (const action of ["toggle_mute", "toggle_camera", "disconnect", "toggle_window"]) window.__arachnidDesktop.hotkey(action);
+      await frame();
+      callBar.remove();
+      hotkeyState.side = sideUp();
+
+      qolInput("hotkeys")?.click();
+      hotkeyState.removed = await waitFor(
+        async () =>
+          !hotkeysEntry() &&
+          !settingsPage.querySelector('[data-arachnid-content-page="hotkeys"]') &&
+          !(await invoke("hotkeys_overview")).active,
+        3000,
+        50,
+      );
+      hotkeyState.sideAfter = sideUp();
+      await invoke("hotkeys_set", { action: "toggle_mute", code: null });
+      Object.assign(hotkeyState, { hotkeysOff, hotkeysPlaced: Boolean(hotkeysPlaced), hotkeysActive, hotkeyRows, muteKeys, presses: callPresses.join() });
+      await check(
+        "«Горячие клавиши»: пункт после «ПК» с настройкой, сочетания назначаются, действие жмёт кнопку звонка",
+        hotkeysOff.entry &&
+          !hotkeysOff.active &&
+          !hotkeysOff.side &&
+          hotkeysPlaced &&
+          hotkeysActive &&
+          hotkeyRows === 6 &&
+          muteKeys === "CtrlShiftF9" &&
+          hotkeyState.cleared &&
+          hotkeyState.recording &&
+          hotkeyState.cancelled &&
+          callPresses.join() === "mic_off,call_end" &&
+          hotkeyState.side &&
+          hotkeyState.removed &&
+          !hotkeyState.sideAfter,
+        hotkeyState,
+      );
+
       qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
       settingsPage.remove();

@@ -45,7 +45,7 @@
         core: (api) => `Ядро клиента всегда включено · API плагинов ${api}`,
         builtin: "Встроенный",
         builtinDescription: {
-          "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, избранные GIF, крупные эмодзи в реакциях и значки ролей целиком.",
+          "builtin:qol": "Окно эмодзи с разделами и «Часто используемыми», как в Discord, избранные GIF, крупные эмодзи в реакциях, значки ролей целиком и горячие клавиши.",
         },
         // подписи настроек встроенных плагинов; requires — от какого
         // флажка настройка зависит
@@ -68,7 +68,35 @@
               hint: "Вернуться к Gifbox — стрелкой «Назад».",
               requires: "favorite_gifs",
             },
+            hotkeys: {
+              label: "Горячие клавиши",
+              hint: "Сочетания клавиш и кнопки мыши (средняя, боковые) для звонка и окна клиента — работают, даже когда клиент свёрнут. Назначаются в разделе «Горячие клавиши» после «ПК». Пока настройка включена, сочетания браузера (F5, F11, Ctrl+R) не работают, а боковые кнопки мыши не листают страницы.",
+            },
           },
+        },
+        hotkeys: "Горячие клавиши",
+        hotkeysIntro:
+          "Работают везде, даже когда клиент свёрнут или спрятан в трей. В окне клиента сочетание выполняет только своё действие, в других программах доходит и до них. Действия звонка — как кнопки в карточке звонка.",
+        hotkeysInactive: "Горячие клавиши заработают, когда «Quality of Life» запустится снова — после перезагрузки клиента.",
+        hotkeyActions: {
+          toggle_mute: "Выключить или включить микрофон",
+          toggle_deafen: "Выключить или включить звук",
+          disconnect: "Выйти из звонка",
+          toggle_camera: "Включить или выключить камеру",
+          toggle_screenshare: "Начать или остановить демонстрацию экрана",
+          toggle_window: "Показать или спрятать окно клиента",
+        },
+        hotkeyNone: "Не назначено",
+        hotkeyRecording: "Нажмите сочетание клавиш или кнопку мыши… Esc — отмена",
+        assignHotkey: "Назначить",
+        clearHotkey: "Убрать сочетание",
+        keyNames: {
+          win: "Win",
+          space: "Пробел",
+          middle: "Средняя кнопка мыши",
+          x1: "Кнопка мыши «Назад»",
+          x2: "Кнопка мыши «Вперёд»",
+          key: (code) => `Клавиша ${code}`,
         },
         network: (hosts) => `Доступ в сеть: ${hosts}`,
         needsGrant: "Ждёт разрешения на доступ в сеть",
@@ -120,7 +148,7 @@
         core: (api) => `The client core is always on · Plugin API ${api}`,
         builtin: "Built-in",
         builtinDescription: {
-          "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, favorite GIFs, larger emoji in reactions and uncropped role icons.",
+          "builtin:qol": "Emoji picker with sections and “Frequently Used”, like in Discord, favorite GIFs, larger emoji in reactions, uncropped role icons and keybinds.",
         },
         builtinSettings: {
           "builtin:qol": {
@@ -141,7 +169,35 @@
               hint: "The Back arrow returns to Gifbox.",
               requires: "favorite_gifs",
             },
+            hotkeys: {
+              label: "Keybinds",
+              hint: "Key combinations and mouse buttons (middle, side) for calls and the client window — they work even while the client is minimized. Set them in the “Keybinds” page after “Desktop”. While this is on, browser shortcuts (F5, F11, Ctrl+R) do nothing and the side mouse buttons do not go back or forward.",
+            },
           },
+        },
+        hotkeys: "Keybinds",
+        hotkeysIntro:
+          "They work everywhere, even while the client is minimized or hidden in the tray. In the client window a keybind only does its action; other programs receive it as well. Call actions work like the buttons on the call card.",
+        hotkeysInactive: "Keybinds start working when “Quality of Life” runs again — after the client reloads.",
+        hotkeyActions: {
+          toggle_mute: "Mute or Unmute",
+          toggle_deafen: "Deafen or Undeafen",
+          disconnect: "Leave the Call",
+          toggle_camera: "Start or Stop the Camera",
+          toggle_screenshare: "Start or Stop Screen Sharing",
+          toggle_window: "Show or Hide the Client Window",
+        },
+        hotkeyNone: "Not set",
+        hotkeyRecording: "Press a key combination or a mouse button… Esc cancels",
+        assignHotkey: "Set",
+        clearHotkey: "Remove Keybind",
+        keyNames: {
+          win: "Win",
+          space: "Space",
+          middle: "Middle Mouse Button",
+          x1: "Mouse Back Button",
+          x2: "Mouse Forward Button",
+          key: (code) => `Key ${code}`,
         },
         network: (hosts) => `Network access: ${hosts}`,
         needsGrant: "Waiting for network permission",
@@ -194,6 +250,8 @@
   const WELCOME = "Welcome to the new appearance menu";
   /** Значок пункта «ПК» в боковой панели */
   const DESKTOP_ICON = "desktop_windows";
+  /** Значок пункта «Горячие клавиши» (шрифтом, как у «ПК») */
+  const HOTKEYS_ICON = "keyboard";
   /**
    * Значок «extension» из Material Symbols (@material-symbols/svg-400,
    * outlined) — набор, которым for-web рисует и значок «ПК». У него
@@ -426,6 +484,14 @@
 label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start: 32px; margin-top: 2px; }
 .arachnid-hosts { margin: 0; padding-inline-start: 20px; font-family: var(--fonts-monospace, monospace); overflow-wrap: anywhere; }
 .arachnid-item-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+/* сочетание горячей клавиши: клавиши плашками */
+.arachnid-keys { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 2px; }
+.arachnid-key {
+  padding: 1px 8px; border-radius: 6px; font-size: 0.8125rem; line-height: 1.25rem; font-weight: 500;
+  background: var(--md-sys-color-surface-container-highest); color: var(--md-sys-color-on-surface);
+  box-shadow: inset 0 -1px 0 var(--md-sys-color-outline-variant);
+}
+.arachnid-item[data-recording] { outline: 2px solid var(--md-sys-color-primary); outline-offset: -2px; }
 .arachnid-icon-button {
   width: 40px; height: 40px; padding: 0; border: none; display: grid; place-items: center; cursor: pointer;
   border-radius: var(--borderRadius-full, 9999px); background: transparent; color: inherit;
@@ -780,6 +846,8 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       .then((next) => {
         overview = next;
         if (rerender) renderAll();
+        // пункт «Горячие клавиши» зависит от настроек «Quality of Life»
+        else queueScan();
       })
       .catch((error) => {
         console.warn(`[Arachnid] ${command}:`, error);
@@ -790,11 +858,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   const openFolder = (target) => void invoke("extensions_open", { target });
 
   // ───────────────────────────── раздел «Плагины» ─────────────────────────────
-  /** Открытый раздел: { sidebar, entry, column, panel, observer } */
+  /** Открытый свой раздел: { kind, sidebar, entry, column, panel, observer };
+   *  kind — "plugins" или "hotkeys" */
   let page = null;
 
   function renderPluginsPage() {
-    if (!page?.panel.isConnected) return;
+    if (page?.kind !== "plugins" || !page.panel.isConnected) return;
     openSelect?.();
     const plugins = overview?.plugins ?? [];
     const menu = desktop.pluginMenu();
@@ -904,17 +973,189 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     );
   }
 
+  // ─────────────────────────── раздел «Горячие клавиши» ───────────────────────────
+  // Назначения хранит Rust (hotkeys.rs); здесь — последний ответ:
+  // { active, recording, bindings, actions }.
+  let hotkeys = null;
+  let hotkeysError = null;
+
+  const QOL = "builtin:qol";
+  /** Значки действий по порядку раздела */
+  const HOTKEY_ICONS = {
+    toggle_mute: "mic",
+    toggle_deafen: "headset",
+    disconnect: "call_end",
+    toggle_camera: "videocam",
+    toggle_screenshare: "screen_share",
+    toggle_window: "web_asset",
+  };
+
+  /** Названия клавиш по виртуальным кодам Windows (у остальных — правила
+   *  в keyName) */
+  const KEY_NAMES = new Map([
+    [0x08, "Backspace"],
+    [0x09, "Tab"],
+    [0x0c, "Clear"],
+    [0x0d, "Enter"],
+    [0x13, "Pause"],
+    [0x14, "Caps Lock"],
+    [0x1b, "Esc"],
+    [0x21, "Page Up"],
+    [0x22, "Page Down"],
+    [0x23, "End"],
+    [0x24, "Home"],
+    [0x25, "←"],
+    [0x26, "↑"],
+    [0x27, "→"],
+    [0x28, "↓"],
+    [0x2c, "Print Screen"],
+    [0x2d, "Insert"],
+    [0x2e, "Delete"],
+    [0x5d, "Menu"],
+    [0x6a, "Num *"],
+    [0x6b, "Num +"],
+    [0x6d, "Num -"],
+    [0x6e, "Num ."],
+    [0x6f, "Num /"],
+    [0x90, "Num Lock"],
+    [0x91, "Scroll Lock"],
+    [0xad, "Volume Mute"],
+    [0xae, "Volume Down"],
+    [0xaf, "Volume Up"],
+    [0xb0, "Next Track"],
+    [0xb1, "Previous Track"],
+    [0xb2, "Stop"],
+    [0xb3, "Play/Pause"],
+    [0xba, ";"],
+    [0xbb, "="],
+    [0xbc, ","],
+    [0xbd, "-"],
+    [0xbe, "."],
+    [0xbf, "/"],
+    [0xc0, "`"],
+    [0xdb, "["],
+    [0xdc, "\\"],
+    [0xdd, "]"],
+    [0xde, "'"],
+    [0xe2, "\\"],
+  ]);
+
+  function keyName(code) {
+    if (code === 0x20) return text.keyNames.space;
+    // цифры и латинские буквы — коды их символов
+    if ((code >= 0x30 && code <= 0x39) || (code >= 0x41 && code <= 0x5a)) return String.fromCharCode(code);
+    if (code >= 0x60 && code <= 0x69) return `Num ${code - 0x60}`;
+    if (code >= 0x70 && code <= 0x87) return `F${code - 0x6f}`;
+    return KEY_NAMES.get(code) ?? text.keyNames.key(code);
+  }
+
+  /** Клавиши сочетания hotkeys.rs: «ctrl+shift+key:120» → Ctrl, Shift, F9 */
+  function comboParts(combo) {
+    return combo.split("+").map((part) => {
+      if (part === "ctrl") return "Ctrl";
+      if (part === "shift") return "Shift";
+      if (part === "alt") return "Alt";
+      if (part === "win") return text.keyNames.win;
+      if (part.startsWith("mouse:")) return text.keyNames[part.slice("mouse:".length)] ?? part;
+      if (part.startsWith("key:")) return keyName(Number(part.slice("key:".length)));
+      return part;
+    });
+  }
+
+  /** Раздел виден, пока включены «Quality of Life» и её настройка `hotkeys` */
+  function hotkeysEnabled() {
+    const qol = overview?.plugins?.find((plugin) => plugin.file === QOL);
+    return Boolean(qol?.enabled && qol.values?.hotkeys === "1");
+  }
+
+  /** Команда hotkeys.rs, которая возвращает новое состояние */
+  function hotkeysCommand(command, args) {
+    return invoke(command, args).then(
+      (next) => {
+        hotkeys = next;
+        hotkeysError = null;
+        renderHotkeysPage();
+      },
+      (error) => {
+        console.warn(`[Arachnid] ${command}:`, error);
+        hotkeysError = error?.message ?? String(error);
+        renderHotkeysPage();
+      },
+    );
+  }
+
+  const refreshHotkeys = () => hotkeysCommand("hotkeys_overview");
+
+  function renderHotkeysPage() {
+    if (page?.kind !== "hotkeys" || !page.panel.isConnected) return;
+    const rows = (hotkeys?.actions ?? []).map((action) => {
+      const combo = hotkeys.bindings[action];
+      const recording = hotkeys.recording === action;
+      let description = text.hotkeyNone;
+      if (recording) description = text.hotkeyRecording;
+      else if (combo) {
+        description = h(
+          "span",
+          { class: "arachnid-keys" },
+          comboParts(combo).map((part) => h("span", { class: "arachnid-key" }, part)),
+        );
+      }
+      const buttons = [
+        combo && !recording
+          ? iconButton("backspace", text.clearHotkey, () => void hotkeysCommand("hotkeys_set", { action, code: null }))
+          : null,
+        recording
+          ? button(text.cancel, () => void hotkeysCommand("hotkeys_record", { action: null }), "text")
+          : button(text.assignHotkey, () => void hotkeysCommand("hotkeys_record", { action })),
+      ];
+      const row = item({
+        iconName: HOTKEY_ICONS[action] ?? "keyboard",
+        title: text.hotkeyActions[action] ?? action,
+        description,
+        action: h("div", { class: "arachnid-item-actions" }, buttons),
+      });
+      row.dataset.arachnidHotkey = action;
+      if (recording) row.dataset.recording = "";
+      return row;
+    });
+
+    setChildren(
+      page.panel,
+      h("div", { class: "arachnid-page-header" }, h("span", { class: "arachnid-title" }, text.hotkeys)),
+      h("span", { class: "arachnid-label" }, text.hotkeysIntro),
+      // настройку включили, а «Quality of Life» ещё не запущена
+      hotkeys && !hotkeys.active
+        ? h(
+            "div",
+            { class: "arachnid-banner", role: "status" },
+            icon("restart_alt"),
+            h("span", {}, text.hotkeysInactive),
+            button(text.reload, () => location.reload(), "filled"),
+          )
+        : null,
+      hotkeysError
+        ? h("span", { class: "arachnid-label", role: "alert", style: { color: "var(--md-sys-color-error)" } }, hotkeysError)
+        : null,
+      rows.length ? h("div", { class: "arachnid-group" }, rows) : null,
+    );
+  }
+
+  function renderPage() {
+    renderPluginsPage();
+    renderHotkeysPage();
+  }
+
   /** Показать раздел вместо текущей страницы настроек */
-  function openPage(sidebar, entry) {
+  function openPage(sidebar, entry, kind) {
     const content = sidebar.nextElementSibling;
     const column = content?.querySelector(".settings_cont")?.firstElementChild;
     if (!column) return;
-    if (page?.column === column && page.panel.isConnected) return;
+    if (page?.column === column && page.kind === kind && page.panel.isConnected) return;
     closePage();
 
     const panel = h("div", { class: "arachnid-page", dataset: { arachnidPanel: "" } });
     column.append(panel);
-    column.dataset.arachnidContentPage = "plugins";
+    column.dataset.arachnidContentPage = kind;
     // подсветка открытой страницы for-web — класс варианта Panda, а не
     // атрибут: она гасится, пока открыт раздел
     for (const link of selectedLinks(sidebar)) link.setAttribute("data-arachnid-muted", "");
@@ -934,14 +1175,20 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     });
     observer.observe(column, { childList: true });
 
-    page = { sidebar, entry, column, panel, observer };
+    page = { kind, sidebar, entry, column, panel, observer };
     content.scrollTop = 0;
-    renderPluginsPage();
+    renderPage();
     void refresh();
+    if (kind === "hotkeys") void refreshHotkeys();
   }
 
   function closePage() {
     if (!page) return;
+    // ушли из раздела, не нажав сочетание: запись отменяется
+    if (page.kind === "hotkeys" && hotkeys?.recording) {
+      hotkeys = { ...hotkeys, recording: null };
+      void invoke("hotkeys_record", { action: null }).catch(() => {});
+    }
     page.observer.disconnect();
     page.panel.remove();
     delete page.column.dataset.arachnidContentPage;
@@ -1038,8 +1285,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     return Boolean(node || sidebar.querySelector("[data-arachnid-footer]") || findDesktopEntry(sidebar));
   }
 
-  /** Пункт «Плагины»: копия «Внешнего вида» со значком extension */
-  function createEntry(sidebar, template) {
+  /**
+   * Свой пункт — копия пункта for-web: «Плагины» (копия «Внешнего вида» со
+   * значком extension) или «Горячие клавиши» (копия «ПК» со значком
+   * keyboard). `svgIcon` — значок для пункта со значком svg.
+   */
+  function createEntry(sidebar, template, { kind, label: title, symbol: symbolName, svgIcon }) {
     const entry = template.cloneNode(true);
     entry.className = plainClass(sidebar) ?? template.className;
     entry.removeAttribute("id");
@@ -1047,28 +1298,29 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     entry.removeAttribute("data-arachnid-muted");
     entry.setAttribute("aria-selected", "false");
     entry.setAttribute("role", "button");
-    entry.dataset.arachnidEntry = "plugins";
+    entry.dataset.arachnidEntry = kind;
 
     const svg = entry.querySelector("svg");
     let label;
     if (svg) {
-      svg.replaceChildren(document.createElementNS("http://www.w3.org/2000/svg", "path"));
-      svg.firstChild.setAttribute("d", EXTENSION_ICON.path);
-      svg.setAttribute("viewBox", EXTENSION_ICON.viewBox);
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", svgIcon.path);
+      svg.replaceChildren(path);
+      svg.setAttribute("viewBox", svgIcon.viewBox);
       label = svg.nextElementSibling;
     } else {
       // значок шрифтом Material Symbols
       const symbol = entry.querySelector(".material-symbols-outlined");
-      if (symbol) symbol.textContent = "extension";
+      if (symbol) symbol.textContent = symbolName;
       label = symbol?.nextElementSibling;
     }
     // подпись — самый вложенный элемент (OverflowingText)
     while (label?.firstElementChild) label = label.firstElementChild;
-    (label ?? entry).textContent = text.plugins;
+    (label ?? entry).textContent = title;
 
     entry.addEventListener("click", (event) => {
       event.preventDefault();
-      openPage(sidebar, entry);
+      openPage(sidebar, entry, kind);
     });
     return entry;
   }
@@ -1083,9 +1335,17 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     if (!appearanceEntry) return;
 
     let entry = sidebar.querySelector('a.button[data-arachnid-entry="plugins"]');
-    if (!entry) entry = createEntry(sidebar, appearanceEntry);
+    if (!entry) {
+      entry = createEntry(sidebar, appearanceEntry, {
+        kind: "plugins",
+        label: text.plugins,
+        symbol: "extension",
+        svgIcon: EXTENSION_ICON,
+      });
+    }
     // for-web мог перерисовать список: пункт остаётся после «Внешнего вида»
     if (appearanceEntry.nextElementSibling !== entry) appearanceEntry.after(entry);
+    ensureHotkeysEntry(sidebar);
 
     if (!sidebar.dataset.arachnidListening) {
       sidebar.dataset.arachnidListening = "";
@@ -1101,6 +1361,24 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         true,
       );
     }
+  }
+
+  /**
+   * Пункт «Горячие клавиши» сразу после «ПК» — пока включена настройка
+   * `hotkeys` «Quality of Life». Выключили — пункт и раздел убираются.
+   */
+  function ensureHotkeysEntry(sidebar) {
+    const desktopEntry = findDesktopEntry(sidebar);
+    let entry = sidebar.querySelector('a.button[data-arachnid-entry="hotkeys"]');
+    if (!desktopEntry || !hotkeysEnabled()) {
+      if (page?.kind === "hotkeys" && page.sidebar === sidebar) closePage();
+      entry?.remove();
+      return;
+    }
+    if (!entry) {
+      entry = createEntry(sidebar, desktopEntry, { kind: "hotkeys", label: text.hotkeys, symbol: HOTKEYS_ICON });
+    }
+    if (desktopEntry.nextElementSibling !== entry) desktopEntry.after(entry);
   }
 
   // ─────────────────────────── группы боковой панели ───────────────────────────
@@ -1852,8 +2130,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   // ─────────────────────────────── обход ───────────────────────────────
 
   function renderAll() {
-    renderPluginsPage();
+    renderPage();
     renderAppearance();
+    // пункт «Горячие клавиши» зависит от настроек «Quality of Life»
+    queueScan();
   }
 
   function scan() {
@@ -1886,6 +2166,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     else if (type === "menu") renderPluginsPage();
     else if (type === "quickcss") quickCss?.reload();
     else if (type === "open-quickcss") openQuickCss();
+    else if (type === "hotkeys") void refreshHotkeys();
   });
 
   function start() {

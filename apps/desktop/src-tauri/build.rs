@@ -41,6 +41,10 @@ const COMMANDS: &[&str] = &[
     "favorite_gifs_resolve",
     "favorite_gifs_download",
     "image_save",
+    "hotkeys_overview",
+    "hotkeys_activate",
+    "hotkeys_set",
+    "hotkeys_record",
 ];
 
 fn main() {

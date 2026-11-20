@@ -244,7 +244,7 @@ struct Builtin {
 const BUILTINS: &[Builtin] = &[Builtin {
     id: "builtin:qol",
     name: "Quality of Life",
-    description: "Разделы в окне эмодзи, избранные GIF, крупные реакции, значки ролей целиком",
+    description: "Разделы в окне эмодзи, избранные GIF, крупные реакции, значки ролей целиком, горячие клавиши",
     enabled_by_default: true,
     code: desktop::qol_script,
     settings: qol_settings,
@@ -266,7 +266,7 @@ fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
 }
 
 /// Настройки «Quality of Life»: каждая часть включается отдельно
-/// (`emoji.js`, `gifs.js`). Подписи на странице переводит `settings.js`.
+/// (`emoji.js`, `gifs.js`, `hotkeys.js`). Подписи на странице переводит `settings.js`.
 fn qol_settings() -> Vec<usercss::Setting> {
     vec![
         checkbox("interface", "Исправление деталей интерфейса", true),
@@ -277,6 +277,7 @@ fn qol_settings() -> Vec<usercss::Setting> {
             "Открывать окно GIF сразу на избранном",
             false,
         ),
+        checkbox("hotkeys", "Горячие клавиши", false),
     ]
 }
 
@@ -1491,7 +1492,7 @@ fn favorite_gif_preview(app: &AppHandle, file: &str) -> tauri::http::Response<Ve
     }
 }
 
-fn write_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
+pub(crate) fn write_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
     let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
     write_text_atomically(path, &text)
 }
@@ -2409,10 +2410,11 @@ mod tests {
         let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names.join(","),
-            "interface,emoji_picker,favorite_gifs,gifs_open_favorites"
+            "interface,emoji_picker,favorite_gifs,gifs_open_favorites,hotkeys"
         );
         assert_eq!(qol.values["favorite_gifs"], "1");
         assert_eq!(qol.values["gifs_open_favorites"], "0");
+        assert_eq!(qol.values["hotkeys"], "0");
 
         // код получает объект `plugin` со значениями настроек
         let script = &extensions.plugins()[0].1;

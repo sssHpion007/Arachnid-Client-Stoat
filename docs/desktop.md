@@ -75,8 +75,10 @@ for-web проверяет `window.native`. Если объект есть, он
 (новые настройки), `setStyles(styles)` (сохранили тему), `runMenuItem(id)`
 (выбрали пункт плагина в трее), `extensionsChanged()` (темы или плагины
 изменились из трея или в папке — раздел настроек перечитывает их),
-`openQuickCss()` (пункт трея «Изменить QuickCSS») и `quickCssChanged()`
-(`quickcss.css` сохранили в другой программе).
+`openQuickCss()` (пункт трея «Изменить QuickCSS»), `quickCssChanged()`
+(`quickcss.css` сохранили в другой программе), `hotkey(action)` (нажата
+горячая клавиша действия звонка) и `hotkeysChanged()` (записано сочетание);
+см. «Горячие клавиши» в [extensions.md](extensions.md#горячие-клавиши).
 
 `native.versions` for-web выводит внизу списка настроек как «Stoat for Desktop
 0.14.0» и строку `Tauri 2.x, Windows x86_64, WebView 1xx` (поля `electron`,

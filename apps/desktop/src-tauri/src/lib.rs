@@ -22,6 +22,7 @@ mod emoji_packs;
 mod emoji_raster;
 mod extensions;
 mod favorite_gifs;
+mod hotkeys;
 #[cfg(windows)]
 mod http;
 mod icon;
@@ -100,6 +101,10 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-favorite-gifs-resolve",
     "allow-favorite-gifs-download",
     "allow-image-save",
+    "allow-hotkeys-overview",
+    "allow-hotkeys-activate",
+    "allow-hotkeys-set",
+    "allow-hotkeys-record",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -292,6 +297,9 @@ pub fn run() {
             // избранные GIF «Quality of Life»: список и превью
             let gifs_dir = data_dir.join(favorite_gifs::DIR);
             app.manage(Arc::new(favorite_gifs::FavoriteGifs::new(gifs_dir)));
+            // горячие клавиши «Quality of Life»: до создания окна, оно
+            // подключает к ним WebView2
+            app.manage(hotkeys::start(app.handle(), &data_dir));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -345,6 +353,10 @@ pub fn run() {
             favorite_gifs::favorite_gifs_resolve,
             favorite_gifs::favorite_gifs_download,
             image_save::image_save,
+            hotkeys::hotkeys_overview,
+            hotkeys::hotkeys_activate,
+            hotkeys::hotkeys_set,
+            hotkeys::hotkeys_record,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");
