@@ -52,24 +52,24 @@
           "builtin:qol": {
             interface: {
               label: "Исправление деталей интерфейса",
-              hint: "Эмодзи в реакциях размером с эмодзи в тексте, значки ролей целиком, зазор под заголовком группы участников, подсветка кнопок не застревает после наведения, нет меню браузера («Обновить», «Печать») — оно остаётся только в полях ввода и на выделенном тексте.",
+              hint: "Исправление мелких недочётов в пользовательском интерфейсе.",
             },
             emoji_picker: {
               label: "Улучшенное меню эмодзи",
-              hint: "Разделы, «Избранное» и «Часто используемые», как в Discord; меню правой кнопки на эмодзи («Скачать изображение», «Добавить в избранное»). Окно меняется со следующего открытия.",
+              hint: "Удобные разделы и прочие улучшения для меню эмодзи.",
             },
             favorite_gifs: {
               label: "Меню избранного для GIF",
-              hint: "Плитка «Избранное» в окне GIF, пункты в меню правой кнопки; GIF играют только под указателем.",
+              hint: "Сохранение любимых GIF и быстрый доступ к ним.",
             },
             gifs_open_favorites: {
               label: "Открывать окно GIF сразу на избранном",
-              hint: "Вернуться к Gifbox — стрелкой «Назад».",
+              hint: "Gifbox открывается стрелкой «Назад».",
               requires: "favorite_gifs",
             },
             hotkeys: {
               label: "Горячие клавиши",
-              hint: "Сочетания клавиш и кнопки мыши (средняя, боковые) для звонка и окна клиента — работают, даже когда клиент свёрнут. Назначаются в разделе «Горячие клавиши» после «ПК». Пока настройка включена, сочетания браузера (F5, F11, Ctrl+R) не работают, а боковые кнопки мыши не листают страницы.",
+              hint: "Управление звонком и окном клиента с клавиатуры и мыши, даже в свёрнутом виде.",
             },
           },
         },
@@ -150,24 +150,24 @@
           "builtin:qol": {
             interface: {
               label: "Interface Fixes",
-              hint: "Reaction emoji as large as emoji in text, uncropped role icons, a gap under member group titles, button highlights that no longer stick after hover, no browser menu (“Reload”, “Print”) — it stays only in text fields and on selected text.",
+              hint: "Fixes for small flaws in the user interface.",
             },
             emoji_picker: {
               label: "Enhanced Emoji Picker",
-              hint: "Sections, “Favorites” and “Frequently Used”, like in Discord; a right-click menu on emoji (“Download Image”, “Add to Favorites”). The picker changes the next time it opens.",
+              hint: "Handy sections and other improvements for the emoji picker.",
             },
             favorite_gifs: {
               label: "Favorite GIFs",
-              hint: "A “Favorites” tile in the GIF picker and right-click menu items; GIFs play only on hover.",
+              hint: "Save your favorite GIFs and get to them quickly.",
             },
             gifs_open_favorites: {
               label: "Open the GIF Picker on Favorites",
-              hint: "The Back arrow returns to Gifbox.",
+              hint: "The Back arrow opens Gifbox.",
               requires: "favorite_gifs",
             },
             hotkeys: {
               label: "Keybinds",
-              hint: "Key combinations and mouse buttons (middle, side) for calls and the client window — they work even while the client is minimized. Set them in the “Keybinds” page after “Desktop”. While this is on, browser shortcuts (F5, F11, Ctrl+R) do nothing and the side mouse buttons do not go back or forward.",
+              hint: "Control calls and the client window from the keyboard and mouse, even when minimized.",
             },
           },
         },
