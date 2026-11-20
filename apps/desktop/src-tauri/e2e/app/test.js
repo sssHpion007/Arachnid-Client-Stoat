@@ -207,7 +207,7 @@
     // поиск for-web перестраивает список сразу, в обработчике ввода
     input.addEventListener("input", render);
     render();
-    return { base, input, rail, grid, gridList, render, picked };
+    return { base, input, rail, railList, grid, gridList, render, picked };
   }
   /** Правый щелчок по элементу; false — обработчик отменил меню браузера */
   function rightClick(target) {
