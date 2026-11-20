@@ -26,16 +26,19 @@ cargo build --release -p arachnid-client
 
 Готовый бинарник: `target/release/arachnid-client` (Windows: `arachnid-client.exe`).
 
-Установщики (нужен CLI Tauri):
+Установщики и одиночные файлы — через CLI Tauri (Node.js или
+`cargo install tauri-cli --version "^2"` и `cargo tauri` вместо `npx`):
 
 ```bash
-cargo install tauri-cli --version "^2"
 cd apps/desktop/src-tauri
-cargo tauri build
+npx @tauri-apps/cli@2 build                                # установщики
+npx @tauri-apps/cli@2 build --no-bundle --features portable # одиночный файл
 ```
 
-Результат: `target/release/bundle/` — `.msi` и `.exe` (NSIS) на Windows,
-`.deb`/`.AppImage` на Linux, `.app`/`.dmg` на macOS.
+Результат: `target/release/bundle/` — `.exe` (NSIS) на Windows, `.deb`, `.rpm`
+и `.AppImage` на Linux, `.app` и `.dmg` на macOS. Возможность `portable`
+(`apps/desktop/src-tauri/Cargo.toml`) — для одиночного файла: данные всегда
+хранятся в папке рядом с ним.
 
 Проверить с локальным for-web (его `mise dev` поднимает сервер на
 `http://localhost:5173`): положите рядом с бинарником `config.toml` с
@@ -43,33 +46,35 @@ cargo tauri build
 
 ## Автоматическая сборка
 
-`.github/workflows/windows.yml` собирает архив для Windows (exe, `config.toml`,
-`README.txt`, папки `themes/` и `plugins/`) при каждой отправке `main` и рабочих
-веток `arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в
-`main`: архив лежит в артефактах запуска на вкладке Actions 30 дней.
+`.github/workflows/windows.yml` собирает `Arachnid Client.exe` (тот же
+одиночный файл, что в релизе) при каждой отправке `main` и рабочих веток
+`arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в `main`:
+файл лежит в артефактах запуска на вкладке Actions 30 дней.
 `.github/workflows/ci.yml` (rustfmt, clippy, тесты) запускается на тех же
 ветках и на pull request.
 
-`.github/workflows/release.yml` собирает три платформы и прикладывает
-`bootstrap.sh`/`bootstrap.ps1` к релизу. Запуск:
+`.github/workflows/release.yml` собирает Windows, Linux и macOS (универсальная
+сборка для Apple Silicon и Intel): установщики `Arachnid-Client-Setup.exe`,
+`.deb`, `.rpm`, `.dmg` и одиночные файлы `Arachnid Client.exe`,
+`Arachnid Client.AppImage`, `Arachnid Client.app.zip`. Отправка рабочей ветки,
+в которой меняется сборка, только собирает файлы (артефакты запуска); тег
+выпускает релиз с текстом из `.github/release-notes.md`:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
-
-После прогона появится draft-релиз с установщиками; опубликуйте его, и бутстрап
-начнёт находить сборку автоматически.
 
 ## Портативный режим при сборке
 
-Чтобы получить переносимую сборку, при запуске укажите папку:
+Сборка с `--features portable` всегда хранит данные рядом с собой. Обычной
+сборке папку можно указать при запуске:
 
 ```bash
 ARACHNID_CLIENT_DIR=/path/to/folder ./arachnid-client
 ```
 
-или положите `config.toml` рядом с исполняемым файлом — клиент использует
+или положить `config.toml` рядом с исполняемым файлом — клиент использует
 свой каталог вместо системного.
 
 ## Проверка в WebView2

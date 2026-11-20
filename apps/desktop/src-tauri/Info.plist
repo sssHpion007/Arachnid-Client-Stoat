@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Дополняет Info.plist приложения macOS (сборщик Tauri подмешивает этот файл):
+     без описаний доступа macOS не даёт веб-клиенту микрофон и камеру. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Микрофон нужен для голосовых звонков в Stoat.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Камера нужна для видеозвонков в Stoat.</string>
+</dict>
+</plist>

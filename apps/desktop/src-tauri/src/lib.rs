@@ -111,16 +111,42 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
 
 // ─────────────────────────────── каталог данных ─────────────────────────────
 
-/// Каталог для журналов: рядом с exe (portable) либо `%LOCALAPPDATA%\Arachnid-Client\logs`.
+/// Папка рядом с клиентом: рядом с исполняемым файлом, у AppImage — рядом с
+/// самим файлом `.AppImage` (исполняемый файл внутри смонтирован только для
+/// чтения), у приложения macOS — рядом с пакетом `.app`.
+fn beside_client() -> Option<PathBuf> {
+    let image = std::env::var_os("APPIMAGE").filter(|_| cfg!(target_os = "linux"));
+    if let Some(image) = image {
+        return PathBuf::from(image).parent().map(Path::to_path_buf);
+    }
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    // «Arachnid Client.app/Contents/MacOS/arachnid-client»
+    let bundle = if cfg!(target_os = "macos") {
+        dir.ancestors()
+            .find(|path| path.extension().is_some_and(|ext| ext == "app"))
+    } else {
+        None
+    };
+    Some(bundle.and_then(Path::parent).unwrap_or(dir).to_path_buf())
+}
+
+/// Portable-режим: все данные — в папке рядом с клиентом. Одиночный файл из
+/// релиза (сборка с возможностью `portable`) работает так всегда, обычная
+/// сборка — если рядом с ней лежит `config.toml`.
+fn portable_dir() -> Option<PathBuf> {
+    let dir = beside_client()?;
+    let portable = cfg!(feature = "portable") || dir.join(instance::CONFIG_FILE).exists();
+    portable.then_some(dir)
+}
+
+/// Каталог для журналов: рядом с клиентом (portable) либо `%LOCALAPPDATA%\Arachnid-Client\logs`.
 fn log_directory() -> Option<PathBuf> {
     if let Ok(dir) = std::env::var("ARACHNID_CLIENT_DIR") {
         return Some(PathBuf::from(dir).join("logs"));
     }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-        && parent.join(instance::CONFIG_FILE).exists()
-    {
-        return Some(parent.join("logs"));
+    if let Some(dir) = portable_dir() {
+        return Some(dir.join("logs"));
     }
     std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("HOME"))
@@ -130,8 +156,8 @@ fn log_directory() -> Option<PathBuf> {
 /// Определить каталог данных: портативный режим важнее системного.
 ///
 /// Порядок:
-/// 1. переменная `ARACHNID_CLIENT_DIR` (её выставляет запуск из бутстрапа);
-/// 2. рядом с исполняемым файлом, если там лежит `config.toml` (portable);
+/// 1. переменная `ARACHNID_CLIENT_DIR` (так запускает проверка e2e);
+/// 2. папка рядом с клиентом в portable-режиме ([`portable_dir`]);
 /// 3. системный каталог данных приложения.
 fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
     if let Ok(dir) = std::env::var("ARACHNID_CLIENT_DIR") {
@@ -141,12 +167,15 @@ fn resolve_data_dir(app: &tauri::AppHandle) -> PathBuf {
         }
     }
 
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(parent) = exe.parent()
-        && parent.join(instance::CONFIG_FILE).exists()
-        && ensure_layout(parent).is_ok()
-    {
-        return parent.to_path_buf();
+    if let Some(dir) = portable_dir() {
+        match ensure_layout(&dir) {
+            Ok(()) => return dir,
+            // например, macOS запустила .app из карантина по временному пути
+            Err(error) => {
+                let dir = dir.display();
+                tracing::warn!(%error, %dir, "папка рядом с клиентом недоступна");
+            }
+        }
     }
 
     let fallback = app
@@ -193,7 +222,7 @@ fn move_dir_if_absent(from: &Path, to: &Path) -> std::io::Result<bool> {
 }
 
 /// Создать каталог данных, журналов, тем и плагинов, если их нет (первый
-/// запуск без бутстрапа).
+/// запуск).
 ///
 /// Профиль webview (`webview/`) WebView2 создаёт сам.
 fn ensure_layout(dir: &Path) -> std::io::Result<()> {

@@ -1,94 +1,84 @@
 # Установка и запуск
 
-Задача этих файлов — развернуть клиент в **отдельной папке**, ничего не кладя
-в каталог официального Stoat и не трогая системные настройки.
-
 ## Что скачать
 
-| Платформа | Файл | Как запустить |
+Файлы — в [релизах](https://github.com/sssHpion007/Arachnid-Client-Stoat/releases/latest):
+
+| Система | Установщик | Без установки |
 |---|---|---|
-| Windows | [`bootstrap.ps1`](../bootstrap/bootstrap.ps1) | ПКМ → «Выполнить с помощью PowerShell», либо `powershell -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| Linux / macOS | [`bootstrap.sh`](../bootstrap/bootstrap.sh) | `chmod +x bootstrap.sh && ./bootstrap.sh` |
+| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `Arachnid Client.exe` |
+| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `Arachnid Client.AppImage` |
+| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `Arachnid Client.app.zip` |
 
-Оба скрипта лежат в репозитории и прикладываются к релизам автоматически.
+GitHub меняет пробел в имени файла на точку, поэтому одиночные файлы скачиваются
+как `Arachnid.Client.exe` и т. п.; имя можно вернуть, на работу оно не влияет.
 
-## Что делает бутстрап
+Файлы не подписаны сертификатом разработчика, поэтому при первом запуске система
+предупредит:
 
-1. Создаёт папку (`~/Arachnid-Client` по умолчанию, можно указать свою через `--dir`).
-2. Раскладывает структуру: `logs/`, `vendor/`, `themes/`, `plugins/`.
-3. Пишет `config.toml` с адресом веб-клиента и `README.txt` (существующие не
-   перезаписывает).
-4. Проверяет связь с API и сохраняет ответ `GET /` в `vendor/api-root.json` —
-   это и есть «файлы, нужные для работы»: адреса API, gateway, файлового сервиса
-   и лимиты инстанса.
-5. Ищет сборку клиента в релизах GitHub под вашу ОС/архитектуру, скачивает,
-   распаковывает и пишет `vendor/VERSION`.
-6. Считает `vendor/checksums.txt` по всему скачанному.
+- **Windows:** «Windows защитила ваш компьютер» → «Подробнее» → «Выполнить в любом
+  случае».
+- **macOS:** правый щелчок по приложению → «Открыть» (или «Системные настройки» →
+  «Конфиденциальность и безопасность» → «Всё равно открыть»).
+- **Linux, AppImage:** `chmod +x "Arachnid Client.AppImage"`, затем запуск.
 
-Повторный запуск обновляет файлы и ничего не ломает. `--check` (или `-Check` в
-PowerShell) только проверяет окружение и связь с инстансом, ничего не записывая.
+## Без установки (portable)
 
-## Параметры
-
-```bash
-./bootstrap.sh --help
-./bootstrap.sh --dir ~/apps/stoat        # своя папка
-./bootstrap.sh --check                   # только проверки
-./bootstrap.sh --no-ui                   # без интерактивного вопроса о пути
-./bootstrap.sh --token "$STOAT_TOKEN"    # заодно проверить токен сессии
-./bootstrap.sh --github-token "$PAT"     # репозиторий приватный
-```
-
-```powershell
-.\bootstrap.ps1 -Dir D:\Apps\Arachnid-Client
-.\bootstrap.ps1 -Check
-.\bootstrap.ps1 -Token $env:STOAT_TOKEN
-```
-
-Токен GitHub нужен только для скачивания **приватного** репозитория:
-`ARACHNID_CLIENT_GH_TOKEN` или `--github-token`. Токен Stoat (сессии) — только для
-проверки, в файлы он не пишется.
-
-## Что появится в папке
+Одиночный файл хранит всё в папке **рядом с собой**, поэтому положите его в
+отдельную папку. При первом запуске там появятся:
 
 ```
-Arachnid-Client/
-├── config.toml      адрес веб-клиента
-├── README.txt       краткая памятка
-├── arachnid-client.exe  клиент (после распаковки релиза)
-├── desktop.json     настройки раздела «ПК» (создаёт клиент)
-├── webview/         вход, сессия, кэш веб-клиента (создаёт клиент)
-├── themes/          свои темы *.css (docs/extensions.md)
-├── plugins/         плагины *.js в формате Avia Client
-├── quickcss.css     свой CSS (создаётся редактором QuickCSS)
-├── extensions.json  включённые темы и плагины (создаёт клиент)
-├── logs/            журналы
-└── vendor/          api-root.json, checksums.txt, сборка
+Arachnid Client.exe   клиент (.AppImage в Linux, .app в macOS)
+config.toml           адрес веб-клиента и экономия памяти — создаётся вручную, если нужно
+desktop.json          настройки раздела «ПК»
+webview/              вход, сессия и кэш веб-клиента
+themes/               свои темы (docs/extensions.md)
+plugins/              плагины
+quickcss.css          свой CSS (создаётся редактором QuickCSS)
+extensions.json       выбранная тема, её настройки и включённые плагины
+favorite-gifs/        избранные GIF: ссылки, описания и превью
+logs/                 журналы
 ```
 
-## Как клиент находит папку
+Папку можно перенести на другой диск или флешку — вместе со входом. Удаление —
+удалить папку (и выключить «Запускать вместе с компьютером», если включали).
+
+В macOS распакуйте `Arachnid Client.app.zip` и перенесите `Arachnid Client.app`
+в нужную папку до первого запуска: приложение, запущенное прямо из «Загрузок»,
+macOS открывает по временному пути только для чтения, и тогда клиент хранит данные
+в системном каталоге.
+
+## С установщиком
+
+Установленный клиент хранит данные в системном каталоге приложения:
+
+- **Windows:** `%APPDATA%\com.arachnid.client`
+- **Linux:** `~/.local/share/com.arachnid.client`
+- **macOS:** `~/Library/Application Support/com.arachnid.client`
+
+## Как клиент находит папку данных
 
 Порядок (первое совпадение):
 
-1. переменная `ARACHNID_CLIENT_DIR` — её выставляет запуск из бутстрапа;
-2. рядом с исполняемым файлом, если там лежит `config.toml` (portable-режим);
-3. системный каталог данных приложения (если запустили без папки).
+1. переменная окружения `ARACHNID_CLIENT_DIR`;
+2. папка рядом с клиентом — у одиночного файла всегда, у установленного клиента —
+   если рядом с ним лежит `config.toml` (portable-режим);
+3. системный каталог данных приложения.
 
-То есть папку можно перенести на другой диск или флешку — путь нигде не
-зашит, а официальный Stoat не задействован вообще.
+## Свой инстанс
 
-## Если релиза ещё нет
+Положите в папку данных `config.toml`:
 
-Пока в репозитории нет тега вида `v0.1.0`, сборки не существует и бутстрап
-честно об этом скажет. Варианты:
-
-- собрать локально: [build.md](build.md);
-- проверить связь с инстансом: `./bootstrap.sh --check`.
+```toml
+[instance]
+app_url = "https://stoat.example.com"
+```
 
 ## Требования
 
-- **Windows**: 10/11 x64, WebView2 Runtime (в Windows 11 уже есть; для 10 —
+- **Windows**: 10/11 x64, WebView2 Runtime (в Windows 11 уже есть; для 10 его
+  ставит установщик, для одиночного файла —
   [установщик от Microsoft](https://developer.microsoft.com/microsoft-edge/webview2/)).
-- **Linux**: glibc-совместимый дистрибутив, WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`).
+- **Linux**: x64, WebKitGTK 4.1 (`libwebkit2gtk-4.1-0`).
 - **macOS**: 11+, Apple Silicon или Intel.
-- Для сборки из исходников: Rust stable.
+- Для сборки из исходников: [build.md](build.md).
