@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Превью: дата присоединения в профиле</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;400;500;550;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #1d1715;
+    --surface: #2c2421;
+    --container-high: #3a302d;
+    --container-low: #251e1c;
+    --on-surface: #ede0dc;
+    --on-variant: #c9b5af;
+    --outline-variant: #534340;
+    --primary: #ffb4a3;
+    --on-primary: #561f10;
+    --secondary-container: #5d4039;
+    --gap-xs: 2px; --gap-sm: 4px; --gap-md: 8px; --gap-lg: 15px;
+    --r-lg: 16px; --r-xl: 28px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px 32px 64px;
+    background: var(--bg); color: var(--on-surface);
+    font-family: Inter, "Segoe UI", sans-serif; font-size: 14px;
+  }
+  h1 { font-size: 22px; font-weight: 550; margin: 0 0 4px; }
+  h2 { font-size: 18px; font-weight: 550; margin: 40px 0 4px; }
+  .note { color: var(--on-variant); margin: 0 0 16px; max-width: 900px; line-height: 1.45; }
+  .row { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
+  .caption { color: var(--on-variant); font-size: 12px; margin: 0 0 6px; }
+
+  /* карточка по наведению — 340×400, как UserCard for-web */
+  .usercard {
+    width: 340px; height: 400px; overflow-y: auto; scrollbar-width: none;
+    background: var(--container-high); border-radius: var(--r-xl);
+    box-shadow: 0 3px 8px rgba(0,0,0,.35);
+  }
+  /* окно профиля — 560, как UserProfileModal */
+  .modal { width: 560px; background: var(--surface); border-radius: var(--r-xl); padding: 8px; }
+  .grid { display: grid; gap: var(--gap-md); padding: var(--gap-md); }
+  .usercard .grid { grid-template-columns: repeat(2, 1fr); }
+  .modal .grid { grid-template-columns: repeat(3, 1fr); }
+  .w-full { grid-column: 1 / -1; }
+
+  .banner {
+    height: 120px; padding: var(--gap-lg); border-radius: var(--r-xl); color: #fff;
+    display: flex; flex-direction: column; justify-content: end; gap: 6px;
+    background: linear-gradient(rgba(0,0,0,.2), rgba(0,0,0,.7)),
+      linear-gradient(120deg, #7b3f2f, #3d4f7a 60%, #2b6b5e);
+  }
+  .who { display: flex; align-items: center; gap: var(--gap-lg); }
+  .avatar {
+    width: 48px; height: 48px; border-radius: 50%; flex: none;
+    background: radial-gradient(circle at 35% 30%, #ffcfb8, #c46a4f 70%);
+  }
+  .names { display: flex; flex-direction: column; gap: var(--gap-xs); line-height: 1rem; }
+  .names b { font-weight: 600; }
+  .names i { font-style: normal; font-weight: 200; }
+
+  .actions { display: flex; gap: var(--gap-md); }
+  .btn {
+    height: 40px; padding: 0 16px; border-radius: 999px; border: 0; font: inherit; font-weight: 500;
+    background: var(--primary); color: var(--on-primary); flex: 1;
+  }
+  .ibtn { width: 40px; height: 40px; border-radius: 999px; background: var(--secondary-container); flex: none; }
+
+  .card {
+    min-width: 0; background: var(--container-low); border-radius: var(--r-lg);
+    padding: var(--gap-lg); display: flex; flex-direction: column; gap: var(--gap-sm);
+  }
+  .card.square { aspect-ratio: 1 / 1; overflow: hidden; }
+  .title { font-size: 1.375rem; line-height: 1.75rem; font-weight: 550; white-space: nowrap; }
+  .label { font-size: .875rem; line-height: 1.25rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .text { font-size: 1rem; line-height: 1.5rem; }
+  .role { display: flex; align-items: center; gap: 8px; }
+  .role span { flex: 1; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; }
+  .badge { width: 24px; height: 24px; border-radius: 6px; }
+  .bio { font-size: 1rem; line-height: 1.5rem; }
+
+  /* значки Stoat и сервера */
+  .ico {
+    width: 16px; height: 16px; border-radius: 50%; flex: none;
+    display: inline-grid; place-items: center; font-size: 10px; font-weight: 600;
+  }
+  .ico.stoat { background: #fff; color: #111; }
+  .ico.server { background: #4f6bd8; color: #fff; }
+  .since { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+
+  /* А: полоса «Участник с» */
+  .strip { padding: 10px var(--gap-lg); gap: 6px; }
+  .strip .head { font-size: .75rem; line-height: 1rem; font-weight: 500; color: var(--on-variant); }
+  .strip .dates { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .875rem; }
+
+  /* Б: строка в баннере */
+  .banner .dates { display: flex; gap: 12px; font-size: 12px; line-height: 16px; color: rgba(255,255,255,.85); }
+  .banner .ico { width: 14px; height: 14px; font-size: 9px; }
+
+  /* В: тонкая строка под кнопками, без плитки */
+  .line { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 0 6px; font-size: .8125rem; color: var(--on-variant); }
+
+  /* одинокая плитка в ряду растягивается на всю ширину и не держит квадрат */
+  .card.lone { grid-column: 1 / -1; aspect-ratio: auto; }
+
+  [data-tip] { position: relative; cursor: default; }
+  [data-tip]:hover::after {
+    content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%);
+    background: #111; color: #fff; padding: 4px 8px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 2;
+  }
+</style>
+</head>
+<body>
+<h1>Дата присоединения в профиле</h1>
+<p class="note">Слева — карточка по щелчку на ник, справа — окно профиля. Подсказки у дат — при наведении.
+  Значок Stoat здесь — заглушка «S», в клиенте будет настоящий. В А–В без плитки даты в ряду может остаться
+  одна плитка — она растягивается на всю ширину (здесь «Статус» в карточке).</p>
+<div id="root"></div>
+
+<script>
+const fmt = new Intl.DateTimeFormat("ru", { day: "numeric", month: "short", year: "numeric" });
+const created = fmt.format(new Date(2023, 2, 12));
+const joined = fmt.format(new Date(2024, 0, 5));
+const server = "Русское сообщество Stoat";
+
+const stoatTip = `В Stoat с ${created}`;
+const serverTip = `На сервере «${server}» с ${joined}`;
+const sinceStoat = `<span class="since" data-tip="${stoatTip}"><span class="ico stoat">S</span>${created}</span>`;
+const sinceServer = `<span class="since" data-tip="${serverTip}"><span class="ico server">Р</span>${joined}</span>`;
+
+const banner = (extra = "") => `
+  <div class="banner w-full">
+    <div class="who"><div class="avatar"></div>
+      <div class="names"><b>Арахнид</b><span>arachnid<i>#1234</i></span></div></div>
+    ${extra}
+  </div>`;
+const actions = `<div class="actions w-full"><button class="btn">Сообщение</button><div class="ibtn"></div><div class="ibtn"></div></div>`;
+const roles = (cls = "square") => `<div class="card ${cls}"><div class="title">Роли</div>
+  <div class="role"><span class="label">Модератор</span><i class="dot" style="background:#e6a23c"></i></div>
+  <div class="role"><span class="label">Участник</span><i class="dot" style="background:#7c8bd6"></i></div></div>`;
+const badges = (cls = "square") => `<div class="card ${cls}"><div class="title">Значки</div>
+  <div class="badges"><i class="badge" style="background:#e9b44c"></i><i class="badge" style="background:#5fb4a2"></i></div></div>`;
+const status = (cls = "square") => `<div class="card ${cls}"><div class="title">Статус</div><div class="text">Пишу клиент</div></div>`;
+const bio = `<div class="card w-full"><div class="title">Информация</div>
+  <div class="bio">Делаю настольный клиент для Stoat. Пишите в личку, если нашли ошибку.</div></div>`;
+
+// так выглядит сейчас: дата в ru-формате for-web (DD.MMM.YYYY)
+const current = `<div class="card square"><div class="title">Присоединившиеся</div>
+  <div class="label">Stoat</div><div class="text">12.март.2023</div>
+  <div class="label">${server}</div><div class="text">05.янв..2024</div></div>`;
+const strip = `<div class="card strip w-full"><div class="head">Участник с</div>
+  <div class="dates">${sinceStoat}${sinceServer}</div></div>`;
+const bannerDates = `<div class="dates">${sinceStoat}${sinceServer}</div>`;
+const line = `<div class="line w-full">${sinceStoat}${sinceServer}</div>`;
+
+const variants = [
+  {
+    title: "Сейчас",
+    note: "Квадратная плитка, заголовок не влезает.",
+    card: banner() + actions + roles() + badges() + status() + current + bio,
+    modal: banner() + actions + roles() + status() + badges() + current + bio,
+  },
+  {
+    title: "А. Полоса «Участник с», как в Discord",
+    note: "Плитка становится низкой полосой на всю ширину в конце профиля. Заголовок короткий, даты со значками Stoat и сервера.",
+    card: banner() + actions + roles() + badges() + status("lone") + bio + strip,
+    modal: banner() + actions + roles() + status() + badges() + bio + strip,
+  },
+  {
+    title: "Б. В баннере, под ником",
+    note: "Отдельной плитки нет: даты мелкой строкой в баннере.",
+    card: banner(bannerDates) + actions + roles() + badges() + status("lone") + bio,
+    modal: banner(bannerDates) + actions + roles() + status() + badges() + bio,
+  },
+  {
+    title: "В. Строка под кнопками",
+    note: "Отдельной плитки нет: даты тонкой строкой без фона между кнопками и плитками.",
+    card: banner() + actions + line + roles() + badges() + status("lone") + bio,
+    modal: banner() + actions + line + roles() + status() + badges() + bio,
+  },
+];
+
+document.getElementById("root").innerHTML = variants.map((v) => `
+  <h2>${v.title}</h2>
+  <p class="note">${v.note}</p>
+  <div class="row">
+    <div><p class="caption">Карточка</p><div class="usercard"><div class="grid">${v.card}</div></div></div>
+    <div><p class="caption">Окно профиля</p><div class="modal"><div class="grid">${v.modal}</div></div></div>
+  </div>`).join("");
+</script>
+</body>
+</html>
