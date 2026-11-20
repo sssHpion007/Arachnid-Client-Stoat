@@ -78,12 +78,12 @@
           "Работают везде, даже когда клиент свёрнут или спрятан в трей. В окне клиента сочетание выполняет только своё действие, в других программах доходит и до них. Действия звонка — как кнопки в карточке звонка.",
         hotkeysInactive: "Горячие клавиши заработают, когда «Quality of Life» запустится снова — после перезагрузки клиента.",
         hotkeyActions: {
-          toggle_mute: "Выключить или включить микрофон",
-          toggle_deafen: "Выключить или включить звук",
-          disconnect: "Выйти из звонка",
-          toggle_camera: "Включить или выключить камеру",
-          toggle_screenshare: "Начать или остановить демонстрацию экрана",
-          toggle_window: "Показать или спрятать окно клиента",
+          toggle_mute: "Микрофон",
+          toggle_deafen: "Звук",
+          disconnect: "Завершить звонок",
+          toggle_camera: "Камера",
+          toggle_screenshare: "Демонстрация экрана",
+          toggle_window: "Скрыть окно в трей",
         },
         hotkeyNone: "Не назначено",
         hotkeyRecording: "Нажмите сочетание клавиш или кнопку мыши… Esc — отмена",
@@ -125,8 +125,6 @@
         done: "Готово",
         theme: "Тема",
         defaultTheme: "Stoat (по умолчанию)",
-        themesHint:
-          "Свои темы — файлы .css или папки с theme.toml в папке themes. У выбранной темы здесь появятся её настройки.",
         themeSettings: "Настройки темы",
         noThemeSettings: "У этой темы нет своих настроек.",
         unsupported: (name) =>
@@ -178,12 +176,12 @@
           "They work everywhere, even while the client is minimized or hidden in the tray. In the client window a keybind only does its action; other programs receive it as well. Call actions work like the buttons on the call card.",
         hotkeysInactive: "Keybinds start working when “Quality of Life” runs again — after the client reloads.",
         hotkeyActions: {
-          toggle_mute: "Mute or Unmute",
-          toggle_deafen: "Deafen or Undeafen",
-          disconnect: "Leave the Call",
-          toggle_camera: "Start or Stop the Camera",
-          toggle_screenshare: "Start or Stop Screen Sharing",
-          toggle_window: "Show or Hide the Client Window",
+          toggle_mute: "Microphone",
+          toggle_deafen: "Sound",
+          disconnect: "End Call",
+          toggle_camera: "Camera",
+          toggle_screenshare: "Screen Share",
+          toggle_window: "Hide Window to Tray",
         },
         hotkeyNone: "Not set",
         hotkeyRecording: "Press a key combination or a mouse button… Esc cancels",
@@ -225,8 +223,6 @@
         done: "Done",
         theme: "Theme",
         defaultTheme: "Stoat (default)",
-        themesHint:
-          "Custom themes are .css files or folders with a theme.toml in the themes folder. The selected theme shows its own settings here.",
         themeSettings: "Theme Settings",
         noThemeSettings: "This theme has no settings of its own.",
         unsupported: (name) =>
@@ -1637,7 +1633,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       ? [active.description, [active.author && text.author(active.author), active.version && text.version(active.version)].filter(Boolean).join(" · ")]
           .filter(Boolean)
           .join("\n")
-      : text.themesHint;
+      : null;
 
     setChildren(
       appearance.picker,
