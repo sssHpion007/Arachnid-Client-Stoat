@@ -25,6 +25,7 @@ mod favorite_gifs;
 #[cfg(windows)]
 mod http;
 mod icon;
+mod image_save;
 mod instance;
 mod manifest;
 mod media;
@@ -98,6 +99,7 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-favorite-gifs-set-preview",
     "allow-favorite-gifs-resolve",
     "allow-favorite-gifs-download",
+    "allow-image-save",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -342,6 +344,7 @@ pub fn run() {
             favorite_gifs::favorite_gifs_set_preview,
             favorite_gifs::favorite_gifs_resolve,
             favorite_gifs::favorite_gifs_download,
+            image_save::image_save,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

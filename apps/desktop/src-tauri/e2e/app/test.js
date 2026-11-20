@@ -15,7 +15,11 @@
 // 3. выбранный вручную набор остаётся; окно выбора эмодзи получает разделы
 //    в колонке и заголовки разделов в сетке, отрисованы только видимые
 //    строки, щелчок по эмодзи доходит до ячейки for-web, а прокрутка не
-//    заставляет клиент искать окно по всему документу;
+//    заставляет клиент искать окно по всему документу; в окне нет меню
+//    браузера (кроме поля поиска), на эмодзи — своё меню: эмодзи
+//    добавляется в «Избранное» и убирается оттуда, команда сохранения
+//    принимает только картинки; в меню сообщения for-web на эмодзи —
+//    «Скачать изображение»;
 //    шторка выбора набора получает кнопки, Mutant Remix скачивается и
 //    удаляется кнопками шторки; эмодзи в реакциях крупнее и по центру
 //    плашки, плашка той же высоты; значки ролей видны целиком, во всю
@@ -31,7 +35,8 @@
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
 //    сразу (избранное в окне GIF, окно сразу на избранном, исправления
-//    интерфейса, в том числе подсветка md-ripple без перехода); вход
+//    интерфейса, в том числе подсветка md-ripple без перехода, пункт меню
+//    сообщения для эмодзи); вход
 //    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
 //    остаётся).
 //
@@ -201,6 +206,77 @@
     render();
     return { base, input, rail, grid, gridList, render, picked };
   }
+  /** Правый щелчок по элементу; false — обработчик отменил меню браузера */
+  function rightClick(target) {
+    const rect = target.getBoundingClientRect();
+    return target.dispatchEvent(
+      new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        button: 2,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      }),
+    );
+  }
+  /**
+   * Сообщение с эмодзи и меню сообщения for-web (MessageContextMenu): правый
+   * щелчок по сообщению выводит в #floating блок с пунктами-ссылками
+   * (значок Symbol и текст) и разделителем.
+   */
+  function chatEmojiMock() {
+    const image = document.createElement("img");
+    image.className = "emoji";
+    image.alt = "👍";
+    image.src = emoji("twemoji", "1f44d");
+    const words = document.createElement("span");
+    words.textContent = "привет ";
+    const base = document.createElement("div");
+    base.style.cssText = "position:fixed;left:0;top:0;font-size:14px";
+    base.append(words, image);
+    const menus = [];
+    const item = (glyph, label) => {
+      const link = document.createElement("a");
+      const symbol = document.createElement("span");
+      symbol.setAttribute("aria-hidden", "true");
+      symbol.style.cssText = "display:block;font-size:16px;font-variation-settings:'FILL' 0";
+      symbol.textContent = glyph;
+      const text = document.createElement("span");
+      text.textContent = label;
+      link.append(symbol, text);
+      return link;
+    };
+    base.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      const menu = document.createElement("div");
+      menu.append(item("reply", "Reply"), item("mark_chat_unread", "Mark as unread"), document.createElement("div"), item("content_copy", "Copy text"));
+      const wrapper = document.createElement("div");
+      wrapper.append(menu);
+      document.getElementById("floating").append(wrapper);
+      menus.push(wrapper);
+    });
+    const close = () => {
+      for (const wrapper of menus.splice(0)) wrapper.remove();
+    };
+    return { base, image, words, menu: () => menus.at(-1)?.firstElementChild ?? null, close };
+  }
+  /** Есть ли в меню сообщения пункт «Скачать изображение» */
+  async function chatDownloadItem(chat, target) {
+    rightClick(target);
+    await frame();
+    const item = chat.menu()?.querySelector("[data-arachnid-emoji-download]") ?? null;
+    const result = item && {
+      first: chat.menu().firstElementChild === item,
+      label: item.lastElementChild?.textContent,
+      glyph: item.firstElementChild?.textContent,
+      divider: item.nextElementSibling?.localName === "div" && item.nextElementSibling.childElementCount === 0,
+    };
+    chat.close();
+    return result;
+  }
+  const DOWNLOAD_LABELS = ["Скачать изображение", "Download Image"];
+
   /**
    * Реакции под сообщением, как у for-web (Reactions.tsx): список, в нём
    * обёртки подсказок с плашками (картинка эмодзи и счётчик) и кнопка «+»
@@ -656,7 +732,7 @@
       // окно выбора эмодзи
       const picker = emojiPicker();
       document.getElementById("floating").append(picker.base);
-      const railButtons = () => picker.rail.querySelectorAll(".arachnid-emoji-rail-button");
+      const railButtons = () => picker.rail.querySelectorAll(".arachnid-emoji-rail-button:not([hidden])");
       const enhanced = await waitFor(() => railButtons().length > 0, 5000, 50);
       await check("окно эмодзи: разделы в колонке", enhanced && railButtons().length === 9, railButtons().length);
 
@@ -754,13 +830,106 @@
         .map((image) => image.alt);
       await check("окно эмодзи: разделы как в Discord (сердца — в «Символах»)", firstRow[0] === "🩷" && firstRow[1] === "❤️", firstRow);
 
-      // закрыть и открыть снова — новое окно тоже получает разделы
+      // Меню эмодзи: в окне нет меню браузера (кроме поля поиска), на
+      // эмодзи — своё меню со скачиванием и избранным.
+      const emojiMenu = () => document.querySelector("[data-arachnid-emoji-menu]");
+      const menuItems = () => Array.from(emojiMenu()?.querySelectorAll(".arachnid-emoji-menu-item") ?? []);
+      const menuLabels = () => menuItems().map((item) => item.lastElementChild.textContent);
+      const emptyAllowed = rightClick(standard.querySelector('[role="heading"]'));
+      const railAllowed = rightClick(picker.rail);
+      const fieldAllowed = rightClick(picker.input);
+      await check(
+        "окно эмодзи: без меню браузера на пустом месте, в поле поиска — как обычно",
+        !emptyAllowed && !railAllowed && fieldAllowed && !emojiMenu(),
+        { emptyAllowed, railAllowed, fieldAllowed },
+      );
+      picker.grid.scrollTop = 0;
+      await frame();
+      await frame();
+      const joyCell = () =>
+        Array.from(standard.querySelectorAll(".arachnid-emoji-cell:not([hidden])")).find((cell) => cell.firstChild.alt === "😂");
+      const joyAllowed = rightClick(joyCell().firstChild);
+      await check(
+        "меню эмодзи: «Скачать изображение» и «Добавить в избранное»",
+        !joyAllowed &&
+          menuLabels().length === 2 &&
+          DOWNLOAD_LABELS.includes(menuLabels()[0]) &&
+          ["Добавить в избранное", "Add to Favorites"].includes(menuLabels()[1]),
+        menuLabels(),
+      );
+      menuItems()[1]?.click();
+      await frame();
+      const favoritesBlock = picker.grid.querySelector("[data-arachnid-emoji-favorites]");
+      const favoriteCells = (block) => Array.from(block?.querySelectorAll(".arachnid-emoji-cell") ?? []);
+      await check(
+        "меню эмодзи: эмодзи в «Избранном» над сеткой, в колонке — кнопка",
+        !emojiMenu() &&
+          favoritesBlock &&
+          !favoritesBlock.hidden &&
+          favoriteCells(favoritesBlock).map((cell) => cell.firstChild.alt).join() === "😂" &&
+          Boolean(favoritesBlock.compareDocumentPosition(picker.gridList) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+          railButtons().length === 10,
+        { cells: favoriteCells(favoritesBlock).length, buttons: railButtons().length },
+      );
+      const pickedBefore = picker.picked.length;
+      favoriteCells(favoritesBlock)[0]?.click();
+      await frame();
+      await check(
+        "меню эмодзи: щелчок по избранному — выбор в for-web",
+        picker.picked.length === pickedBefore + 1 && picker.picked.at(-1) === "😂",
+        picker.picked,
+      );
+      rightClick(joyCell().firstChild);
+      const unfavoriteLabel = menuLabels()[1];
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await check(
+        "меню эмодзи: у избранного — «Убрать из избранного», Escape закрывает меню",
+        ["Убрать из избранного", "Remove from Favorites"].includes(unfavoriteLabel) && !emojiMenu(),
+        unfavoriteLabel,
+      );
+
+      // команда сохранения проверяет, что ей передали картинку (окно
+      // «Сохранить как» в проверке не открыть)
+      const notImage = await invoke("image_save", {
+        name: "e2e",
+        data: Array.from(new TextEncoder().encode("<!DOCTYPE html><html></html>")),
+      }).then(
+        () => "сохранено",
+        (error) => String(error?.message ?? error),
+      );
+      await check("«Скачать изображение»: клиент сохраняет только картинки", /не картинка/.test(notImage), notImage);
+
+      // меню сообщения for-web: правый щелчок по эмодзи — пункт первым
+      const chat = chatEmojiMock();
+      document.body.append(chat.base);
+      const onEmoji = await chatDownloadItem(chat, chat.image);
+      const onText = await chatDownloadItem(chat, chat.words);
+      await check(
+        "меню сообщения: на эмодзи — «Скачать изображение» первым пунктом, на тексте — нет",
+        onEmoji?.first && DOWNLOAD_LABELS.includes(onEmoji.label) && onEmoji.glyph === "download" && onEmoji.divider && onText === null,
+        { onEmoji, onText },
+      );
+      chat.base.remove();
+
+      // закрыть и открыть снова — новое окно тоже получает разделы и
+      // избранное
       picker.base.remove();
       await frame();
       const again = emojiPicker();
       document.getElementById("floating").append(again.base);
       const reopened = await waitFor(() => again.rail.querySelector(".arachnid-emoji-rail-button"), 5000, 50);
       await check("окно эмодзи: открытое заново тоже дополнено", Boolean(reopened));
+      const againFavorites = again.grid.querySelector("[data-arachnid-emoji-favorites]");
+      const kept = favoriteCells(againFavorites).map((cell) => cell.firstChild.alt).join();
+      rightClick(favoriteCells(againFavorites)[0]);
+      menuItems()[1]?.click();
+      await frame();
+      await check(
+        "меню эмодзи: избранное сохраняется и убирается из меню",
+        kept === "😂" && againFavorites.hidden && favoriteCells(againFavorites).length === 0 &&
+          again.rail.querySelectorAll(".arachnid-emoji-rail-button:not([hidden])").length === 10,
+        { kept, hidden: againFavorites?.hidden },
+      );
       again.base.remove();
 
       // шторка выбора набора, как её строит FloatingSelect for-web
@@ -1255,6 +1424,20 @@
       });
       earlyRipple.remove();
       lateRipple.remove();
+
+      // «Улучшенное меню эмодзи» выключено — в меню сообщения нет пункта
+      // «Скачать изображение»
+      const chatToggle = chatEmojiMock();
+      document.body.append(chatToggle.base);
+      qolInput("emoji_picker")?.click();
+      const downloadOff = await waitFor(async () => (await chatDownloadItem(chatToggle, chatToggle.image)) === null, 3000, 50);
+      qolInput("emoji_picker")?.click();
+      const downloadOn = await waitFor(async () => (await chatDownloadItem(chatToggle, chatToggle.image)) !== null, 3000, 50);
+      chatToggle.base.remove();
+      await check("«Улучшенное меню эмодзи»: пункт в меню сообщения выключается и включается сразу", downloadOff && downloadOn, {
+        downloadOff,
+        downloadOn,
+      });
       qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
       settingsPage.remove();

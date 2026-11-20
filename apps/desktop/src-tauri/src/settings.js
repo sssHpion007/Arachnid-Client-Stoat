@@ -59,7 +59,7 @@
             },
             emoji_picker: {
               label: "Улучшенное меню эмодзи",
-              hint: "Разделы и «Часто используемые», как в Discord. Действует со следующего открытия окна.",
+              hint: "Разделы, «Избранное» и «Часто используемые», как в Discord; меню правой кнопки на эмодзи («Скачать изображение», «Добавить в избранное») вместо меню браузера. Окно меняется со следующего открытия.",
             },
             favorite_gifs: {
               label: "Меню избранного для GIF",
@@ -129,7 +129,7 @@
             },
             emoji_picker: {
               label: "Enhanced Emoji Picker",
-              hint: "Sections and “Frequently Used”, like in Discord. Applies the next time the picker opens.",
+              hint: "Sections, “Favorites” and “Frequently Used”, like in Discord; a right-click menu on emoji (“Download Image”, “Add to Favorites”) instead of the browser one. The picker changes the next time it opens.",
             },
             favorite_gifs: {
               label: "Favorite GIFs",

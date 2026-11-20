@@ -40,6 +40,7 @@ const COMMANDS: &[&str] = &[
     "favorite_gifs_set_preview",
     "favorite_gifs_resolve",
     "favorite_gifs_download",
+    "image_save",
 ];
 
 fn main() {

@@ -107,10 +107,28 @@
 //   не меняется.
 //
 // Блок над списком for-web меняет его отступ от начала прокрутки, а список
-// замеряет отступ только при смене ширины. Расхождение до пяти строк
-// (200 px) он перекрывает запасом отрисовки (overscan по умолчанию — 180 px,
-// округляется до пяти строк), поэтому «Часто используемые» — не больше двух
-// строк эмодзи с заголовком.
+// замеряет отступ при первом замере размеров (ResizeObserver) и потом только
+// при смене ширины. Поэтому окно дополняется сразу, как только появилось
+// (в обработчике MutationObserver, до первого кадра): первый замер уже
+// видит блоки над списком. Если блок вырос, пока окно открыто (эмодзи
+// добавили в избранное), расхождение до пяти строк (200 px) список
+// перекрывает запасом отрисовки (overscan по умолчанию — 180 px,
+// округляется до пяти строк); «Часто используемые» — не больше двух строк
+// эмодзи с заголовком.
+//
+// Меню эмодзи (настройка `emoji_picker`, как и всё окно):
+//
+// * правый щелчок по эмодзи в окне — своё меню в стиле ContextMenu for-web:
+//   «Скачать изображение» и «Добавить в избранное» / «Убрать из
+//   избранного». Меню браузера («Обновить» и т. п.) в окне не показывается
+//   нигде, кроме поля поиска;
+// * «Избранное» — блок над «Часто используемыми» и кнопка со звёздочкой в
+//   колонке, как в Discord: эмодзи в порядке добавления, в localStorage
+//   отдельно для каждого аккаунта;
+// * «Скачать изображение» есть и в меню for-web, которое открывает правый
+//   щелчок по эмодзи в сообщении (меню сообщения): пункт добавляется первым.
+//   Картинку берёт страница — ту же, что показывает, — а клиент спрашивает
+//   окном «Сохранить как», куда её записать (image_save.rs).
 //
 // Это встроенный плагин «Quality of Life» (extensions.rs): он выполняется
 // после загрузки страницы, как плагин-папка, — телом функции с объектом
@@ -119,7 +137,8 @@
 // (шестерёнка в его строке): `interface` — реакции, значки ролей, заголовки
 // групп участников и подсветка кнопок при наведении (см. «подсветка при
 // наведении» ниже), `emoji_picker` — окно эмодзи. Они действуют сразу:
-// стили и значки ролей меняются на месте, окно эмодзи — со следующего
+// стили и значки ролей меняются на месте, пункт «Скачать изображение» в меню
+// сообщения появляется и пропадает сразу, окно эмодзи меняется со следующего
 // открытия.
 // Работает только там, где bridge.js создал window.__arachnidDesktop
 // (страница веб-клиента из config.toml).
@@ -127,6 +146,10 @@
   "use strict";
 
   if (!window.__arachnidDesktop) return;
+
+  const internals = window.__TAURI_INTERNALS__;
+  const invoke = (command, args) =>
+    internals ? internals.invoke(command, args) : Promise.reject(new Error("Tauri недоступен"));
 
   // ─────────────────────────────── данные ───────────────────────────────
   const SEARCH_PLACEHOLDER = "Search for emojis...";
@@ -215,6 +238,7 @@
   const russian = /^ru\b/i.test(navigator.language || "");
   const text = russian
     ? {
+        favorites: "Избранное",
         frequent: "Часто используемые",
         standard: "Стандартные эмодзи",
         people: "Люди",
@@ -225,8 +249,13 @@
         objects: "Предметы",
         symbols: "Символы",
         flags: "Флаги",
+        download: "Скачать изображение",
+        favorite: "Добавить в избранное",
+        unfavorite: "Убрать из избранного",
+        failed: "Не удалось сохранить изображение",
       }
     : {
+        favorites: "Favorites",
         frequent: "Frequently Used",
         standard: "Standard Emoji",
         people: "People",
@@ -237,6 +266,10 @@
         objects: "Objects",
         symbols: "Symbols",
         flags: "Flags",
+        download: "Download Image",
+        favorite: "Add to Favorites",
+        unfavorite: "Remove from Favorites",
+        failed: "Could not save the image",
       };
 
   /** Картинка стандартного эмодзи — как unicodeEmojiUrl for-web */
@@ -289,6 +322,50 @@
       // хранилище переполнено — список просто не обновится
     }
   }
+
+  // ─────────────────────────────── избранное ───────────────────────────────
+  /** Ключ избранного — как у «Часто используемых», свой у каждого аккаунта */
+  const favoritesKey = () => `arachnid:emoji-favorites:${currentUser() ?? "guest"}`;
+
+  /** `[{ key, name, src, text? }]` в порядке добавления */
+  function loadFavorites() {
+    try {
+      const list = JSON.parse(localStorage.getItem(favoritesKey()) ?? "[]");
+      return Array.isArray(list)
+        ? list.filter((entry) => entry && typeof entry.key === "string" && entry.name && entry.src)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Открытые окна, которым нужно перерисовать «Избранное» */
+  const favoriteListeners = new Set();
+
+  const isFavorite = (key) => loadFavorites().some((entry) => entry.key === key);
+
+  /** Добавить эмодзи в избранное (в конец) или убрать его оттуда */
+  function toggleFavorite(entry) {
+    const list = loadFavorites();
+    const index = list.findIndex((item) => item.key === entry.key);
+    if (index === -1) {
+      const { key, name, src, text: emoji } = entry;
+      list.push(emoji === undefined ? { key, name, src } : { key, name, src, text: emoji });
+    } else {
+      list.splice(index, 1);
+    }
+    try {
+      localStorage.setItem(favoritesKey(), JSON.stringify(list));
+    } catch {
+      return;
+    }
+    for (const listener of favoriteListeners) listener();
+  }
+
+  /** Имя эмодзи сервера по картинке — из избранного или «Часто используемых» */
+  const knownName = (key) =>
+    (loadFavorites().find((entry) => entry.key === key) ?? loadFrequent().find((entry) => entry.key === key))
+      ?.name ?? null;
 
 
   // ─────────────────────────────── элементы ───────────────────────────────
@@ -356,6 +433,8 @@
   margin: 4px 8px;
   background: var(--md-sys-color-outline-variant);
 }
+.arachnid-emoji-rail-button[hidden],
+.arachnid-emoji-favorites[hidden],
 .arachnid-emoji-frequent[hidden],
 .arachnid-emoji-standard[hidden],
 .arachnid-emoji-cell[hidden] { display: none; }
@@ -425,6 +504,54 @@
   color: var(--colour-foreground);
 }
 [data-arachnid-emoji-hidden] { display: none !important; }
+.arachnid-emoji-menu {
+  position: fixed;
+  z-index: 1001;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--gap-md) 0;
+  overflow: hidden;
+  border-radius: var(--borderRadius-xs);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-2);
+  user-select: none;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.arachnid-emoji-menu-item {
+  display: flex;
+  gap: var(--gap-md);
+  align-items: center;
+  padding: var(--gap-md) var(--gap-lg);
+  cursor: pointer;
+}
+.arachnid-emoji-menu-item:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.arachnid-emoji-menu-item:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+}
+.arachnid-emoji-menu-item > .material-symbols-outlined { font-size: 16px; }
+.arachnid-emoji-menu-item > [data-fill] { font-variation-settings: "FILL" 1; }
+.arachnid-emoji-menu-item > span:not([aria-hidden="true"]) { flex-grow: 1; margin-top: 1px; }
+.arachnid-emoji-snackbar {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 1002;
+  translate: -50% 0;
+  max-width: min(560px, calc(100% - 48px));
+  padding: 14px 16px;
+  border-radius: var(--borderRadius-xs, 4px);
+  background: var(--md-sys-color-inverse-surface);
+  color: var(--md-sys-color-inverse-on-surface);
+  box-shadow: var(--md-sys-elevation-3, 0 4px 12px rgba(0, 0, 0, 0.4));
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  pointer-events: none;
+}
 `;
 
   /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
@@ -462,6 +589,125 @@ ${MESSAGE_ROLE_ICON} > img {
     style.textContent = css;
     (document.head ?? document.documentElement).append(style);
   }
+
+  // ─────────────────────────────── меню ───────────────────────────────
+  // Правый щелчок в окне эмодзи — своё меню в стиле ContextMenu for-web
+  // (как меню избранных GIF в gifs.js) вместо меню браузера.
+
+  const errorText = (error) => String(error?.message ?? error ?? "");
+
+  let snackbar = null;
+  let snackbarTimer = 0;
+  function toast(message) {
+    snackbar?.remove();
+    clearTimeout(snackbarTimer);
+    snackbar = h("div", { class: "arachnid-emoji-snackbar", role: "status" }, message);
+    document.body.append(snackbar);
+    snackbarTimer = setTimeout(() => {
+      snackbar?.remove();
+      snackbar = null;
+    }, 4000);
+  }
+
+  /** Не дать for-web закрыть окно эмодзи: оно закрывается по нажатию вне себя */
+  function keepFloating(element) {
+    for (const type of ["mousedown", "pointerdown"]) {
+      element.addEventListener(type, (event) => event.stopPropagation());
+    }
+  }
+
+  let menuState = null;
+  const closeMenu = () => menuState?.close();
+
+  /** Меню у точки `x, y`: `entries` — `{ icon, label, fill?, action }` */
+  function showMenu(x, y, entries) {
+    closeMenu();
+    const menu = h("div", { class: "arachnid-emoji-menu", role: "menu", "data-arachnid-emoji-menu": true });
+    for (const entry of entries) {
+      const glyph = icon(entry.icon);
+      if (entry.fill) glyph.setAttribute("data-fill", "");
+      const item = h("a", { class: "arachnid-emoji-menu-item", role: "menuitem" }, glyph, h("span", null, entry.label));
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+        entry.action();
+      });
+      menu.append(item);
+    }
+    keepFloating(menu);
+    menu.addEventListener("contextmenu", (event) => event.preventDefault());
+    document.body.append(menu);
+
+    // как floating-ui for-web: offset 5, flip и shift
+    const { width, height } = menu.getBoundingClientRect();
+    let left = x + 5;
+    let top = y + 5;
+    if (left + width > innerWidth - 8) left = Math.max(8, x - 5 - width);
+    if (top + height > innerHeight - 8) top = Math.max(8, y - 5 - height);
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+
+    const onPointer = (event) => {
+      if (!menu.contains(event.target)) close();
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      // Escape закрывает только меню, окно эмодзи остаётся
+      event.stopPropagation();
+      close();
+    };
+    function close() {
+      removeEventListener("pointerdown", onPointer, true);
+      removeEventListener("keydown", onKey, true);
+      removeEventListener("blur", close);
+      removeEventListener("resize", close);
+      menu.remove();
+      if (menuState?.menu === menu) menuState = null;
+    }
+    addEventListener("pointerdown", onPointer, true);
+    addEventListener("keydown", onKey, true);
+    addEventListener("blur", close);
+    addEventListener("resize", close);
+    menuState = { menu, close };
+    return menu;
+  }
+
+  /**
+   * Сохранить картинку эмодзи: страница берёт ту же картинку, что
+   * показывает (стандартные эмодзи клиент отдаёт растром из своего набора),
+   * а клиент спрашивает, куда её записать (image_save.rs).
+   */
+  async function downloadEmoji(entry) {
+    try {
+      const response = await fetch(entry.src);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = new Uint8Array(await response.arrayBuffer());
+      const name = entry.name ?? idOf(entry.src) ?? "emoji";
+      await invoke("image_save", { name, data: Array.from(data) });
+    } catch (error) {
+      console.warn("[emoji] картинка не сохранена", error);
+      toast(`${text.failed}: ${errorText(error)}`);
+    }
+  }
+
+  /** Пункты меню эмодзи: скачать и, если известно имя, избранное */
+  function emojiMenuEntries(entry) {
+    const entries = [{ icon: "download", label: text.download, action: () => void downloadEmoji(entry) }];
+    if (entry.key && entry.name) {
+      const favorite = isFavorite(entry.key);
+      entries.push({
+        icon: "star",
+        fill: favorite,
+        label: favorite ? text.unfavorite : text.favorite,
+        action: () => toggleFavorite(entry),
+      });
+    }
+    return entries;
+  }
+
+  /** Имя файла эмодзи сервера, если имени нет: id из адреса autumn */
+  const idOf = (src) => /\/emojis\/([A-Za-z0-9_-]+)/.exec(src ?? "")?.[1] ?? null;
 
   // ─────────────────────────────── набор ───────────────────────────────
 
@@ -523,7 +769,9 @@ ${MESSAGE_ROLE_ICON} > img {
         const railList = rail?.querySelector(`:scope > ${VIRTUAL_LIST}`);
         const gridList = grid?.querySelector(`:scope > ${VIRTUAL_LIST}`);
         if (!railList || !gridList) return null;
-        return { input, rail, railList, grid, gridList, preview: column.children[1] ?? null };
+        // всё окно — блок в #floating (Portal for-web), иначе — поле с рядом
+        const root = input.closest("#floating > *") ?? row.parentElement;
+        return { root, input, rail, railList, grid, gridList, preview: column.children[1] ?? null };
       }
       block = block.parentElement;
     }
@@ -568,9 +816,12 @@ ${MESSAGE_ROLE_ICON} > img {
     return best;
   }
 
+  /** Блоки открытых улучшенных окон — у них своё меню */
+  const pickerRoots = new Set();
+
   /** Дополнить окно; возвращает, что сделать, когда оно закроется */
   function enhance(picker) {
-    const { input, rail, railList, grid, gridList, preview } = picker;
+    const { root, input, rail, railList, grid, gridList, preview } = picker;
     input.dataset.arachnidEmoji = "";
 
     /**
@@ -678,9 +929,11 @@ ${MESSAGE_ROLE_ICON} > img {
     function setPack(value) {
       if (!value || value === pack) return;
       pack = value;
-      for (const image of frequentBlock?.querySelectorAll("img.emoji") ?? []) {
-        const own = packOf(image.src);
-        if (own && own !== pack) image.src = image.src.replace(`/emoji/${own}/`, `/emoji/${pack}/`);
+      for (const block of [favoritesBlock, frequentBlock]) {
+        for (const image of block?.querySelectorAll("img.emoji") ?? []) {
+          const own = packOf(image.src);
+          if (own && own !== pack) image.src = image.src.replace(`/emoji/${own}/`, `/emoji/${pack}/`);
+        }
       }
       for (const [row, element] of drawn) fillRow(element, row);
     }
@@ -717,42 +970,68 @@ ${MESSAGE_ROLE_ICON} > img {
     // ячейки for-web — снова полоса for-web
     gridList.addEventListener("mouseover", () => showOwnPreview(false));
 
-    // ─────────────────────── часто используемые ───────────────────────
+    // ─────────────────── избранное и часто используемые ───────────────────
+    /** Запись эмодзи у ячеек «Избранного» и «Часто используемых» */
+    const entryOf = new WeakMap();
+
+    /** Ячейка эмодзи из записи `{ key, name, src, text? }` */
+    function entryCell(entry) {
+      const standard = entry.text !== undefined;
+      const image = h("img", {
+        src: standard && pack ? emojiUrl(pack, entry.text) : entry.src,
+        alt: entry.text ?? `:${entry.name}:`,
+        class: standard ? "emoji" : null,
+        draggable: "false",
+      });
+      const button = h(
+        "button",
+        {
+          type: "button",
+          class: "arachnid-emoji-cell",
+          role: "listitem",
+          title: `:${entry.name}:`,
+          onClick: () => void activate(entry),
+          onMouseEnter: () => showPreview(image.src, image.alt, entry.name),
+        },
+        image,
+      );
+      entryOf.set(button, entry);
+      return button;
+    }
+
+    /** Блок над сеткой: заголовок и ячейки по `columns()` в строке */
+    function entryBlock(kind, title) {
+      const block = h(
+        "div",
+        { class: `arachnid-emoji-${kind}`, [`data-arachnid-emoji-${kind}`]: true },
+        h("div", { class: "arachnid-emoji-title" }, title),
+        h("div", { class: "arachnid-emoji-cells", role: "list" }),
+      );
+      block.lastChild.style.gridTemplateColumns = `repeat(${columns()}, ${CELL}px)`;
+      return block;
+    }
+
+    // «Часто используемые» собираются при открытии окна и, пока оно
+    // открыто, не меняются: иначе эмодзи уезжали бы из-под указателя.
     const frequent = loadFrequent().slice(0, columns() * FREQUENT_ROWS);
     let frequentBlock = null;
-
     if (frequent.length > 0) {
-      frequentBlock = h(
-        "div",
-        { class: "arachnid-emoji-frequent", "data-arachnid-emoji-frequent": true },
-        h("div", { class: "arachnid-emoji-title" }, text.frequent),
-        h(
-          "div",
-          { class: "arachnid-emoji-cells", role: "list" },
-          ...frequent.map((entry) => {
-            const image = h("img", {
-              src: entry.src,
-              alt: entry.text ?? `:${entry.name}:`,
-              class: entry.text !== undefined ? "emoji" : null,
-              draggable: "false",
-            });
-            return h(
-              "button",
-              {
-                type: "button",
-                class: "arachnid-emoji-cell",
-                role: "listitem",
-                title: `:${entry.name}:`,
-                onClick: () => void activate(entry),
-                onMouseEnter: () => showPreview(image.src, image.alt, entry.name),
-              },
-              image,
-            );
-          }),
-        ),
-      );
-      frequentBlock.lastChild.style.gridTemplateColumns = `repeat(${columns()}, ${CELL}px)`;
+      frequentBlock = entryBlock("frequent", text.frequent);
+      frequentBlock.lastChild.append(...frequent.map(entryCell));
       grid.insertBefore(frequentBlock, gridList);
+    }
+
+    // «Избранное» — над ними, как в Discord; меняется сразу из меню эмодзи
+    const favoritesBlock = entryBlock("favorites", text.favorites);
+    grid.insertBefore(favoritesBlock, frequentBlock ?? gridList);
+
+    function renderFavorites() {
+      const favorites = loadFavorites();
+      favoritesBlock.lastChild.replaceChildren(...favorites.map(entryCell));
+      favoritesBlock.hidden = favorites.length === 0 || filtering();
+      buttons.get("favorites")?.toggleAttribute("hidden", favorites.length === 0);
+      layout = null;
+      update();
     }
 
     // ─────────────────────── стандартные эмодзи ───────────────────────
@@ -855,6 +1134,9 @@ ${MESSAGE_ROLE_ICON} > img {
       spare.rows.length = 0;
       shape = shapeFor(count);
       standard.style.height = `${shape.rows * CELL}px`;
+      for (const block of [favoritesBlock, frequentBlock]) {
+        if (block) block.lastChild.style.gridTemplateColumns = `repeat(${count}, ${CELL}px)`;
+      }
     }
 
     function cutList() {
@@ -876,6 +1158,7 @@ ${MESSAGE_ROLE_ICON} > img {
 
     /** Поиск — результаты for-web целиком; без поиска — свои разделы */
     function showSearch(searching) {
+      favoritesBlock.hidden = searching || favoritesBlock.lastChild.childElementCount === 0;
       if (frequentBlock) frequentBlock.hidden = searching;
       standard.hidden = searching;
       if (searching) {
@@ -931,6 +1214,67 @@ ${MESSAGE_ROLE_ICON} > img {
       if (name) recordUse({ key, name, src: image.src });
     });
 
+    // ─────────────────────────── меню ───────────────────────────
+    /** Стандартный эмодзи как запись избранного */
+    const standardEntry = (emoji, name, src) => ({
+      key: `u:${emoji}`,
+      name,
+      src: src || emojiUrl(pack ?? WEB_DEFAULT_PACK, emoji),
+      text: emoji,
+    });
+
+    /**
+     * Эмодзи под указателем: свои ячейки — разделы, «Избранное» и «Часто
+     * используемые», — и ячейки for-web (эмодзи серверов и результаты
+     * поиска). У эмодзи сервера имя — из полосы предпросмотра for-web (она
+     * показывает эмодзи под указателем) или из сохранённых записей; без
+     * имени его не добавить в избранное (выбор идёт поиском по имени), но
+     * можно скачать.
+     */
+    function emojiAt(target) {
+      if (!(target instanceof Element)) return null;
+      const button = target.closest(".arachnid-emoji-cell");
+      if (button) {
+        if (button.hidden) return null;
+        const own = entryOf.get(button);
+        if (own) return own;
+        const mapped = MAPPING[Number(button.dataset.index)];
+        return mapped ? standardEntry(mapped[0], mapped[1], button.firstChild.getAttribute("src")) : null;
+      }
+      let cell = target;
+      while (cell && cell.parentElement !== gridList) cell = cell.parentElement;
+      const image = cell && imageOf(cell);
+      if (!image?.src) return null;
+      if (image.classList.contains("emoji")) {
+        const name = NAMES.get(image.alt)?.[0];
+        return name ? standardEntry(image.alt, name, image.src) : null;
+      }
+      const key = `c:${image.src}`;
+      return { key, name: previewName(image) ?? knownName(key), src: image.src };
+    }
+
+    // Меню браузера («Обновить», «Сохранить картинку как…») в окне не
+    // показывается — только в поле поиска, где оно нужно для вставки
+    // текста. На эмодзи — своё меню. Обработчик стоит на всём окне в фазе
+    // перехвата: меню for-web на картинках ячеек (если оно есть) не
+    // открывается вместе с ним.
+    function onContextMenu(event) {
+      const editable = event
+        .composedPath()
+        .some((node) => node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement || node.isContentEditable);
+      if (editable) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const entry = emojiAt(event.target);
+      if (!entry) {
+        closeMenu();
+        return;
+      }
+      showMenu(event.clientX, event.clientY, emojiMenuEntries(entry));
+    }
+    root.addEventListener("contextmenu", onContextMenu, true);
+    pickerRoots.add(root);
+
     // ─────────────────────────── колонка ───────────────────────────
     const sectionTop = (index) => offsetOf(standard) + shape.sections[index].header * CELL;
 
@@ -959,7 +1303,10 @@ ${MESSAGE_ROLE_ICON} > img {
     const topBlock = h(
       "div",
       { class: "arachnid-emoji-rail", "data-arachnid-emoji-rail": "top" },
-      frequentBlock ? railButton("frequent", "schedule", text.frequent, () => scrollGrid(0)) : null,
+      railButton("favorites", "star", text.favorites, () => scrollGrid(offsetOf(favoritesBlock))),
+      frequentBlock
+        ? railButton("frequent", "schedule", text.frequent, () => scrollGrid(offsetOf(frequentBlock)))
+        : null,
       railButton("standard", "emoji_emotions", text.standard, jumpToStandard),
     );
     const categoryBlock = h(
@@ -982,6 +1329,7 @@ ${MESSAGE_ROLE_ICON} > img {
     let layout = null;
     const measure = () =>
       (layout ??= {
+        frequentTop: frequentBlock ? offsetOf(frequentBlock) : null,
         listTop: offsetOf(gridList),
         standardTop: offsetOf(standard),
         height: grid.clientHeight,
@@ -989,9 +1337,14 @@ ${MESSAGE_ROLE_ICON} > img {
 
     function activeSection() {
       if (filtering()) return null;
-      const { listTop, standardTop } = measure();
+      const { frequentTop, listTop, standardTop } = measure();
       const top = grid.scrollTop + 1;
-      if (top < standardTop) return frequentBlock && top < listTop ? "frequent" : null;
+      if (top < standardTop) {
+        if (top >= listTop) return null;
+        const favorites = !favoritesBlock.hidden;
+        if (frequentTop !== null && (top >= frequentTop || !favorites)) return "frequent";
+        return favorites ? "favorites" : null;
+      }
       // раздел, заголовок которого дошёл до верха, уже считается открытым
       let active = null;
       for (const section of shape.sections) {
@@ -1026,7 +1379,7 @@ ${MESSAGE_ROLE_ICON} > img {
       layout = null;
       update();
     });
-    for (const element of [grid, gridList, frequentBlock]) if (element) resize.observe(element);
+    for (const element of [grid, gridList, favoritesBlock, frequentBlock]) if (element) resize.observe(element);
 
     // высота списка for-web меняется вместе с эмодзи серверов и поиском
     const listWatch = new MutationObserver(() => {
@@ -1065,10 +1418,16 @@ ${MESSAGE_ROLE_ICON} > img {
       });
     }
 
+    favoriteListeners.add(renderFavorites);
+    renderFavorites();
     showSearch(filtering());
 
     // окно закрыто
     return () => {
+      root.removeEventListener("contextmenu", onContextMenu, true);
+      pickerRoots.delete(root);
+      favoriteListeners.delete(renderFavorites);
+      closeMenu();
       resize.disconnect();
       listWatch.disconnect();
       packWatch?.disconnect();
@@ -1279,16 +1638,107 @@ ${MESSAGE_ROLE_ICON} > img {
     for (const record of records) {
       if (pickers.size > 0 && record.removedNodes.length > 0) wanted = true;
       for (const node of record.addedNodes) {
+        if (chatCandidate) considerMenu(node);
         if (!hasField(node)) continue;
-        added.push(node);
-        wanted = true;
+        // сразу, до первого замера списка for-web (см. начало файла)
+        if (node.matches(FIELDS)) consider(node);
+        for (const field of node.querySelectorAll(FIELDS)) consider(field);
       }
     }
     if (wanted) queueScan();
   }
 
+  // ─────────────────────────── меню в чате ───────────────────────────
+  // Правый щелчок по эмодзи в сообщении открывает меню сообщения for-web
+  // (use:floating на сообщении). Обработчик перехвата на окне запоминает
+  // эмодзи, а когда в документе появится меню for-web — блок, где первый
+  // ребёнок и ещё хотя бы один — пункты-ссылки, — первым пунктом в него
+  // встаёт «Скачать изображение» (копия пункта for-web со своим значком и
+  // текстом, за ним — копия разделителя).
+  const MENU_WAIT_MS = 1000;
+  let chatCandidate = null;
+
+  function onChatContextMenu(event) {
+    chatCandidate = null;
+    if (!pickerOn()) return;
+    const target = event.target;
+    if (!(target instanceof HTMLImageElement) || !target.classList.contains("emoji")) return;
+    if (!target.src || target.closest("[data-arachnid-emoji-menu]")) return;
+    for (const root of pickerRoots) if (root.contains(target)) return;
+    chatCandidate = { element: target, time: performance.now() };
+  }
+
+  /** Меню for-web: div с пунктами-ссылками */
+  function findMenu(node) {
+    const isMenu = (element) =>
+      element.firstElementChild?.localName === "a" && element.querySelectorAll(":scope > a").length >= 2;
+    if (isMenu(node)) return node;
+    for (const element of node.querySelectorAll("div")) if (isMenu(element)) return element;
+    return null;
+  }
+
+  function considerMenu(node) {
+    if (performance.now() - chatCandidate.time > MENU_WAIT_MS || !chatCandidate.element.isConnected) {
+      chatCandidate = null;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const menu = findMenu(node);
+    if (!menu || menu.querySelector("[data-arachnid-emoji-download]")) return;
+    const { element } = chatCandidate;
+    chatCandidate = null;
+    insertDownload(menu, element);
+  }
+
+  /** Эмодзи из сообщения: стандартный — с именем for-web, сервера — по id */
+  function chatEmoji(image) {
+    const src = image.currentSrc || image.src;
+    if (packOf(src)) {
+      // перед эмодзи может стоять метка набора и ZWNJ (UnicodeEmoji for-web)
+      const emoji = image.alt.replace(/[\uE0E0-\uE0E6\u200C]/g, "");
+      return { src, name: NAMES.get(emoji)?.[0] ?? null };
+    }
+    return { src, name: knownName(`c:${src}`) ?? /^:([^:\s]+):$/.exec(image.alt)?.[1] ?? null };
+  }
+
+  function insertDownload(menu, image) {
+    const sample = menu.querySelector(":scope > a");
+    const item = sample.cloneNode(true);
+    for (const name of ["href", "id", "target", "download"]) item.removeAttribute(name);
+    item.setAttribute("data-arachnid-emoji-download", "");
+    // пункты for-web — с заглавной буквы каждого слова (английский текст)
+    item.style.textTransform = "none";
+    const children = Array.from(item.children);
+    const glyph = children.find(
+      (child) => child.localName === "svg" || (child.localName === "span" && child.getAttribute("aria-hidden") === "true"),
+    );
+    const label = children.filter((child) => child.localName === "span" && child !== glyph).at(0) ?? null;
+    if (label) label.textContent = text.download;
+    else item.append(h("span", null, text.download));
+    if (glyph?.localName === "span") {
+      // Symbol for-web: тот же шрифт значков
+      glyph.textContent = "download";
+      glyph.style.removeProperty("font-variation-settings");
+    } else {
+      const own = icon("download");
+      own.style.cssText = "display:block;font-size:16px";
+      if (glyph) glyph.replaceWith(own);
+      else item.prepend(own);
+    }
+    item.addEventListener("click", () => {
+      // меню for-web закроется само: оно закрывается по любому щелчку
+      void downloadEmoji(chatEmoji(image));
+    });
+    menu.prepend(item);
+    const divider = Array.from(menu.children).find(
+      (child) => child.localName === "div" && child.childElementCount === 0 && !child.textContent.trim(),
+    );
+    if (divider) item.after(divider.cloneNode(true));
+  }
+
   function start() {
     ensureStyle("arachnid-emoji-style", STYLE);
+    addEventListener("contextmenu", onChatContextMenu, true);
     applyInterface();
     plugin.onSettingsChange(applyInterface);
     new MutationObserver(observe).observe(document.body, { childList: true, subtree: true });
