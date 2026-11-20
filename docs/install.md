@@ -6,12 +6,9 @@
 
 | Система | Установщик | Без установки |
 |---|---|---|
-| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `Arachnid Client.exe` |
-| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `Arachnid Client.AppImage` |
-| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `Arachnid Client.app.zip` |
-
-GitHub меняет пробел в имени файла на точку, поэтому одиночные файлы скачиваются
-как `Arachnid.Client.exe` и т. п.; имя можно вернуть, на работу оно не влияет.
+| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `ArachnidClient.exe` |
+| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `ArachnidClient.AppImage` |
+| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `ArachnidClient.app.zip` |
 
 Файлы не подписаны сертификатом разработчика, поэтому при первом запуске система
 предупредит:
@@ -20,7 +17,7 @@ GitHub меняет пробел в имени файла на точку, по�
   случае».
 - **macOS:** правый щелчок по приложению → «Открыть» (или «Системные настройки» →
   «Конфиденциальность и безопасность» → «Всё равно открыть»).
-- **Linux, AppImage:** `chmod +x "Arachnid Client.AppImage"`, затем запуск.
+- **Linux, AppImage:** `chmod +x "ArachnidClient.AppImage"`, затем запуск.
 
 ## Без установки (portable)
 
@@ -28,7 +25,7 @@ GitHub меняет пробел в имени файла на точку, по�
 отдельную папку. При первом запуске там появятся:
 
 ```
-Arachnid Client.exe   клиент (.AppImage в Linux, .app в macOS)
+ArachnidClient.exe    клиент (.AppImage в Linux, .app в macOS)
 config.toml           адрес веб-клиента и экономия памяти — создаётся вручную, если нужно
 desktop.json          настройки раздела «ПК»
 webview/              вход, сессия и кэш веб-клиента
@@ -43,7 +40,7 @@ logs/                 журналы
 Папку можно перенести на другой диск или флешку — вместе со входом. Удаление —
 удалить папку (и выключить «Запускать вместе с компьютером», если включали).
 
-В macOS распакуйте `Arachnid Client.app.zip` и перенесите `Arachnid Client.app`
+В macOS распакуйте `ArachnidClient.app.zip` и перенесите `Arachnid Client.app`
 в нужную папку до первого запуска: приложение, запущенное прямо из «Загрузок»,
 macOS открывает по временному пути только для чтения, и тогда клиент хранит данные
 в системном каталоге.

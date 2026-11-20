@@ -4,9 +4,9 @@
 
 | Система | Установщик | Без установки |
 |---|---|---|
-| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `Arachnid Client.exe` |
-| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `Arachnid Client.AppImage` |
-| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `Arachnid Client.app.zip` |
+| Windows 10/11 x64 | `Arachnid-Client-Setup.exe` | `ArachnidClient.exe` |
+| Linux x64 | `Arachnid-Client-Setup.deb` (Ubuntu, Debian, Mint…) или `Arachnid-Client-Setup.rpm` (Fedora, openSUSE…) | `ArachnidClient.AppImage` |
+| macOS 11+ (Apple Silicon и Intel) | `Arachnid-Client-Setup.dmg` | `ArachnidClient.app.zip` |
 
 **Без установки** клиент хранит вход, настройки, темы и плагины в папке рядом с собой, поэтому положите файл в отдельную папку. Её можно переносить вместе со входом.
 
@@ -16,7 +16,7 @@
 
 - **Windows:** «Windows защитила ваш компьютер» → «Подробнее» → «Выполнить в любом случае».
 - **macOS:** откройте приложение через правый щелчок → «Открыть» (или «Системные настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть»).
-- **Linux, AppImage:** разрешите запуск: `chmod +x "Arachnid Client.AppImage"`.
+- **Linux, AppImage:** разрешите запуск: `chmod +x "ArachnidClient.AppImage"`.
 
 ## Возможности
 

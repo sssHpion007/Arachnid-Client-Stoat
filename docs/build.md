@@ -46,7 +46,7 @@ npx @tauri-apps/cli@2 build --no-bundle --features portable # одиночный
 
 ## Автоматическая сборка
 
-`.github/workflows/windows.yml` собирает `Arachnid Client.exe` (тот же
+`.github/workflows/windows.yml` собирает `ArachnidClient.exe` (тот же
 одиночный файл, что в релизе) при каждой отправке `main` и рабочих веток
 `arena/…`. Так тестовую сборку можно получить из ветки, не сливая её в `main`:
 файл лежит в артефактах запуска на вкладке Actions 30 дней.
@@ -55,9 +55,8 @@ npx @tauri-apps/cli@2 build --no-bundle --features portable # одиночный
 
 `.github/workflows/release.yml` собирает Windows, Linux и macOS (универсальная
 сборка для Apple Silicon и Intel): установщики `Arachnid-Client-Setup.exe`,
-`.deb`, `.rpm`, `.dmg` и одиночные файлы `Arachnid Client.exe`,
-`Arachnid Client.AppImage`, `Arachnid Client.app.zip`. Отправка рабочей ветки,
-в которой меняется сборка, только собирает файлы (артефакты запуска); тег
+`.deb`, `.rpm`, `.dmg` и одиночные файлы `ArachnidClient.exe`,
+`ArachnidClient.AppImage`, `ArachnidClient.app.zip`. Запускается тегом и
 выпускает релиз с текстом из `.github/release-notes.md`:
 
 ```bash
