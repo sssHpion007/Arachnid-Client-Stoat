@@ -1434,6 +1434,44 @@ ${sidebarGroup("", [
           arranged.opened[2].endsWith("/issues"),
         arranged,
       );
+      // «Внешний вид», как его строит for-web: заголовок страницы (Text с
+      // Breadcrumbs) — первый в колонке, за ним блок страницы с приветствием и
+      // «Colours». «Папка тем» и «QuickCSS» — справа напротив заголовка, пока
+      // открыта эта страница
+      const settingsColumn = settingsPage.querySelector(".settings_cont > div");
+      const pageTitle = document.createElement("span");
+      pageTitle.style.cssText = "font-size:22px";
+      pageTitle.innerHTML = "<div><span>Appearance</span></div>";
+      const appearancePage = document.createElement("div");
+      appearancePage.innerHTML = "<div><div>Welcome to the new appearance menu! Pick a theme.</div><div><span>Colours</span></div></div>";
+      settingsColumn.append(pageTitle, appearancePage);
+      const appearanceActions = await waitFor(() => pageTitle.querySelector('[data-arachnid-appearance="actions"]'), 3000, 50);
+      const titleBox = pageTitle.getBoundingClientRect();
+      const actionsBox = appearanceActions?.getBoundingClientRect();
+      const appearanceHeader = {
+        labels: [...(appearanceActions?.querySelectorAll(".arachnid-button") ?? [])].map((button) => button.lastChild.textContent),
+        right: actionsBox ? Math.round(titleBox.right - actionsBox.right) : null,
+        sameRow: actionsBox ? Math.abs(pageTitle.firstElementChild.getBoundingClientRect().top + pageTitle.firstElementChild.getBoundingClientRect().height / 2 - (actionsBox.top + actionsBox.height / 2)) < 2 : null,
+        inPage: appearancePage.querySelectorAll(".arachnid-button").length,
+        picker: Boolean(appearancePage.querySelector('[data-arachnid-appearance="picker"] .arachnid-collapse')),
+      };
+      // переход на другую страницу: for-web сразу меняет заголовок, страница
+      // уходит после анимации
+      pageTitle.firstElementChild.firstElementChild.textContent = "Notifications";
+      appearanceHeader.leftOnNavigate = await waitFor(() => !pageTitle.querySelector(".arachnid-button"), 3000, 50);
+      appearancePage.remove();
+      pageTitle.remove();
+      await check(
+        "«Внешний вид»: «Папка тем» и «QuickCSS» справа напротив заголовка",
+        ["Папка тем,QuickCSS", "Themes Folder,QuickCSS"].includes(appearanceHeader.labels.join()) &&
+          appearanceHeader.right === 0 &&
+          appearanceHeader.sameRow &&
+          appearanceHeader.inPage === 0 &&
+          appearanceHeader.picker &&
+          appearanceHeader.leftOnNavigate,
+        appearanceHeader,
+      );
+
       const pluginsEntry = await waitFor(() => settingsPage.querySelector('a.button[data-arachnid-entry="plugins"]'), 3000, 50);
       pluginsEntry?.click();
       const qolRow = await waitFor(

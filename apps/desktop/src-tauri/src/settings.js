@@ -89,7 +89,7 @@
         pluginActions: "Действия плагинов",
         openPlugins: "Папка плагинов",
         openThemes: "Папка тем",
-        quickCss: "Изменить QuickCSS",
+        quickCss: "QuickCSS",
         quickCssHint: "Свой CSS поверх клиента и темы. Изменения применяются сразу и сохраняются в quickcss.css.",
         saving: "Сохранение…",
         saved: "Сохранено",
@@ -162,7 +162,7 @@
         pluginActions: "Plugin Actions",
         openPlugins: "Plugins Folder",
         openThemes: "Themes Folder",
-        quickCss: "Edit QuickCSS",
+        quickCss: "QuickCSS",
         quickCssHint: "Your own CSS on top of the client and the theme. Changes apply instantly and are saved to quickcss.css.",
         saving: "Saving…",
         saved: "Saved",
@@ -258,6 +258,9 @@
 .arachnid-page, .arachnid-column { display: flex; flex-direction: column; gap: var(--gap-md, 12px); }
 .arachnid-page { gap: var(--gap-lg, 16px); padding-bottom: 80px; color: var(--md-sys-color-on-surface); }
 .arachnid-title { line-height: 1.75rem; font-size: 1.375rem; font-weight: 550; }
+/* заголовок страницы for-web с кнопками справа («Внешний вид») */
+[data-arachnid-title-row] { display: flex !important; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+[data-arachnid-title-row] > .arachnid-buttons { line-height: normal; }
 .arachnid-page-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .arachnid-subtitle { line-height: 1.25rem; font-size: 0.875rem; letter-spacing: 0.00625rem; font-weight: 550; }
 .arachnid-label { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; color: var(--md-sys-color-on-surface-variant); }
@@ -1261,8 +1264,39 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   }
 
   // ───────────────────────────── «Внешний вид» ─────────────────────────────
-  /** Обработанная страница: { root, picker, colours, block } */
+  /** Обработанная страница: { root, picker, colours, block, title, label, actions } */
   let appearance = null;
+
+  /** Текст заголовка страницы for-web (без своих кнопок) */
+  const titleText = (title, actions) =>
+    [...title.childNodes]
+      .filter((node) => node !== actions)
+      .map((node) => node.textContent)
+      .join("")
+      .trim();
+
+  /**
+   * Кнопки «Папка тем» и «QuickCSS» — справа напротив заголовка «Внешний
+   * вид», как «Папка плагинов» в «Плагинах». Заголовок — первый элемент
+   * колонки (Text с Breadcrumbs): он один на все страницы настроек, поэтому
+   * кнопки стоят в нём, только пока открыт «Внешний вид» и заголовок тот
+   * же — for-web меняет его сразу при переходе, а страница уходит после
+   * анимации.
+   */
+  function syncAppearanceActions() {
+    const current = appearance;
+    if (!current?.title) return;
+    const shown = current.root.isConnected && current.title.isConnected && titleText(current.title, current.actions) === current.label;
+    if (!shown) return hideAppearanceActions(current);
+    current.title.setAttribute("data-arachnid-title-row", "");
+    if (current.actions.parentElement !== current.title) current.title.append(current.actions);
+  }
+
+  function hideAppearanceActions(current) {
+    if (!current.title) return;
+    current.actions.remove();
+    current.title.removeAttribute("data-arachnid-title-row");
+  }
 
   /** Найти «Внешний вид» в колонке страницы настроек */
   function findAppearance(column) {
@@ -1278,6 +1312,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     const column = content.querySelector(".settings_cont")?.firstElementChild;
     if (!column) return;
     if (appearance?.root.isConnected && column.contains(appearance.root)) return;
+    if (appearance) hideAppearanceActions(appearance);
     appearance = null;
     const found = findAppearance(column);
     if (!found) return;
@@ -1293,7 +1328,29 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     if (colours && coloursTitle === "Colours") colours.after(block);
     else welcome.after(block);
 
-    appearance = { root, picker, colours: coloursTitle === "Colours" ? colours : null, block };
+    // те же кнопки, что «Папка плагинов» в разделе «Плагины»
+    const actions = h(
+      "div",
+      { class: "arachnid-buttons", dataset: { arachnidAppearance: "actions" } },
+      button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
+      button(text.quickCss, openQuickCss, undefined, "css"),
+    );
+    // заголовок страницы — span перед блоком страницы; если его нет
+    // (разметка for-web изменилась), кнопки остаются над выбором темы
+    const title = column.firstElementChild;
+    const titled = title?.localName === "span" && !title.contains(root);
+    if (!titled) picker.before(actions);
+
+    appearance = {
+      root,
+      picker,
+      colours: coloursTitle === "Colours" ? colours : null,
+      block,
+      title: titled ? title : null,
+      label: titled ? titleText(title, actions) : "",
+      actions,
+    };
+    syncAppearanceActions();
     renderAppearance();
     void refresh();
   }
@@ -1315,13 +1372,6 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
     setChildren(
       appearance.picker,
-      // те же кнопки, что «Папка плагинов» в разделе «Плагины»
-      h(
-        "div",
-        { class: "arachnid-buttons" },
-        button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
-        button(text.quickCss, openQuickCss, undefined, "css"),
-      ),
       // как выбор языка в for-web
       categorySelect({
         iconName: "palette",
@@ -1815,6 +1865,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       const content = sidebar.nextElementSibling;
       if (content) enhanceAppearance(content);
     }
+    syncAppearanceActions();
   }
 
   // Настройки открываются и перерисовываются в любой момент: проверка раз в
