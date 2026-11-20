@@ -68,7 +68,7 @@ pub fn file_name(name: &str, extension: &str) -> String {
         stem = FALLBACK_NAME.to_owned();
     }
     let device = stem.split('.').next().unwrap_or_default().trim_end();
-    if RESERVED.iter().any(|reserved| device.eq_ignore_ascii_case(reserved)) {
+    if RESERVED.contains(&device.to_ascii_uppercase().as_str()) {
         stem.insert(0, '_');
     }
     format!("{stem}.{extension}")
