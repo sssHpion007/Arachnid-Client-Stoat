@@ -1,0 +1,37 @@
+/* Кнопка в панели сообщения: переведённое сообщение — значок цвета акцента */
+.arachnid-translator-tool[data-active] svg {
+  fill: var(--md-sys-color-primary);
+}
+
+.arachnid-translator-tool[data-busy] svg {
+  animation: arachnid-translator-pulse 1s ease-in-out infinite;
+}
+
+[data-arachnid-translator-busy] {
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+
+@keyframes arachnid-translator-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+/* «(переведено)» после текста, как у переводчика BetterDiscord */
+.arachnid-translator-mark {
+  margin-inline-start: 4px;
+  font-size: 0.75em;
+  color: var(--md-sys-color-outline);
+  user-select: none;
+  cursor: default;
+}
+
+.arachnid-translator-note {
+  font-size: 0.8125em;
+  color: var(--md-sys-color-outline);
+}
+
+.arachnid-translator-note[data-error] {
+  color: var(--md-sys-color-error);
+}
