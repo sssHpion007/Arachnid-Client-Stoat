@@ -858,27 +858,13 @@
     document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
   }
 
-  /**
-   * Текст сообщения с GIF — пустая ссылка Markdown `[](адрес)`. Сервер
-   * Stoat находит адрес и в ней (linkify) и делает по нему вложение, а
-   * у самой ссылки нет текста, и в сообщении видна только GIF — у всех
-   * клиентов. Голый адрес for-web прячет лишь у GIF с tenor.com, giphy.com
-   * и gifbox.me, а у прямых ссылок на файлы, вложений и прочих страниц он
-   * виден в тексте. Пробелы, скобки и обратную косую черту адрес хранит
-   * %-кодами: иначе они закончили бы ссылку раньше. Угловые скобки
-   * `[](<адрес>)` не подходят: ссылки в них сервер не встраивает.
-   */
-  const LINK_ESCAPES = { "(": "%28", ")": "%29" };
-  const gifContent = (url) =>
-    `[](${url.replace(/[\s()<>\\]/g, (char) => LINK_ESCAPES[char] ?? encodeURIComponent(char))})`;
-
   async function sendFavorite(favorite, picker) {
     const channel = currentChannel();
     if (!channel) {
       toast(text.noChannel);
       return;
     }
-    const body = { content: gifContent(favorite.url) };
+    const body = { content: favorite.url };
     if (picker?.replyTo) body.replies = [{ id: picker.replyTo, mention: true }];
     try {
       await request("POST", `/channels/${channel}/messages`, body);
