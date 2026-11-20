@@ -1664,8 +1664,9 @@ ${sidebarGroup("", [
       });
       const joinedDates = () =>
         Array.from(joinedTile.querySelectorAll(".arachnid-joined-date"), (date) => ({
-          text: date.textContent,
-          icon: date.querySelector("img")?.getAttribute("src") ?? null,
+          // за значком (картинкой или буквой в кружке) — текст даты
+          text: date.lastChild?.textContent ?? "",
+          icon: date.querySelector("img")?.src ?? null,
         }));
       await waitFor(() => joinedTile.querySelector(".arachnid-joined"), 3000, 50);
       const joinedSeen = {
@@ -1680,7 +1681,7 @@ ${sidebarGroup("", [
         joinedSeen.dates.length === 2 &&
           joinedSeen.dates[0].text === joinedFormat.format(new Date(2023, 2, 12)) &&
           joinedSeen.dates[1].text === joinedFormat.format(new Date(2024, 0, 5)) &&
-          joinedSeen.dates[1].icon === "/icons/e2e-wide" &&
+          joinedSeen.dates[1].icon === new URL("/icons/e2e-wide", location.href).href &&
           joinedSeen.width === 340 &&
           joinedSeen.belowBio &&
           joinedSeen.hidden.every((display) => display === "none") &&
