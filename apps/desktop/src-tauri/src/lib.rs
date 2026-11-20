@@ -42,6 +42,13 @@ pub struct CommandError {
     pub kind: String,
     /// Текст для человека
     pub message: String,
+    /// Ключ перевода в разделе `errors` словарей клиента (`locales/*.json`):
+    /// страница показывает текст на языке интерфейса
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
+    /// Подстановки `{0}`, `{1}`… перевода
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
 }
 
 impl CommandError {
@@ -49,6 +56,23 @@ impl CommandError {
         Self {
             kind: kind.into(),
             message: message.into(),
+            code: None,
+            args: Vec::new(),
+        }
+    }
+
+    /// Ошибка с переводом: `message` остаётся для журнала и на случай,
+    /// если перевода нет.
+    fn translated(
+        kind: impl Into<String>,
+        code: &'static str,
+        args: Vec<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: Some(code),
+            args,
+            ..Self::new(kind, message)
         }
     }
 }

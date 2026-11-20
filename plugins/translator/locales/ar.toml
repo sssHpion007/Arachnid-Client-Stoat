@@ -1,0 +1,30 @@
+name = "المترجم"
+description = "يترجم الرسائل بزر في شريط أدوات الرسالة وبعنصر في قائمة السياق"
+
+[settings.service]
+label = "خدمة الترجمة"
+hint = "الجهة التي يُرسل إليها نص الرسالة لترجمته."
+options = { google = "ترجمة Google", deepl = "DeepL (يلزم مفتاح API)" }
+
+[settings.language]
+label = "لغة الترجمة"
+hint = "«مثل العميل» تتبع لغة واجهة Stoat."
+options = { auto = "مثل العميل" }
+
+[settings.deepl_key]
+label = "مفتاح DeepL API"
+hint = "مطلوب لـ DeepL فقط: تجده في حسابك على DeepL."
+
+[strings]
+translate = "ترجمة"
+original = "إظهار الأصل"
+mark = "(مترجمة)"
+source = "اللغة الأصلية"
+same = "الرسالة بهذه اللغة بالفعل"
+failed = "تعذّرت الترجمة"
+network = "خدمة الترجمة غير متاحة"
+limit = "تحدّ خدمة الترجمة من الطلبات، حاول لاحقًا"
+deeplKey = "حدّد مفتاح DeepL API في إعدادات المكوّن"
+deeplBadKey = "رُفض مفتاح DeepL API"
+deeplQuota = "نفدت حصة أحرف DeepL"
+deeplLanguage = "لا يترجم DeepL إلى هذه اللغة"

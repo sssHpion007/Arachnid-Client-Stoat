@@ -1,0 +1,30 @@
+name = "Tulkotājs"
+description = "Tulko ziņas ar pogu ziņas rīkjoslā un konteksta izvēlnes vienumu"
+
+[settings.service]
+label = "Tulkošanas pakalpojums"
+hint = "Kur ziņas teksts tiek nosūtīts tulkošanai."
+options = { google = "Google tulkotājs", deepl = "DeepL (vajadzīga API atslēga)" }
+
+[settings.language]
+label = "Mērķvaloda"
+hint = "“Kā klientā” seko Stoat saskarnes valodai."
+options = { auto = "Kā klientā" }
+
+[settings.deepl_key]
+label = "DeepL API atslēga"
+hint = "Vajadzīga tikai DeepL: tā ir tavā DeepL kontā."
+
+[strings]
+translate = "Tulkot"
+original = "Rādīt oriģinālu"
+mark = "(tulkots)"
+source = "Avota valoda"
+same = "Ziņa jau ir šajā valodā"
+failed = "Neizdevās iztulkot"
+network = "Tulkošanas pakalpojums nav pieejams"
+limit = "Tulkošanas pakalpojums ierobežo pieprasījumus, mēģini vēlāk"
+deeplKey = "Norādi DeepL API atslēgu spraudņa iestatījumos"
+deeplBadKey = "DeepL API atslēga tika noraidīta"
+deeplQuota = "DeepL rakstzīmju limits ir izsmelts"
+deeplLanguage = "DeepL netulko šajā valodā"

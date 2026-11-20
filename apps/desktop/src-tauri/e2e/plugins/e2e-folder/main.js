@@ -8,6 +8,9 @@ const report = {
   network: plugin.network,
   asset: plugin.asset("img/dot.png"),
   native: plugin.native.available,
+  language: plugin.language,
+  hello: plugin.t("hello", "e2e"),
+  unknown: plugin.t("unknown"),
   changes: [],
 };
 window.__e2eFolderPlugin = report;

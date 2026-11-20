@@ -36,206 +36,11 @@
   const version = window.native?.versions?.desktop?.() ?? "";
 
   // ─────────────────────────────── подписи ───────────────────────────────
-  // Как и меню трея — на языке системы.
-  const russian = /^ru\b/i.test(navigator.language || "");
-  const text = russian
-    ? {
-        plugins: "Плагины",
-        about: "Настольный клиент Stoat: темы, плагины и QuickCSS.",
-        builtin: "Встроенный",
-        builtinDescription: {
-          "builtin:qol": "Исправления и улучшения качества жизни.",
-        },
-        // подписи настроек встроенных плагинов; requires — от какого
-        // флажка настройка зависит
-        builtinSettings: {
-          "builtin:qol": {
-            interface: {
-              label: "Исправление деталей интерфейса",
-              hint: "Исправление мелких недочётов в пользовательском интерфейсе.",
-            },
-            emoji_picker: {
-              label: "Улучшенное меню эмодзи",
-              hint: "Удобные разделы и прочие улучшения для меню эмодзи.",
-            },
-            favorite_gifs: {
-              label: "Меню избранного для GIF",
-              hint: "Сохранение любимых GIF и быстрый доступ к ним.",
-            },
-            gifs_open_favorites: {
-              label: "Открывать окно GIF сразу на избранном",
-              hint: "Gifbox открывается стрелкой «Назад».",
-              requires: "favorite_gifs",
-            },
-            hotkeys: {
-              label: "Горячие клавиши",
-              hint: "Управление звонком и окном клиента с клавиатуры и мыши, даже в свёрнутом виде.",
-            },
-          },
-        },
-        hotkeys: "Горячие клавиши",
-        hotkeysIntro:
-          "Работают везде, даже когда клиент свёрнут или спрятан в трей. В окне клиента сочетание выполняет только своё действие, в других программах доходит и до них. Действия звонка — как кнопки в карточке звонка.",
-        hotkeysInactive: "Горячие клавиши заработают, когда «Quality of Life» запустится снова — после перезагрузки клиента.",
-        hotkeyActions: {
-          toggle_mute: "Микрофон",
-          toggle_deafen: "Звук",
-          disconnect: "Завершить звонок",
-          toggle_camera: "Камера",
-          toggle_screenshare: "Демонстрация экрана",
-          toggle_window: "Скрыть окно в трей",
-        },
-        hotkeyNone: "Не назначено",
-        hotkeyRecording: "Нажмите сочетание клавиш или кнопку мыши… Esc — отмена",
-        assignHotkey: "Назначить",
-        clearHotkey: "Убрать сочетание",
-        keyNames: {
-          win: "Win",
-          space: "Пробел",
-          middle: "Средняя кнопка мыши",
-          x1: "Кнопка мыши «Назад»",
-          x2: "Кнопка мыши «Вперёд»",
-          key: (code) => `Клавиша ${code}`,
-        },
-        network: (hosts) => `Доступ в сеть: ${hosts}`,
-        needsGrant: "Ждёт разрешения на доступ в сеть",
-        broken: (error) => `Не загружен: ${error}`,
-        allow: "Разрешить",
-        cancel: "Отмена",
-        pluginSettings: (name) => `Настройки: ${name}`,
-        resetPlugin: "Сбросить настройки",
-        permissionsTitle: (name) => `Разрешить «${name}» доступ в сеть?`,
-        permissionsIntro:
-          "Плагин сможет отправлять запросы к этим адресам от имени клиента, в обход ограничений страницы:",
-        permissionsHint:
-          "Другие адреса ему недоступны. Если новая версия плагина попросит больше, клиент спросит снова.",
-        reloadNeeded: "Изменения плагинов вступят в силу после перезагрузки клиента.",
-        reload: "Перезагрузить",
-        willStart: "Запустится после перезагрузки",
-        willStop: "Остановится после перезагрузки",
-        pluginActions: "Действия плагинов",
-        openPlugins: "Папка плагинов",
-        openThemes: "Папка тем",
-        quickCss: "QuickCSS",
-        quickCssHint: "Свой CSS поверх клиента и темы. Изменения применяются сразу и сохраняются в quickcss.css.",
-        saving: "Сохранение…",
-        saved: "Сохранено",
-        saveFailed: (message) => `Не сохранено: ${message}`,
-        openInEditor: "Открыть в редакторе",
-        done: "Готово",
-        theme: "Тема",
-        defaultTheme: "Stoat (по умолчанию)",
-        themeSettings: "Настройки темы",
-        noThemeSettings: "У этой темы нет своих настроек.",
-        unsupported: (name) =>
-          `Тема написана для препроцессора «${name}», Arachnid Client его не поддерживает: тема подключена как есть, её настройки не применяются.`,
-        reset: "Сбросить настройки темы",
-        author: (name) => `Автор: ${name}`,
-        version: (value) => `Версия ${value}`,
-        // группы боковой панели настроек
-        aboutApp: "О программе",
-        aboutClient: "О клиенте",
-        sourceCode: "Исходный код",
-        releases: "Обновления",
-        issues: "Сообщить о проблеме",
-      }
-    : {
-        plugins: "Plugins",
-        about: "Desktop client for Stoat: themes, plugins and QuickCSS.",
-        builtin: "Built-in",
-        builtinDescription: {
-          "builtin:qol": "Fixes and quality of life improvements.",
-        },
-        builtinSettings: {
-          "builtin:qol": {
-            interface: {
-              label: "Interface Fixes",
-              hint: "Fixes for small flaws in the user interface.",
-            },
-            emoji_picker: {
-              label: "Enhanced Emoji Picker",
-              hint: "Handy sections and other improvements for the emoji picker.",
-            },
-            favorite_gifs: {
-              label: "Favorite GIFs",
-              hint: "Save your favorite GIFs and get to them quickly.",
-            },
-            gifs_open_favorites: {
-              label: "Open the GIF Picker on Favorites",
-              hint: "The Back arrow opens Gifbox.",
-              requires: "favorite_gifs",
-            },
-            hotkeys: {
-              label: "Keybinds",
-              hint: "Control calls and the client window from the keyboard and mouse, even when minimized.",
-            },
-          },
-        },
-        hotkeys: "Keybinds",
-        hotkeysIntro:
-          "They work everywhere, even while the client is minimized or hidden in the tray. In the client window a keybind only does its action; other programs receive it as well. Call actions work like the buttons on the call card.",
-        hotkeysInactive: "Keybinds start working when “Quality of Life” runs again — after the client reloads.",
-        hotkeyActions: {
-          toggle_mute: "Microphone",
-          toggle_deafen: "Sound",
-          disconnect: "End Call",
-          toggle_camera: "Camera",
-          toggle_screenshare: "Screen Share",
-          toggle_window: "Hide Window to Tray",
-        },
-        hotkeyNone: "Not set",
-        hotkeyRecording: "Press a key combination or a mouse button… Esc cancels",
-        assignHotkey: "Set",
-        clearHotkey: "Remove Keybind",
-        keyNames: {
-          win: "Win",
-          space: "Space",
-          middle: "Middle Mouse Button",
-          x1: "Mouse Back Button",
-          x2: "Mouse Forward Button",
-          key: (code) => `Key ${code}`,
-        },
-        network: (hosts) => `Network access: ${hosts}`,
-        needsGrant: "Waiting for network permission",
-        broken: (error) => `Not loaded: ${error}`,
-        allow: "Allow",
-        cancel: "Cancel",
-        pluginSettings: (name) => `Settings: ${name}`,
-        resetPlugin: "Reset Settings",
-        permissionsTitle: (name) => `Allow “${name}” to access the network?`,
-        permissionsIntro:
-          "The plugin will be able to send requests to these addresses on behalf of the client, bypassing the page's restrictions:",
-        permissionsHint:
-          "Other addresses stay closed to it. If a newer version of the plugin asks for more, the client will ask again.",
-        reloadNeeded: "Plugin changes take effect after the client reloads.",
-        reload: "Reload",
-        willStart: "Starts after reload",
-        willStop: "Stops after reload",
-        pluginActions: "Plugin Actions",
-        openPlugins: "Plugins Folder",
-        openThemes: "Themes Folder",
-        quickCss: "QuickCSS",
-        quickCssHint: "Your own CSS on top of the client and the theme. Changes apply instantly and are saved to quickcss.css.",
-        saving: "Saving…",
-        saved: "Saved",
-        saveFailed: (message) => `Not saved: ${message}`,
-        openInEditor: "Open in Editor",
-        done: "Done",
-        theme: "Theme",
-        defaultTheme: "Stoat (default)",
-        themeSettings: "Theme Settings",
-        noThemeSettings: "This theme has no settings of its own.",
-        unsupported: (name) =>
-          `This theme is written for the “${name}” preprocessor, which Arachnid Client does not support: the theme is applied as is and its settings are ignored.`,
-        reset: "Reset Theme Settings",
-        author: (name) => `By ${name}`,
-        version: (value) => `Version ${value}`,
-        aboutApp: "About",
-        aboutClient: "About the Client",
-        sourceCode: "Source Code",
-        releases: "Releases",
-        issues: "Report an Issue",
-      };
+  // На языке интерфейса Stoat (i18n.js, locales/*.json)
+  const i18n = window.__arachnidI18n;
+  const text = i18n.text("settings");
+  /** От какого флажка встроенного плагина зависит его настройка */
+  const BUILTIN_REQUIRES = { "builtin:qol": { gifs_open_favorites: "favorite_gifs" } };
 
   const BRAND = "Arachnid Client";
   /** Подпись for-web под версией, когда есть window.native */
@@ -287,6 +92,16 @@
     element.replaceChildren(
       ...children.flat().filter((child) => child !== undefined && child !== null && child !== false),
     );
+
+  /**
+   * Подпись в разметке for-web (пункты и группы боковой панели): ключ
+   * словаря остаётся на элементе, после смены языка подпись меняется.
+   */
+  function translated(element, textKey) {
+    element.dataset.arachnidText = textKey;
+    element.textContent = text[textKey];
+    return element;
+  }
 
   /** Значок Material Symbols (шрифт for-web) */
   const icon = (name) =>
@@ -356,6 +171,14 @@
 .arachnid-item-description { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; white-space: pre-line; overflow-wrap: anywhere; }
 .arachnid-item-note { color: var(--md-sys-color-tertiary); }
 .arachnid-item-icon[data-blank] { background: transparent; }
+/* значок плагина из его папки: SVG — маской цвета текста, как значки шрифтом */
+.arachnid-plugin-icon { width: 20px; height: 20px; }
+span.arachnid-plugin-icon {
+  background: currentColor;
+  -webkit-mask: var(--arachnid-plugin-icon) center / contain no-repeat;
+  mask: var(--arachnid-plugin-icon) center / contain no-repeat;
+}
+img.arachnid-plugin-icon { object-fit: contain; }
 /* варианты CategoryButton for-web: tertiary — вариант списка, tertiaryAlt — выбранный */
 .arachnid-item[data-variant="tertiary"] {
   --color: var(--md-sys-color-on-tertiary-container); --mdui-color-primary: var(--color);
@@ -541,7 +364,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * Щелчок по строке отменяет переключение самого флажка (как в for-web) и
    * вызывает onClick.
    */
-  function item({ iconName, title, description, note, action, onClick }) {
+  function item({ iconName, iconNode, title, description, note, action, onClick }) {
     return h(
       "div",
       {
@@ -565,7 +388,11 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           : undefined,
       },
       // без значка — пустое место под ним, как icon="blank" у CategoryButton
-      h("div", { class: "arachnid-item-icon", dataset: iconName ? undefined : { blank: "" } }, iconName ? icon(iconName) : null),
+      h(
+        "div",
+        { class: "arachnid-item-icon", dataset: iconName || iconNode ? undefined : { blank: "" } },
+        iconNode ?? (iconName ? icon(iconName) : null),
+      ),
       h(
         "div",
         { class: "arachnid-item-content" },
@@ -862,10 +689,60 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    *  kind — "plugins" или "hotkeys" */
   let page = null;
 
+  /**
+   * Плагин на языке интерфейса: название, описание и подписи настроек — из
+   * перевода плагина (`locales/<язык>.toml`), у встроенного — из словаря
+   * клиента. У зависимых настроек встроенного — `requires`.
+   */
+  function localized(plugin) {
+    if (plugin.builtin) {
+      const own = text.builtinSettings[plugin.file] ?? {};
+      const requires = BUILTIN_REQUIRES[plugin.file] ?? {};
+      return {
+        ...plugin,
+        description: text.builtinDescription[plugin.file] ?? plugin.description,
+        settings: plugin.settings.map((setting) => ({
+          ...setting,
+          label: own[setting.name]?.label ?? setting.label,
+          hint: own[setting.name]?.hint ?? setting.hint,
+          requires: requires[setting.name],
+        })),
+      };
+    }
+    const code = i18n.pick(Object.keys(plugin.locales ?? {}));
+    const locale = code ? plugin.locales[code] : null;
+    if (!locale) return plugin;
+    return {
+      ...plugin,
+      name: locale.name ?? plugin.name,
+      description: locale.description ?? plugin.description,
+      settings: plugin.settings.map((setting) => {
+        const own = locale.settings?.[setting.name];
+        if (!own) return setting;
+        return {
+          ...setting,
+          label: own.label ?? setting.label,
+          hint: own.hint ?? setting.hint,
+          options: setting.options?.map((option) => ({ ...option, label: own.options?.[option.name] ?? option.label })),
+        };
+      }),
+    };
+  }
+
+  /** Значок плагина из его папки: SVG — цветом текста, картинка — как есть */
+  function pluginIcon(url) {
+    if (!/\.svg$/i.test(new URL(url).pathname)) {
+      return h("img", { class: "arachnid-plugin-icon", src: url, alt: "", draggable: "false" });
+    }
+    const mask = h("span", { class: "arachnid-plugin-icon", "aria-hidden": "true" });
+    mask.style.setProperty("--arachnid-plugin-icon", `url("${url}")`);
+    return mask;
+  }
+
   function renderPluginsPage() {
     if (page?.kind !== "plugins" || !page.panel.isConnected) return;
     openSelect?.();
-    const plugins = overview?.plugins ?? [];
+    const plugins = (overview?.plugins ?? []).map(localized);
     const menu = desktop.pluginMenu();
 
     const list = plugins.map((plugin) => {
@@ -878,7 +755,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         !plugin.builtin && plugin.file,
       ].filter(Boolean);
       const details = [
-        (plugin.builtin && text.builtinDescription[plugin.file]) || plugin.description,
+        plugin.description,
         plugin.network.length ? text.network(plugin.network.join(", ")) : null,
         tags.join(" · "),
       ].filter(Boolean);
@@ -895,6 +772,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       ].filter(Boolean);
       return item({
         iconName: plugin.builtin ? "auto_awesome" : plugin.folder ? "folder_special" : "extension",
+        iconNode: plugin.icon ? pluginIcon(plugin.icon) : null,
         title: name,
         description: details.join("\n"),
         note,
@@ -1071,7 +949,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       },
       (error) => {
         console.warn(`[Arachnid] ${command}:`, error);
-        hotkeysError = error?.message ?? String(error);
+        hotkeysError = i18n.errorText(error);
         renderHotkeysPage();
       },
     );
@@ -1283,7 +1161,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * значком extension) или «Горячие клавиши» (копия «ПК» со значком
    * keyboard). `svgIcon` — значок для пункта со значком svg.
    */
-  function createEntry(sidebar, template, { kind, label: title, symbol: symbolName, svgIcon }) {
+  function createEntry(sidebar, template, { kind, textKey, symbol: symbolName, svgIcon }) {
     const entry = template.cloneNode(true);
     entry.className = plainClass(sidebar) ?? template.className;
     entry.removeAttribute("id");
@@ -1309,7 +1187,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     }
     // подпись — самый вложенный элемент (OverflowingText)
     while (label?.firstElementChild) label = label.firstElementChild;
-    (label ?? entry).textContent = title;
+    translated(label ?? entry, textKey);
 
     entry.addEventListener("click", (event) => {
       event.preventDefault();
@@ -1331,7 +1209,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     if (!entry) {
       entry = createEntry(sidebar, appearanceEntry, {
         kind: "plugins",
-        label: text.plugins,
+        textKey: "plugins",
         symbol: "extension",
         svgIcon: EXTENSION_ICON,
       });
@@ -1348,6 +1226,8 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       sidebar.addEventListener(
         "click",
         (event) => {
+          // язык могли сменить на странице «Язык»
+          void i18n.refresh();
           const link = event.target instanceof Element ? event.target.closest("a.button") : null;
           if (page && link && link.hasAttribute("data-arachnid-muted")) closePage();
         },
@@ -1369,7 +1249,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       return;
     }
     if (!entry) {
-      entry = createEntry(sidebar, desktopEntry, { kind: "hotkeys", label: text.hotkeys, symbol: HOTKEYS_ICON });
+      entry = createEntry(sidebar, desktopEntry, { kind: "hotkeys", textKey: "hotkeys", symbol: HOTKEYS_ICON });
     }
     if (desktopEntry.nextElementSibling !== entry) desktopEntry.after(entry);
   }
@@ -1406,9 +1286,9 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
   /** Ссылки группы «О клиенте»: путь от адреса репозитория */
   const CLIENT_LINKS = [
-    { id: "source", symbol: "code", label: text.sourceCode, path: "" },
-    { id: "releases", symbol: "new_releases", label: text.releases, path: "/releases" },
-    { id: "issues", symbol: "bug_report", label: text.issues, path: "/issues" },
+    { id: "source", symbol: "code", textKey: "sourceCode", path: "" },
+    { id: "releases", symbol: "new_releases", textKey: "releases", path: "/releases" },
+    { id: "issues", symbol: "bug_report", textKey: "issues", path: "/issues" },
   ];
 
   /** Значок пункта шрифтом Material Symbols; null — значок svg */
@@ -1468,8 +1348,8 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   }
 
   /** Заголовок группы — с классом заголовка for-web */
-  function categoryTitle(template, label) {
-    return h("span", { class: template.className, dataset: { arachnidTitle: "" } }, label);
+  function categoryTitle(template, textKey) {
+    return translated(h("span", { class: template.className, dataset: { arachnidTitle: "" } }), textKey);
   }
 
   /** Ссылка группы «О клиенте» — копия пункта «ПК» со своим значком */
@@ -1486,7 +1366,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     symbol.textContent = link.symbol;
     let label = symbol.nextElementSibling;
     while (label?.firstElementChild) label = label.firstElementChild;
-    (label ?? entry).textContent = link.label;
+    translated(label ?? entry, link.textKey);
     entry.addEventListener("click", (event) => {
       event.preventDefault();
       // ссылки for-web открываются так же: window.open, клиент отдаёт их системе
@@ -1515,7 +1395,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     stoat.toggleAttribute("data-arachnid-hidden", !stoat.lastElementChild.querySelector("a.button"));
 
     const titleTemplate = user.firstElementChild;
-    if (!about.querySelector(":scope > [data-arachnid-title]")) about.prepend(categoryTitle(titleTemplate, text.aboutApp));
+    if (!about.querySelector(":scope > [data-arachnid-title]")) about.prepend(categoryTitle(titleTemplate, "aboutApp"));
 
     let client = sidebar.querySelector('[data-arachnid-category="client"]');
     if (!client) {
@@ -1523,7 +1403,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       client = h(
         "div",
         { class: about.className, dataset: { arachnidCategory: "client" } },
-        categoryTitle(titleTemplate, text.aboutClient),
+        categoryTitle(titleTemplate, "aboutClient"),
         h(
           "div",
           { class: about.lastElementChild.className },
@@ -1579,6 +1459,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     return null;
   }
 
+  /** Те же кнопки, что «Папка плагинов» в разделе «Плагины» */
+  const appearanceButtons = () => [
+    button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
+    button(text.quickCss, openQuickCss, undefined, "css"),
+  ];
+
   function enhanceAppearance(content) {
     const column = content.querySelector(".settings_cont")?.firstElementChild;
     if (!column) return;
@@ -1599,13 +1485,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     if (colours && coloursTitle === "Colours") colours.after(block);
     else welcome.after(block);
 
-    // те же кнопки, что «Папка плагинов» в разделе «Плагины»
-    const actions = h(
-      "div",
-      { class: "arachnid-buttons", dataset: { arachnidAppearance: "actions" } },
-      button(text.openThemes, () => openFolder("themes"), undefined, "folder_open"),
-      button(text.quickCss, openQuickCss, undefined, "css"),
-    );
+    const actions = h("div", { class: "arachnid-buttons", dataset: { arachnidAppearance: "actions" } }, appearanceButtons());
     // заголовок страницы — span перед блоком страницы; если его нет
     // (разметка for-web изменилась), кнопки остаются над выбором темы
     const title = column.firstElementChild;
@@ -1689,88 +1569,99 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
   /**
    * Поля настроек темы или плагина-папки (`usercss::Setting`): флажок,
-   * выбор, ползунок, число, цвет, текст. `set(name, value)` сохраняет.
+   * выбор, ползунок, число, цвет, текст; под полем — пояснение `hint`.
+   * `set(name, value)` сохраняет.
    */
   function settingControls(settings, values, set) {
     return settings.map((setting) => {
-      const value = values[setting.name] ?? setting.default;
-      switch (setting.kind) {
-        case "checkbox": {
-          const box = checkbox(value === "1", setting.label);
-          const input = box instanceof HTMLInputElement ? box : box.querySelector?.("input") ?? box;
-          input.dataset.arachnidSetting = setting.name;
-          input.disabled = Boolean(setting.disabled);
-          input.addEventListener("change", () => set(setting.name, input.checked ? "1" : "0"));
-          if (input.classList?.contains("arachnid-checkbox")) input.style.pointerEvents = "auto";
-          if (!setting.hint) return box;
-          // пояснение — под подписью флажка
-          return h(
-            "div",
-            { class: "arachnid-column", style: { gap: "0" } },
-            box,
-            h("span", { class: "arachnid-label arachnid-setting-hint" }, setting.hint),
-          );
-        }
-        case "select":
-          return select({
-            label: setting.label,
-            value,
-            options: setting.options.map((option) => ({ value: option.name, label: option.label })),
-            onChange: (next) => set(setting.name, next),
-          });
-        case "range":
-          return h(
-            "div",
-            { class: "arachnid-column", style: { gap: "4px" } },
-            h("span", { class: "arachnid-label" }, setting.label),
-            slider({
-              min: setting.min,
-              max: setting.max,
-              step: setting.step,
-              value,
-              unit: setting.unit,
-              onCommit: (next) => set(setting.name, next),
-            }),
-          );
-        case "number":
-          return field({
-            label: setting.unit ? `${setting.label}, ${setting.unit}` : setting.label,
-            value,
-            type: "number",
-            onCommit: (next) => set(setting.name, next),
-          });
-        case "color": {
-          const picker = h("input", { type: "color", tabIndex: -1 });
-          const swatch = h("span", { class: "arachnid-swatch", role: "button", style: { background: value } }, picker);
-          const shown = field({
-            label: setting.label,
-            value,
-            onCommit: (next) => {
-              swatch.style.background = next;
-              set(setting.name, next);
-            },
-            extra: swatch,
-          });
-          const textInput = shown.querySelector("input");
-          if (/^#[0-9a-f]{6}$/i.test(value)) picker.value = value;
-          swatch.addEventListener("click", (event) => {
-            // щелчок самого выбора цвета тоже проходит через образец
-            if (event.target === picker) return;
-            event.preventDefault();
-            if (typeof picker.showPicker === "function") picker.showPicker();
-            else picker.click();
-          });
-          picker.addEventListener("input", () => {
-            swatch.style.background = picker.value;
-            textInput.value = picker.value;
-          });
-          picker.addEventListener("change", () => set(setting.name, picker.value));
-          return shown;
-        }
-        default:
-          return field({ label: setting.label, value, onCommit: (next) => set(setting.name, next) });
-      }
+      const control = settingControl(setting, values[setting.name] ?? setting.default, set);
+      if (!setting.hint || setting.kind === "checkbox") return control;
+      return h(
+        "div",
+        { class: "arachnid-column", style: { gap: "4px" } },
+        control,
+        h("span", { class: "arachnid-label" }, setting.hint),
+      );
     });
+  }
+
+  function settingControl(setting, value, set) {
+    switch (setting.kind) {
+      case "checkbox": {
+        const box = checkbox(value === "1", setting.label);
+        const input = box instanceof HTMLInputElement ? box : box.querySelector?.("input") ?? box;
+        input.dataset.arachnidSetting = setting.name;
+        input.disabled = Boolean(setting.disabled);
+        input.addEventListener("change", () => set(setting.name, input.checked ? "1" : "0"));
+        if (input.classList?.contains("arachnid-checkbox")) input.style.pointerEvents = "auto";
+        if (!setting.hint) return box;
+        // пояснение — под подписью флажка
+        return h(
+          "div",
+          { class: "arachnid-column", style: { gap: "0" } },
+          box,
+          h("span", { class: "arachnid-label arachnid-setting-hint" }, setting.hint),
+        );
+      }
+      case "select":
+        return select({
+          label: setting.label,
+          value,
+          options: setting.options.map((option) => ({ value: option.name, label: option.label })),
+          onChange: (next) => set(setting.name, next),
+        });
+      case "range":
+        return h(
+          "div",
+          { class: "arachnid-column", style: { gap: "4px" } },
+          h("span", { class: "arachnid-label" }, setting.label),
+          slider({
+            min: setting.min,
+            max: setting.max,
+            step: setting.step,
+            value,
+            unit: setting.unit,
+            onCommit: (next) => set(setting.name, next),
+          }),
+        );
+      case "number":
+        return field({
+          label: setting.unit ? `${setting.label}, ${setting.unit}` : setting.label,
+          value,
+          type: "number",
+          onCommit: (next) => set(setting.name, next),
+        });
+      case "color": {
+        const picker = h("input", { type: "color", tabIndex: -1 });
+        const swatch = h("span", { class: "arachnid-swatch", role: "button", style: { background: value } }, picker);
+        const shown = field({
+          label: setting.label,
+          value,
+          onCommit: (next) => {
+            swatch.style.background = next;
+            set(setting.name, next);
+          },
+          extra: swatch,
+        });
+        const textInput = shown.querySelector("input");
+        if (/^#[0-9a-f]{6}$/i.test(value)) picker.value = value;
+        swatch.addEventListener("click", (event) => {
+          // щелчок самого выбора цвета тоже проходит через образец
+          if (event.target === picker) return;
+          event.preventDefault();
+          if (typeof picker.showPicker === "function") picker.showPicker();
+          else picker.click();
+        });
+        picker.addEventListener("input", () => {
+          swatch.style.background = picker.value;
+          textInput.value = picker.value;
+        });
+        picker.addEventListener("change", () => set(setting.name, picker.value));
+        return shown;
+      }
+      default:
+        return field({ label: setting.label, value, onCommit: (next) => set(setting.name, next) });
+    }
   }
 
   // ─────────────────────────────── окна ───────────────────────────────
@@ -1847,37 +1738,33 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
   /**
    * Настройки плагина — окно, как у QuickCSS: у плагина-папки — из
-   * plugin.toml, у встроенного — свои (подписи и пояснения из
-   * text.builtinSettings). Значение сохраняется сразу.
+   * plugin.toml и его перевода, у встроенного — свои (подписи и пояснения
+   * из словаря клиента). Значение сохраняется сразу.
    */
   function openPluginSettings(file) {
-    const plugin = overview?.plugins?.find((entry) => entry.file === file);
+    const current = () => {
+      const plugin = overview?.plugins?.find((entry) => entry.file === file);
+      return plugin ? localized(plugin) : null;
+    };
+    const plugin = current();
     if (!plugin || !document.body) return;
-    const own = (plugin.builtin && text.builtinSettings[file]) || {};
     const body = h("div", { class: "arachnid-column" });
     const set = (name, value) => {
       // зависимые флажки доступны, только пока включён их флажок
-      for (const [dependent, about] of Object.entries(own)) {
-        if (about.requires !== name) continue;
-        const input = body.querySelector(`[data-arachnid-setting="${CSS.escape(dependent)}"]`);
+      for (const setting of plugin.settings) {
+        if (setting.requires !== name) continue;
+        const input = body.querySelector(`[data-arachnid-setting="${CSS.escape(setting.name)}"]`);
         if (input) input.disabled = value !== "1";
       }
       void change("extensions_set_plugin_value", { file, name, value }, false);
     };
     const fill = () => {
-      const current = overview?.plugins?.find((entry) => entry.file === file);
-      if (!current) return;
-      const settings = current.settings.map((setting) => {
-        const about = own[setting.name];
-        if (!about) return setting;
-        return {
-          ...setting,
-          label: about.label ?? setting.label,
-          hint: about.hint,
-          disabled: about.requires !== undefined && current.values[about.requires] !== "1",
-        };
-      });
-      body.replaceChildren(...settingControls(settings, current.values, set));
+      const shown = current();
+      if (!shown) return;
+      const settings = shown.settings.map((setting) =>
+        setting.requires === undefined ? setting : { ...setting, disabled: shown.values[setting.requires] !== "1" },
+      );
+      body.replaceChildren(...settingControls(settings, shown.values, set));
     };
     const dialog = openDialog({
       title: text.pluginSettings(plugin.name ?? file),
@@ -1993,7 +1880,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           state.saved = css;
           if (!state.timer && textarea.value === css) setStatus(text.saved);
         })
-        .catch((error) => setStatus(text.saveFailed(error?.message ?? String(error)), true))
+        .catch((error) => setStatus(text.saveFailed(i18n.errorText(error)), true))
         .finally(() => {
           state.saving = null;
           if (state.again) {
@@ -2116,7 +2003,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         textarea.focus();
         textarea.setSelectionRange(0, 0);
       },
-      (error) => setStatus(error?.message ?? String(error), true),
+      (error) => setStatus(i18n.errorText(error), true),
     );
   }
 
@@ -2129,9 +2016,16 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     queueScan();
   }
 
+  /** Открыты ли настройки при прошлой проверке */
+  let settingsOpen = false;
+
   function scan() {
     if (page && !page.panel.isConnected) closePage();
-    for (const sidebar of document.querySelectorAll(".settings_sidebar")) {
+    const sidebars = document.querySelectorAll(".settings_sidebar");
+    // настройки закрыли: язык могли сменить
+    if (settingsOpen && !sidebars.length) void i18n.refresh();
+    settingsOpen = sidebars.length > 0;
+    for (const sidebar of sidebars) {
       if (!isUserSettings(sidebar)) continue;
       ensureEntry(sidebar);
       arrangeSidebar(sidebar);
@@ -2153,6 +2047,15 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       scan();
     });
   }
+
+  // сменили язык интерфейса: подписи в разметке for-web и свои страницы
+  i18n.onChange(() => {
+    for (const element of document.querySelectorAll("[data-arachnid-text]")) {
+      element.textContent = text[element.dataset.arachnidText];
+    }
+    appearance?.actions.replaceChildren(...appearanceButtons());
+    renderAll();
+  });
 
   desktop.subscribe((type) => {
     if (type === "extensions") void refresh();

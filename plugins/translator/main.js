@@ -6,8 +6,9 @@
 // эмодзи, упоминания, ссылки-адреса, код, формулы и время остаются как
 // есть, поэтому форматирование и обработчики for-web не теряются.
 //
-// Язык перевода по умолчанию — язык интерфейса Stoat: for-web хранит его в
-// IndexedDB (localforage, хранилище `@<id пользователя>`, ключ `locale`).
+// Язык перевода по умолчанию — язык интерфейса Stoat (`plugin.language`).
+// Подписи — `plugin.t()`: строки [strings] plugin.toml и их переводы в
+// locales/<язык>.toml.
 
 "use strict";
 
@@ -16,7 +17,8 @@ const HTML_NS = "http://www.w3.org/1999/xhtml";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const OWN = "arachnid-translator";
 
-// значок translate из Material Icons (outlined), как остальные значки for-web
+// значок translate из Material Icons (outlined), как остальные значки for-web;
+// тот же значок — icon.svg плагина
 const TRANSLATE_ICON =
   "m12.87 15.07-2.54-2.51.03-.03A17.52 17.52 0 0 0 14.07 6H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7 1.62-4.33L19.12 17h-3.24z";
 // начала контуров значков for-web, по которым узнаются кнопки и пункты меню
@@ -24,37 +26,6 @@ const ICON = {
   reply: "M10 9V5l-7 7",
   unread: "M22 6.98V16",
   copy: "M16 1H4c-1.1",
-};
-
-const TEXT = {
-  ru: {
-    translate: "Перевести",
-    original: "Показать оригинал",
-    mark: "(переведено)",
-    source: "Исходный язык",
-    same: "Сообщение уже на этом языке",
-    failed: "Не удалось перевести",
-    network: "Сервис перевода недоступен",
-    limit: "Сервис перевода ограничил запросы, попробуйте позже",
-    deeplKey: "Укажите ключ DeepL API в настройках плагина",
-    deeplBadKey: "Ключ DeepL API не подошёл",
-    deeplQuota: "Лимит символов DeepL исчерпан",
-    deeplLanguage: "DeepL не переводит на этот язык",
-  },
-  en: {
-    translate: "Translate",
-    original: "Show original",
-    mark: "(translated)",
-    source: "Source language",
-    same: "The message is already in this language",
-    failed: "Translation failed",
-    network: "The translation service is unavailable",
-    limit: "The translation service is rate limiting requests, try again later",
-    deeplKey: "Set the DeepL API key in the plugin settings",
-    deeplBadKey: "The DeepL API key was rejected",
-    deeplQuota: "The DeepL character quota is used up",
-    deeplLanguage: "DeepL can't translate into this language",
-  },
 };
 
 // ─────────────────────────────── язык ───────────────────────────────
@@ -91,67 +62,16 @@ function normalizeLanguage(code) {
   }
 }
 
-/** Язык интерфейса из хранилища for-web (или null) */
-function storedLocale() {
-  let session = null;
-  try {
-    session = JSON.parse(localStorage.getItem("auth") ?? "null")?.session ?? null;
-  } catch {
-    session = null;
-  }
-  if (typeof session?.userId !== "string" || typeof indexedDB === "undefined") return Promise.resolve(null);
-  const storeName = `@${session.userId}`;
-  return new Promise((resolve) => {
-    let request;
-    try {
-      request = indexedDB.open("localforage");
-    } catch {
-      resolve(null);
-      return;
-    }
-    // базы ещё нет — не создавать её за for-web
-    request.onupgradeneeded = () => request.transaction?.abort();
-    request.onerror = () => resolve(null);
-    request.onblocked = () => resolve(null);
-    request.onsuccess = () => {
-      const db = request.result;
-      db.onversionchange = () => db.close();
-      const done = (value) => {
-        db.close();
-        resolve(value);
-      };
-      if (!db.objectStoreNames.contains(storeName)) {
-        done(null);
-        return;
-      }
-      try {
-        const get = db.transaction(storeName, "readonly").objectStore(storeName).get("locale");
-        get.onsuccess = () => done(typeof get.result?.lang === "string" ? get.result.lang : null);
-        get.onerror = () => done(null);
-      } catch {
-        done(null);
-      }
-    };
-  });
-}
-
-let clientLanguage = normalizeLanguage(navigator.language) ?? "en";
-
 /** Язык клиента: выбранный в Stoat, иначе язык системы */
-async function refreshClientLanguage() {
-  const stored = normalizeLanguage(await storedLocale().catch(() => null));
-  const system = [...(navigator.languages ?? []), navigator.language].map(normalizeLanguage).find(Boolean);
-  clientLanguage = stored ?? system ?? "en";
-  return clientLanguage;
+function clientLanguage() {
+  const candidates = [plugin.language, ...(navigator.languages ?? []), navigator.language];
+  return candidates.map(normalizeLanguage).find(Boolean) ?? "en";
 }
-
-const text = () => (clientLanguage === "ru" ? TEXT.ru : TEXT.en);
 
 /** Язык, на который переводить: из настроек или язык клиента */
-async function targetLanguage() {
+function targetLanguage() {
   const chosen = String(plugin.settings.language ?? "auto");
-  const client = await refreshClientLanguage();
-  return chosen === "auto" ? client : chosen;
+  return chosen === "auto" ? clientLanguage() : chosen;
 }
 
 /** Совпадает ли определённый сервисом язык с языком перевода */
@@ -467,7 +387,7 @@ function mostCommon(values) {
 function languageName(code) {
   if (!code) return "";
   try {
-    return new Intl.DisplayNames([clientLanguage], { type: "language" }).of(code) ?? code;
+    return new Intl.DisplayNames([clientLanguage()], { type: "language" }).of(code) ?? code;
   } catch {
     return code;
   }
@@ -483,13 +403,20 @@ function apply(box, segments, results, service) {
   const host = last?.closest(TEXT_BLOCK);
   const mark = document.createElement("span");
   mark.className = `${OWN}-mark`;
-  mark.textContent = text().mark;
-  const source = mostCommon(results.map((result) => result?.lang));
-  mark.title = [source ? `${text().source}: ${languageName(source)}` : "", SERVICES[service].name]
-    .filter(Boolean)
-    .join(" · ");
+  mark.dataset.service = service;
+  mark.dataset.source = mostCommon(results.map((result) => result?.lang)) ?? "";
+  labelMark(mark);
   (host && box.contains(host) ? host : box).append(mark);
   applied.set(box, { segments, mark });
+}
+
+/** Подпись «(переведено)» и подсказка с исходным языком и сервисом */
+function labelMark(mark) {
+  const { service, source } = mark.dataset;
+  mark.textContent = plugin.t("mark");
+  mark.title = [source ? `${plugin.t("source")}: ${languageName(source)}` : "", SERVICES[service]?.name]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 /** Стоит ли перевод: for-web мог заменить разметку текста целиком */
@@ -524,12 +451,11 @@ function note(box, message, error) {
 }
 
 function describe(error) {
-  const strings = text();
   if (error instanceof TranslatorError) {
-    const message = strings[error.key] ?? strings.failed;
+    const message = plugin.t(error.key);
     return error.detail && (error.key === "failed" || error.key === "network") ? `${message} (${error.detail})` : message;
   }
-  return `${strings.failed} (${error?.message ?? error})`;
+  return `${plugin.t("failed")} (${error?.message ?? error})`;
 }
 
 async function toggle(id) {
@@ -553,7 +479,7 @@ async function toggle(id) {
   refreshButtons(id);
   try {
     const service = currentService();
-    const target = await targetLanguage();
+    const target = targetLanguage();
     const results = await translateTexts(
       service,
       segments.map((segment) => segment.core),
@@ -563,7 +489,7 @@ async function toggle(id) {
     // пока шёл запрос, for-web мог отрисовать сообщение заново
     if (!box.isConnected || segments.some((segment) => segment.node.data !== segment.original)) return;
     if (results.every((result) => sameLanguage(result?.lang, target))) {
-      note(box, text().same, false);
+      note(box, plugin.t("same"), false);
       return;
     }
     apply(box, segments, results, service);
@@ -649,7 +575,7 @@ function syncButton(button, id) {
   const active = translated.has(id);
   button.toggleAttribute("data-active", active);
   button.toggleAttribute("data-busy", busy.has(id));
-  button.setAttribute("aria-label", active ? text().original : text().translate);
+  button.setAttribute("aria-label", plugin.t(active ? "original" : "translate"));
 }
 
 function refreshButtons(id) {
@@ -710,7 +636,6 @@ function rememberMessage(event) {
   const id = messageRoot(event.target)?.id;
   if (!id) return;
   opened = { id, time: performance.now() };
-  void refreshClientLanguage();
 }
 document.addEventListener("contextmenu", rememberMessage, true);
 document.addEventListener(
@@ -737,7 +662,7 @@ function addMenuItem(node, id) {
   const svg = item.querySelector("svg");
   if (svg) svg.replaceWith(icon(svg, 16));
   const label = [...item.querySelectorAll("span")].find((span) => span.getAttribute("aria-hidden") !== "true") ?? item;
-  label.textContent = translated.has(id) ? text().original : text().translate;
+  label.textContent = plugin.t(translated.has(id) ? "original" : "translate");
   // меню for-web закрывается само по любому щелчку
   item.addEventListener("click", () => void toggle(id));
   sample.after(item);
@@ -773,4 +698,11 @@ if (floating) {
   waiting.observe(document.documentElement, { childList: true, subtree: true });
 }
 
-void refreshClientLanguage();
+// язык интерфейса сменился: подписи кнопок и пометок — на новом языке
+plugin.onLanguageChange(() => {
+  for (const mark of document.querySelectorAll(`.${OWN}-mark`)) labelMark(mark);
+  for (const button of document.querySelectorAll(`.${OWN}-tool`)) {
+    const id = messageRoot(button)?.id;
+    if (id) syncButton(button, id);
+  }
+});

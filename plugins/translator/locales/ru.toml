@@ -1,0 +1,30 @@
+name = "Переводчик"
+description = "Перевод сообщений кнопкой в панели сообщения и пунктом меню"
+
+[settings.service]
+label = "Сервис перевода"
+hint = "Куда отправляется текст сообщения для перевода."
+options = { google = "Google Переводчик", deepl = "DeepL (нужен ключ API)" }
+
+[settings.language]
+label = "Язык перевода"
+hint = "«Как в клиенте» — язык интерфейса Stoat."
+options = { auto = "Как в клиенте" }
+
+[settings.deepl_key]
+label = "Ключ DeepL API"
+hint = "Нужен только для DeepL: он есть в аккаунте DeepL."
+
+[strings]
+translate = "Перевести"
+original = "Показать оригинал"
+mark = "(переведено)"
+source = "Исходный язык"
+same = "Сообщение уже на этом языке"
+failed = "Не удалось перевести"
+network = "Сервис перевода недоступен"
+limit = "Сервис перевода ограничил запросы, попробуйте позже"
+deeplKey = "Укажите ключ DeepL API в настройках плагина"
+deeplBadKey = "Ключ DeepL API не подошёл"
+deeplQuota = "Лимит символов DeepL исчерпан"
+deeplLanguage = "DeepL не переводит на этот язык"

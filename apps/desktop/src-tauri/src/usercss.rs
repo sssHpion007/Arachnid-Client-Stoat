@@ -105,6 +105,9 @@ pub struct Setting {
     /// Единица (`px`, `%`), дописывается к числу
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    /// Пояснение под полем (`hint` в `plugin.toml`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// Вариант выбора.
@@ -344,6 +347,7 @@ fn parse_setting(cursor: &mut Cursor<'_>) -> Option<Setting> {
         max: None,
         step: None,
         unit: None,
+        hint: None,
     };
     match kind_word.as_str() {
         "text" => setting.default = raw.text(),

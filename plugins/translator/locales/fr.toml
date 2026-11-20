@@ -1,0 +1,30 @@
+name = "Traducteur"
+description = "Traduit les messages avec un bouton dans la barre du message et un élément du menu contextuel"
+
+[settings.service]
+label = "Service de traduction"
+hint = "Où le texte du message est envoyé pour être traduit."
+options = { google = "Google Traduction", deepl = "DeepL (clé API requise)" }
+
+[settings.language]
+label = "Langue cible"
+hint = "« Comme le client » suit la langue de l’interface de Stoat."
+options = { auto = "Comme le client" }
+
+[settings.deepl_key]
+label = "Clé API DeepL"
+hint = "Nécessaire uniquement pour DeepL : elle se trouve dans votre compte DeepL."
+
+[strings]
+translate = "Traduire"
+original = "Afficher l’original"
+mark = "(traduit)"
+source = "Langue source"
+same = "Le message est déjà dans cette langue"
+failed = "Échec de la traduction"
+network = "Le service de traduction est indisponible"
+limit = "Le service de traduction limite les requêtes, réessayez plus tard"
+deeplKey = "Indiquez la clé API DeepL dans les paramètres du plugin"
+deeplBadKey = "La clé API DeepL a été refusée"
+deeplQuota = "Le quota de caractères DeepL est épuisé"
+deeplLanguage = "DeepL ne traduit pas vers cette langue"

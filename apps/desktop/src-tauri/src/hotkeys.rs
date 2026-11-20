@@ -592,13 +592,29 @@ pub fn hotkeys_set(
 ) -> CmdResult<Overview> {
     let combo = code.as_deref().map(parse_code).transpose()?;
     if !hotkeys.set(&action, combo) {
-        return Err(CommandError::new("hotkeys", "такого действия нет"));
+        return Err(unknown_action());
     }
     Ok(hotkeys.overview())
 }
 
+fn unknown_action() -> CommandError {
+    CommandError::translated(
+        "hotkeys",
+        "hotkeyUnknown",
+        Vec::new(),
+        "такого действия нет",
+    )
+}
+
 fn parse_code(code: &str) -> CmdResult<Combo> {
-    Combo::parse(code).ok_or_else(|| CommandError::new("hotkeys", "такое сочетание не назначить"))
+    Combo::parse(code).ok_or_else(|| {
+        CommandError::translated(
+            "hotkeys",
+            "hotkeyInvalid",
+            Vec::new(),
+            "такое сочетание не назначить",
+        )
+    })
 }
 
 /// Записать следующее нажатие для действия (`null` — отменить запись).
@@ -608,8 +624,10 @@ pub fn hotkeys_record(
     hotkeys: State<'_, Arc<Hotkeys>>,
 ) -> CmdResult<Overview> {
     if !hotkeys.record(action.as_deref()) {
-        return Err(CommandError::new(
+        return Err(CommandError::translated(
             "hotkeys",
+            "hotkeysOff",
+            Vec::new(),
             "горячие клавиши выключены или такого действия нет",
         ));
     }

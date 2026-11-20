@@ -241,49 +241,9 @@
     indices: (GROUPS[category.id] ?? []).map((emoji) => FIRST.get(emoji)).filter((index) => index !== undefined),
   }));
 
-  // Как и остальные добавления клиента — на языке системы.
-  const russian = /^ru\b/i.test(navigator.language || "");
-  const text = russian
-    ? {
-        favorites: "Избранное",
-        frequent: "Часто используемые",
-        standard: "Стандартные эмодзи",
-        people: "Люди",
-        nature: "Природа",
-        food: "Еда и напитки",
-        travel: "Путешествия и места",
-        activity: "Занятия",
-        objects: "Предметы",
-        symbols: "Символы",
-        flags: "Флаги",
-        download: "Скачать изображение",
-        favorite: "Добавить в избранное",
-        unfavorite: "Убрать из избранного",
-        failed: "Не удалось сохранить изображение",
-        memberSince: "Участник с",
-        onStoat: (date) => `В Stoat с ${date}`,
-        onServer: (name, date) => `На сервере «${name}» с ${date}`,
-      }
-    : {
-        favorites: "Favorites",
-        frequent: "Frequently Used",
-        standard: "Standard Emoji",
-        people: "People",
-        nature: "Nature",
-        food: "Food & Drink",
-        travel: "Travel & Places",
-        activity: "Activities",
-        objects: "Objects",
-        symbols: "Symbols",
-        flags: "Flags",
-        download: "Download Image",
-        favorite: "Add to Favorites",
-        unfavorite: "Remove from Favorites",
-        failed: "Could not save the image",
-        memberSince: "Member since",
-        onStoat: (date) => `On Stoat since ${date}`,
-        onServer: (name, date) => `On ${name} since ${date}`,
-      };
+  // Как и остальные добавления клиента — на языке интерфейса Stoat (i18n.js)
+  const i18n = window.__arachnidI18n;
+  const text = i18n.text("emoji");
 
   /** Картинка стандартного эмодзи — как unicodeEmojiUrl for-web */
   const emojiUrl = (pack, emoji) =>
@@ -710,7 +670,8 @@ span.arachnid-joined-icon {
   // Правый щелчок в окне эмодзи — своё меню в стиле ContextMenu for-web
   // (как меню избранных GIF в gifs.js) вместо меню браузера.
 
-  const errorText = (error) => String(error?.message ?? error ?? "");
+  /** Ошибка команды — по её коду на языке интерфейса (i18n.js) */
+  const errorText = (error) => i18n.errorText(error);
 
   let snackbar = null;
   let snackbarTimer = 0;
@@ -1722,7 +1683,7 @@ span.arachnid-joined-icon {
     const day = tokens.filter((token) => /^\d{1,2}$/.test(token));
     const words = tokens.filter((token) => !/^\d+$/.test(token));
     if (year.length !== 1 || day.length !== 1 || words.length !== 1) return null;
-    const locales = [...new Set([...(navigator.languages ?? []), navigator.language, "en"].filter(Boolean))];
+    const locales = [...new Set([i18n.intl(), ...(navigator.languages ?? []), navigator.language, "en"].filter(Boolean))];
     for (const locale of locales) {
       const months = monthNames(locale);
       if (!months) continue;
@@ -1739,15 +1700,10 @@ span.arachnid-joined-icon {
     return null;
   }
 
-  const dateFormat = new Intl.DateTimeFormat(russian ? "ru" : undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-
   const showDate = (shown) => {
     const date = parseShownDate(shown);
-    return date ? dateFormat.format(date) : shown.trim();
+    if (!date) return shown.trim();
+    return new Intl.DateTimeFormat(i18n.intl(), { day: "numeric", month: "short", year: "numeric" }).format(date);
   };
 
   /** Значок Stoat — значок вкладки веб-клиента */

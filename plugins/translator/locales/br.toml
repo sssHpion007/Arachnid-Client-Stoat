@@ -1,0 +1,30 @@
+name = "Troer"
+description = "Treiñ a ra ar c’hemennadennoù gant ur bouton e barrenn ostilhoù ar gemennadenn hag un elfenn el lañser"
+
+[settings.service]
+label = "Servij treiñ"
+hint = "Da belec’h e vez kaset testenn ar gemennadenn evit he zreiñ."
+options = { google = "Google Troer", deepl = "DeepL (alc’hwez API ret)" }
+
+[settings.language]
+label = "Yezh pal"
+hint = "“Evel en arval” a heuilh yezh etrefas Stoat."
+options = { auto = "Evel en arval" }
+
+[settings.deepl_key]
+label = "Alc’hwez API DeepL"
+hint = "Ret evit DeepL hepken: e gavout a rit en ho kont DeepL."
+
+[strings]
+translate = "Treiñ"
+original = "Diskouez an orin"
+mark = "(troet)"
+source = "Yezh orin"
+same = "Er yezh-se emañ ar gemennadenn dija"
+failed = "C’hwitet eo an treiñ"
+network = "N’eo ket hegerz ar servij treiñ"
+limit = "Bevenniñ a ra ar servij treiñ ar goulennoù, klaskit en-dro diwezhatoc’h"
+deeplKey = "Lakait an alc’hwez API DeepL e arventennoù al lugant"
+deeplBadKey = "Nac’het eo bet an alc’hwez API DeepL"
+deeplQuota = "Implijet eo bet holl arouezennoù DeepL"
+deeplLanguage = "Ne dro ket DeepL d’ar yezh-se"

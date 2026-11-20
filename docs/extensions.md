@@ -301,14 +301,17 @@ plugins/translator/
 ├── main.js          код страницы (по умолчанию)
 ├── style.css        стили, пока плагин запущен (по умолчанию)
 ├── native.wasm      нативный модуль WebAssembly (по умолчанию)
+├── icon.svg         значок в разделе «Плагины»
+├── locales/ru.toml  переводы
 └── img/flag.png     любые свои файлы
 ```
 
 ```toml
-name = "Переводчик"          # обязательно
+name = "Translator"          # обязательно
 version = "1.0.0"
 author = "Ava"
-description = "Переводит сообщения"
+description = "Translates messages"
+icon = "icon.svg"            # SVG, PNG, WebP, GIF или JPEG внутри папки
 # main = "main.js"           # свои пути к файлам — внутри папки
 # style = "style.css"
 # native = "native.wasm"
@@ -319,16 +322,22 @@ network = ["api.example.com", "*.deepl.com"]
 
 [[settings]]
 name = "language"
-label = "Язык перевода"
+label = "Target Language"
+hint = "Where to translate messages."   # пояснение под подписью
 type = "select"
 default = "ru"
-options = [{ value = "ru", label = "Русский" }, { value = "en", label = "English" }]
+options = [{ value = "ru", label = "Russian" }, { value = "en", label = "English" }]
 
 [[settings]]
 name = "auto"
-label = "Переводить сразу"
+label = "Translate Instantly"
 type = "checkbox"
 default = true
+
+# строки для кода плагина: plugin.t("translate")
+[strings]
+translate = "Translate"
+done = "Translated from {0}"
 ```
 
 Нужен хотя бы один из `main`, `style`, `native`. Типы настроек — те же, что у
@@ -336,6 +345,28 @@ default = true
 `step`, `unit`); в разделе «Плагины» они в окне под шестерёнкой плагина. В
 `style.css` значения доступны переменными `--<имя>`, относительные `url()`
 ведут в папку плагина. Новый плагин-папка выключен, как и плагин-файл.
+SVG-значок рисуется цветом текста, как значки Stoat.
+
+**Переводы.** `locales/<язык>.toml` переводит название, описание, подписи и
+пояснения настроек, варианты выбора и строки `[strings]`; имя файла — код
+языка (`ru`, `pt-BR`, `zh-Hans`). Берётся перевод языка интерфейса Stoat
+(или того же языка без региона), а чего в нём нет — из `plugin.toml`.
+Настройки, варианты и строки, которых нет в `plugin.toml`, — ошибка.
+
+```toml
+# locales/ru.toml
+name = "Переводчик"
+description = "Переводит сообщения"
+
+[settings.language]
+label = "Язык перевода"
+hint = "На какой язык переводить сообщения."
+options = { ru = "Русский", en = "Английский" }
+
+[strings]
+translate = "Перевести"
+done = "Переведено с {0}"
+```
 
 **Разрешения.** Если в `[permissions] network` есть адреса, при включении
 клиент показывает их и спрашивает согласия; без него плагин не включится. Если
@@ -350,8 +381,11 @@ default = true
 
 | Что | Описание |
 |---|---|
-| `plugin.id`, `plugin.apiVersion` | идентификатор (имя папки) и версия API (сейчас `1`) |
+| `plugin.id`, `plugin.apiVersion` | идентификатор (имя папки) и версия API (сейчас `2`) |
 | `plugin.manifest` | `{ name, version, author, description }` |
+| `plugin.language` | язык интерфейса Stoat (`ru`, `en`, `pt_BR`…) |
+| `plugin.t(key, ...args)` | строка `key` из `[strings]` на языке интерфейса; `{0}`, `{1}`… — аргументы |
+| `plugin.onLanguageChange(fn)` | `fn(language)` при смене языка интерфейса; возвращает функцию отписки |
 | `plugin.settings` | значения настроек: флажок — `true`/`false`, число — число, остальное — строка |
 | `plugin.onSettingsChange(fn)` | `fn(settings)` при изменении в разделе «Плагины»; возвращает функцию отписки |
 | `plugin.storage.get(key)` / `.set(key, value)` / `.delete(key)` | своё хранилище JSON (до 8 МБ, `plugin-data/<id>/storage.json`), общее с нативным модулем; всё возвращает `Promise` |

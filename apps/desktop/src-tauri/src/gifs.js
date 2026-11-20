@@ -66,76 +66,12 @@
     "m22 9.24-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z";
   const STAR_FILLED_PATH = "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z";
 
-  // Как и остальные добавления клиента — на языке системы.
-  const russian = /^ru\b/i.test(navigator.language || "");
-  const text = russian
-    ? {
-        favorites: "Избранное",
-        search: "Поиск в избранном",
-        back: "Назад",
-        addByLink: "Добавить GIF по ссылке",
-        add: "Добавить в избранное",
-        remove: "Убрать из избранного",
-        send: "Отправить",
-        moveTop: "Переместить в самый верх",
-        describe: "Изменить описание",
-        copyLink: "Копировать ссылку",
-        emptyTitle: "В избранном пока пусто",
-        emptyBody:
-          "Добавляйте GIF через меню правой кнопки — в чате и в Gifbox — или по ссылке кнопкой «+».",
-        notFound: "В избранном такого нет",
-        dialogAdd: "GIF по ссылке",
-        dialogDescribe: "Описание GIF",
-        link: "Ссылка",
-        linkHint: "На GIF, видео, вложение Stoat или страницу Tenor, Giphy, Imgur…",
-        description: "Описание",
-        descriptionHint: "По словам описания GIF найдётся в поиске",
-        checking: "Проверяем ссылку…",
-        cancel: "Отмена",
-        confirm: "Добавить",
-        save: "Сохранить",
-        added: "Добавлено в избранное",
-        removed: "Убрано из избранного",
-        copied: "Ссылка скопирована",
-        failed: "Не получилось",
-        noChannel: "Откройте канал, чтобы отправить GIF",
-        signedOut: "нет сессии Stoat",
-        badMedia: "файл не открывается как картинка или видео",
-      }
-    : {
-        favorites: "Favorites",
-        search: "Search favorites",
-        back: "Back",
-        addByLink: "Add a GIF by link",
-        add: "Add to Favorites",
-        remove: "Remove from Favorites",
-        send: "Send",
-        moveTop: "Move to Top",
-        describe: "Edit Description",
-        copyLink: "Copy Link",
-        emptyTitle: "No favorite GIFs yet",
-        emptyBody: "Add GIFs from the right-click menu — in chat and in Gifbox — or by link with the + button.",
-        notFound: "No favorites match",
-        dialogAdd: "GIF by link",
-        dialogDescribe: "GIF description",
-        link: "Link",
-        linkHint: "To a GIF, a video, a Stoat attachment or a Tenor, Giphy, Imgur… page",
-        description: "Description",
-        descriptionHint: "Search finds the GIF by the words of its description",
-        checking: "Checking the link…",
-        cancel: "Cancel",
-        confirm: "Add",
-        save: "Save",
-        added: "Added to Favorites",
-        removed: "Removed from Favorites",
-        copied: "Link copied",
-        failed: "Failed",
-        noChannel: "Open a channel to send a GIF",
-        signedOut: "no Stoat session",
-        badMedia: "the file does not open as an image or a video",
-      };
+  // Как и остальные добавления клиента — на языке интерфейса Stoat (i18n.js)
+  const i18n = window.__arachnidI18n;
+  const text = i18n.text("gifs");
 
-  const errorText = (error) => String(error?.message ?? error ?? "");
+  /** Ошибка команды — по её коду на языке интерфейса (i18n.js) */
+  const errorText = (error) => i18n.errorText(error);
 
   // ─────────────────────────────── элементы ───────────────────────────────
   function h(tag, props, ...children) {

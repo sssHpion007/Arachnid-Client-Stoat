@@ -541,7 +541,7 @@
       if (report) {
         await check(
           "plugin: id, версия API и манифест",
-          report.id === FOLDER && report.apiVersion === 1 && report.name === "E2E Folder",
+          report.id === FOLDER && report.apiVersion === 2 && report.name === "E2E Folder",
           report,
         );
         await check(
@@ -550,6 +550,37 @@
           report.settings,
         );
         await check("plugin.network: подтверждённые адреса", report.network.join() === "example.com", report.network);
+        const i18n = window.__arachnidI18n;
+        const russian = i18n?.pick(["ru"], report.language) === "ru";
+        await check(
+          "plugin.t: строка [strings] на языке интерфейса, неизвестный ключ — как есть",
+          report.language === i18n?.language() &&
+            report.hello === (russian ? "Привет, e2e!" : "Hello, e2e!") &&
+            report.unknown === "unknown",
+          { language: report.language, hello: report.hello, unknown: report.unknown },
+        );
+        const folderInfo = await pluginInfo(FOLDER);
+        const icon = folderInfo?.icon
+          ? await fetch(folderInfo.icon, { cache: "no-store" }).then(
+              (response) => ({ status: response.status, type: response.headers.get("content-type") }),
+              (error) => ({ error: String(error) }),
+            )
+          : null;
+        await check(
+          "значок и переводы плагина-папки из его файлов",
+          folderInfo?.icon?.endsWith(`/plugins/${FOLDER}/icon.svg`) &&
+            icon?.status === 200 &&
+            icon.type === "image/svg+xml" &&
+            folderInfo.locales?.ru?.settings?.flag?.label === "Флажок (перевод)" &&
+            folderInfo.settings.find((setting) => setting.name === "flag")?.hint === "Пояснение флажка.",
+          { icon: folderInfo?.icon, response: icon, locales: folderInfo?.locales },
+        );
+        const tray = i18n?.messages("tray");
+        await check(
+          "переводы клиента: словарь языка интерфейса",
+          typeof tray?.show === "string" && tray.show.length > 0 && typeof i18n.text("settings").pluginSettings === "function",
+          { locale: i18n?.locale(), tray },
+        );
         await check(
           "plugin.storage: записано и прочитано",
           report.stored?.text === "привет",
@@ -1850,6 +1881,14 @@ ${sidebarGroup("", [
       const folderGear = folderRow && [...folderRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
       folderGear?.click();
       const folderDialog = await waitFor(() => document.querySelector(`[data-arachnid-plugin-settings="${FOLDER}"]`), 3000, 50);
+      const russianUi = window.__arachnidI18n.pick(["ru"]) === "ru";
+      const flagHint = folderDialog?.querySelector(".arachnid-setting-hint")?.textContent;
+      await check(
+        "раздел «Плагины»: значок плагина-папки и пояснение настройки на языке интерфейса",
+        Boolean(folderRow?.querySelector("span.arachnid-plugin-icon")) &&
+          flagHint === (russianUi ? "Пояснение флажка (перевод)." : "Пояснение флажка."),
+        { icon: Boolean(folderRow?.querySelector(".arachnid-plugin-icon")), flagHint },
+      );
       const modeSelect = folderDialog?.querySelector(".arachnid-select");
       const modeShown = () => modeSelect?.querySelector(".arachnid-select-value")?.textContent;
       const modeBefore = modeShown();

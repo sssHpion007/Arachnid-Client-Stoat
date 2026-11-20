@@ -92,7 +92,7 @@ const MAX_WATCHED_FILES: usize = 256;
 const MAX_WATCH_DEPTH: usize = 4;
 
 /// Версия API плагинов (`plugin` в коде плагина-папки, `plugin.toml`).
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 
 /// Автор клиента (`authors` в Cargo.toml): подпись клиента и встроенных
 /// плагинов в настройках
@@ -262,6 +262,7 @@ fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
         max: None,
         step: None,
         unit: None,
+        hint: None,
     }
 }
 
@@ -452,6 +453,12 @@ pub struct PluginInfo {
     settings: Vec<usercss::Setting>,
     /// Их действующие значения
     values: BTreeMap<String, String>,
+    /// Адрес значка плагина-папки
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    /// Переводы плагина-папки (`locales/<язык>.toml`)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    locales: BTreeMap<String, manifest::PluginLocale>,
     /// Почему плагин-папка не читается
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -918,6 +925,8 @@ impl Extensions {
                     "assetBase": "",
                     "native": false,
                     "network": [],
+                    "strings": {},
+                    "locales": {},
                 });
                 let code = (builtin.code)();
                 Some(folder_plugin_script(&plugin.id, "main.js", &code, &info))
@@ -947,6 +956,8 @@ impl Extensions {
                     "assetBase": format!("{ASSET_BASE}{PLUGINS_DIR}/{}/", plugin.id),
                     "native": manifest.native.is_some(),
                     "network": saved.network(&plugin.id, manifest),
+                    "strings": manifest.strings,
+                    "locales": manifest.locales,
                 });
                 let main = manifest
                     .main
@@ -1020,6 +1031,12 @@ impl Extensions {
                         .unwrap_or_default(),
                     settings,
                     values,
+                    icon: manifest
+                        .as_ref()
+                        .and_then(|manifest| manifest.icon.as_deref())
+                        .and_then(|icon| asset_url(Kind::Plugin, &plugin.id, icon))
+                        .map(String::from),
+                    locales: manifest.map_or_else(BTreeMap::new, |manifest| manifest.locales),
                     error,
                     file: plugin.id,
                     name: plugin.about.name,
@@ -1108,8 +1125,10 @@ impl Extensions {
         }
         // пустой текст в редакторе стёр бы файл при сохранении: лучше ошибка
         let Some(css) = read_limited(&path) else {
-            return Err(CommandError::new(
+            return Err(CommandError::translated(
                 "quickCss",
+                "quickCssUnreadable",
+                Vec::new(),
                 "quickcss.css не читается или больше 8 МБ — откройте его в редакторе",
             ));
         };
@@ -1119,11 +1138,21 @@ impl Extensions {
     /// Сохранить `quickcss.css` из редактора в настройках.
     fn set_quick_css(&self, css: &str) -> CmdResult<()> {
         if css.len() as u64 > MAX_FILE_SIZE {
-            return Err(CommandError::new("quickCss", "QuickCSS больше 8 МБ"));
+            return Err(CommandError::translated(
+                "quickCss",
+                "quickCssTooLarge",
+                Vec::new(),
+                "QuickCSS больше 8 МБ",
+            ));
         }
         write_text_atomically(&self.dir.join(QUICK_CSS), css).map_err(|error| {
             tracing::warn!(%error, "не удалось сохранить quickcss.css");
-            CommandError::new("quickCss", error.to_string())
+            CommandError::translated(
+                "quickCss",
+                "quickCssNotSaved",
+                vec![error.to_string()],
+                error.to_string(),
+            )
         })
     }
 
@@ -2452,6 +2481,29 @@ mod tests {
         .unwrap();
         std::fs::write(folder.join("img").join("flag.png"), "png").unwrap();
         folder
+    }
+
+    #[test]
+    fn folder_plugin_icon_and_locales() {
+        let dir = temp_dir("plugin-locales");
+        let folder = translate_plugin(&dir);
+        let manifest = format!("icon = \"icon.svg\"\n{TRANSLATE_MANIFEST}");
+        std::fs::write(folder.join("plugin.toml"), manifest).unwrap();
+        std::fs::write(folder.join("icon.svg"), "<svg/>").unwrap();
+        let locales = folder.join(manifest::LOCALES_DIR);
+        std::fs::create_dir_all(&locales).unwrap();
+        std::fs::write(locales.join("en.toml"), "name = \"Translator\"").unwrap();
+        let extensions = extensions(&dir);
+        let info = extensions
+            .overview()
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.folder)
+            .unwrap();
+        let icon = info.icon.unwrap();
+        assert!(icon.ends_with("/plugins/translate/icon.svg"), "{icon}");
+        assert_eq!(info.locales["en"].name.as_deref(), Some("Translator"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

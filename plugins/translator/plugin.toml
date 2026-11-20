@@ -1,7 +1,8 @@
-name = "Переводчик"
-version = "1.1.0"
+name = "Translator"
+version = "1.2.0"
 author = "_sssHpion007"
-description = "Перевод сообщений кнопкой в панели сообщения и пунктом меню"
+description = "Translates messages with a button in the message toolbar and a context menu item"
+icon = "icon.svg"
 
 [permissions]
 network = [
@@ -13,22 +14,24 @@ network = [
 
 [[settings]]
 name = "service"
-label = "Сервис перевода"
+label = "Translation Service"
+hint = "Where message text is sent for translation."
 type = "select"
 default = "google"
 options = [
-  { value = "google", label = "Google Переводчик" },
+  { value = "google", label = "Google Translate" },
   { value = "microsoft", label = "Microsoft Translator" },
-  { value = "deepl", label = "DeepL (нужен ключ API)" },
+  { value = "deepl", label = "DeepL (API key required)" },
 ]
 
 [[settings]]
 name = "language"
-label = "Язык перевода"
+label = "Target Language"
+hint = "“Same as Client” follows the Stoat interface language."
 type = "select"
 default = "auto"
 options = [
-  { value = "auto", label = "Как в клиенте" },
+  { value = "auto", label = "Same as Client" },
   { value = "en", label = "English" },
   { value = "ru", label = "Русский" },
   { value = "uk", label = "Українська" },
@@ -82,6 +85,21 @@ options = [
 
 [[settings]]
 name = "deepl_key"
-label = "Ключ DeepL API"
+label = "DeepL API Key"
+hint = "Only needed for DeepL: find it in your DeepL account."
 type = "text"
 default = ""
+
+[strings]
+translate = "Translate"
+original = "Show Original"
+mark = "(translated)"
+source = "Source language"
+same = "The message is already in this language"
+failed = "Translation failed"
+network = "The translation service is unavailable"
+limit = "The translation service is limiting requests, try again later"
+deeplKey = "Set the DeepL API key in the plugin settings"
+deeplBadKey = "The DeepL API key was rejected"
+deeplQuota = "The DeepL character quota is used up"
+deeplLanguage = "DeepL can't translate into this language"
