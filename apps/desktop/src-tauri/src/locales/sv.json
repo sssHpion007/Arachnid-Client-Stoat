@@ -26,6 +26,10 @@
           "label": "Gränssnittsrättningar",
           "hint": "Rättar små brister i gränssnittet."
         },
+        "history": {
+          "label": "Pålitlig laddning av historik",
+          "hint": "Upprepar förfrågningar om meddelandehistorik som hänger sig eller avvisas av servern."
+        },
         "emoji_picker": {
           "label": "Förbättrad emojiväljare",
           "hint": "Praktiska avsnitt och andra förbättringar av emojiväljaren."

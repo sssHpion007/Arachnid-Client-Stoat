@@ -26,6 +26,10 @@
           "label": "Saskarnes labojumi",
           "hint": "Labo sīkas lietotāja saskarnes nepilnības."
         },
+        "history": {
+          "label": "Uzticama vēstures ielāde",
+          "hint": "Atkārto ziņu vēstures pieprasījumus, kas iestrēgst vai kurus serveris noraida."
+        },
         "emoji_picker": {
           "label": "Uzlabots emocijzīmju atlasītājs",
           "hint": "Ērtas sadaļas un citi emocijzīmju atlasītāja uzlabojumi."

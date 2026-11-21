@@ -26,6 +26,10 @@
           "label": "Felületjavítások",
           "hint": "Kijavítja a felhasználói felület apró hibáit."
         },
+        "history": {
+          "label": "Megbízható előzménybetöltés",
+          "hint": "Újrapróbálja az elakadt vagy a szerver által elutasított üzenetelőzmény-kéréseket."
+        },
         "emoji_picker": {
           "label": "Továbbfejlesztett emojiválasztó",
           "hint": "Hasznos szakaszok és más fejlesztések az emojiválasztóban."

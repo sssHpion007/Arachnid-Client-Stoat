@@ -1596,11 +1596,51 @@ ${sidebarGroup("", [
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
         qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
-          "interface=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
+          "interface=true,history=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
-          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 5,
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 6,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
       );
+
+      // надёжная загрузка истории: повисший запрос и ответ 429 for-web не
+      // видит — получает ответ после повтора (сервер считает запросы)
+      const runId = Date.now();
+      const historyCount = async (channel) => (await (await fetch("/e2e/history")).json())[channel] ?? 0;
+      const fetchHistory = async (channel) => {
+        const started = performance.now();
+        try {
+          const response = await fetch(`/api/channels/${channel}/messages?limit=50`, { method: "GET", headers: {} });
+          return { status: response.status, body: await response.json(), ms: Math.round(performance.now() - started) };
+        } catch (error) {
+          return { error: String(error), ms: Math.round(performance.now() - started) };
+        }
+      };
+      const [stalled, limited] = await Promise.all([
+        fetchHistory(`E2ESTALL${runId}`),
+        fetchHistory(`E2ELIMIT${runId}`),
+      ]);
+      await check(
+        "история чата: повисший запрос отменяется по тайм-ауту и повторяется",
+        stalled.status === 200 && stalled.body?.request === 2 && stalled.ms >= 14000 && stalled.ms < 19000,
+        stalled,
+      );
+      await check(
+        "история чата: после 429 запрос ждёт освобождения корзины и повторяется",
+        limited.status === 200 && limited.body?.request === 2 && limited.ms >= 650 && limited.ms < 5000,
+        limited,
+      );
+      qolInput("history")?.click();
+      await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "0", 3000, 50);
+      await sleep(500); // значение доходит до страницы вызовом из клиента
+      const unguarded = await fetchHistory(`E2ELIMITOFF${runId}`);
+      await check(
+        "история чата: выключенная настройка — ответ 429 приходит как есть",
+        unguarded.status === 429 && (await historyCount(`E2ELIMITOFF${runId}`)) === 1,
+        unguarded,
+      );
+      qolInput("history")?.click();
+      await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "1", 3000, 50);
+      await sleep(500); // значение доходит до страницы вызовом из клиента
 
       // настройки действуют сразу: избранное в открытом окне GIF
       qolInput("favorite_gifs")?.click();

@@ -8,13 +8,17 @@ http://127.0.0.1:8765/app/ — его клиент открывает как с�
 
 Для избранных GIF — GIF, страница с ней в og:image, страница без GIF,
 /.well-known/stoat с адресом API и сам API отправки сообщений: отправленное
-отдаёт /e2e/sent.
+отдаёт /e2e/sent. Для надёжной загрузки истории — API истории канала: канал
+E2ESTALL… в первый раз не отвечает, E2ELIMIT… в первый раз отвечает 429;
+сколько было запросов к каналу, отдаёт /e2e/history.
 
     python server.py <папка для result.json и server.log>
 """
 
 import json
+import re
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -47,6 +51,13 @@ PAGES = {
 SENT: list[dict] = []
 # тела запросов входа (POST /auth/session/login)
 LOGINS: list[dict] = []
+# запросы истории (GET /api/channels/<id>/messages): канал → сколько было
+HISTORY: dict[str, int] = {}
+HISTORY_PATH = re.compile(r"/api/channels/([0-9A-Za-z]+)/messages")
+# ответ на запрос, который повис: дольше тайм-аута клиента (15 с)
+STALL_SECONDS = 20
+# через сколько мс освободится корзина после 429
+RESET_AFTER_MS = 700
 
 
 def log(line: str) -> None:
@@ -84,12 +95,40 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/e2e/logins":
             self.reply(json.dumps(LOGINS).encode("utf-8"), "application/json")
             return
+        if path == "/e2e/history":
+            self.reply(json.dumps(HISTORY).encode("utf-8"), "application/json")
+            return
+        history = HISTORY_PATH.fullmatch(path)
+        if history:
+            self.history(history.group(1))
+            return
         entry = FILES.get(path)
         if entry is None:
             self.send_error(404)
             return
         file, content_type = entry
         self.reply(file.read_bytes(), content_type)
+
+    def history(self, channel: str) -> None:
+        count = HISTORY.get(channel, 0) + 1
+        HISTORY[channel] = count
+        if channel.startswith("E2ESTALL") and count == 1:
+            # повисший запрос: клиент отменяет его сам и повторяет
+            time.sleep(STALL_SECONDS)
+            self.close_connection = True
+            return
+        if channel.startswith("E2ELIMIT") and count == 1:
+            # как ограничение частоты Stoat: заголовок и retry_after в теле
+            body = json.dumps({"retry_after": RESET_AFTER_MS}).encode("utf-8")
+            self.send_response(429)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-RateLimit-Reset-After", str(RESET_AFTER_MS))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        reply = {"messages": [], "users": [], "request": count}
+        self.reply(json.dumps(reply).encode("utf-8"), "application/json")
 
     def reply(self, body: bytes, content_type: str) -> None:
         self.send_response(200)

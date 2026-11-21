@@ -26,6 +26,10 @@
           "label": "Corrections de l’interface",
           "hint": "Corrige de petits défauts de l’interface."
         },
+        "history": {
+          "label": "Chargement fiable de l’historique",
+          "hint": "Relance les requêtes d’historique des messages bloquées ou refusées par le serveur."
+        },
         "emoji_picker": {
           "label": "Sélecteur d’emojis amélioré",
           "hint": "Des sections pratiques et d’autres améliorations du sélecteur d’emojis."

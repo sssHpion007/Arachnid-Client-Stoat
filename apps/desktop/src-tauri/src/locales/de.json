@@ -26,6 +26,10 @@
           "label": "Oberflächenkorrekturen",
           "hint": "Behebt kleine Mängel der Benutzeroberfläche."
         },
+        "history": {
+          "label": "Zuverlässiges Laden des Verlaufs",
+          "hint": "Wiederholt hängende oder vom Server abgelehnte Anfragen des Nachrichtenverlaufs."
+        },
         "emoji_picker": {
           "label": "Verbesserte Emoji-Auswahl",
           "hint": "Praktische Bereiche und weitere Verbesserungen der Emoji-Auswahl."

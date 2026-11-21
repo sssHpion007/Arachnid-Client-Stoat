@@ -26,6 +26,10 @@
           "label": "Liidese parandused",
           "hint": "Parandab kasutajaliidese väikesi vigu."
         },
+        "history": {
+          "label": "Ajaloo töökindel laadimine",
+          "hint": "Kordab sõnumiajaloo päringuid, mis jäävad toppama või mille server tagasi lükkab."
+        },
         "emoji_picker": {
           "label": "Täiustatud emojivalija",
           "hint": "Mugavad jaotised ja muud emojivalija täiustused."

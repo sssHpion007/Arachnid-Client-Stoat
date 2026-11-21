@@ -26,6 +26,10 @@
           "label": "Reizhadennoù an etrefas",
           "hint": "Reizhañ a ra fazioù bihan an etrefas."
         },
+        "history": {
+          "label": "Kargañ an istor en un doare fizius",
+          "hint": "Adkas a ra ar goulennoù istor kemennadennoù a chom a-sav pe a vez nac’het gant ar servijer."
+        },
         "emoji_picker": {
           "label": "Dibaber fromlunioù gwellaet",
           "hint": "Rannoù talvoudus ha gwellaennoù all evit an dibaber fromlunioù."

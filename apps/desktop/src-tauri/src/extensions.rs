@@ -267,10 +267,12 @@ fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
 }
 
 /// Настройки «Quality of Life»: каждая часть включается отдельно
-/// (`emoji.js`, `gifs.js`, `hotkeys.js`). Подписи на странице переводит `settings.js`.
+/// (`emoji.js`, `gifs.js`, `hotkeys.js`, `history.js`). Подписи на странице
+/// переводит `settings.js`.
 fn qol_settings() -> Vec<usercss::Setting> {
     vec![
         checkbox("interface", "Исправление деталей интерфейса", true),
+        checkbox("history", "Надёжная загрузка истории чата", true),
         checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
         checkbox("favorite_gifs", "Меню избранного для GIF", true),
         checkbox(
@@ -2439,8 +2441,9 @@ mod tests {
         let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names.join(","),
-            "interface,emoji_picker,favorite_gifs,gifs_open_favorites,hotkeys"
+            "interface,history,emoji_picker,favorite_gifs,gifs_open_favorites,hotkeys"
         );
+        assert_eq!(qol.values["history"], "1");
         assert_eq!(qol.values["favorite_gifs"], "1");
         assert_eq!(qol.values["gifs_open_favorites"], "0");
         assert_eq!(qol.values["hotkeys"], "0");

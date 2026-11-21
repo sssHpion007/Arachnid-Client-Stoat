@@ -26,6 +26,10 @@
           "label": "Interface Fixes",
           "hint": "Fixes for small flaws in the user interface."
         },
+        "history": {
+          "label": "Reliable History Loading",
+          "hint": "Retries message history requests that hang or are rejected by the server."
+        },
         "emoji_picker": {
           "label": "Enhanced Emoji Picker",
           "hint": "Handy sections and other improvements for the emoji picker."
