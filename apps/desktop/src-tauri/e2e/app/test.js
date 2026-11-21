@@ -1742,14 +1742,20 @@ ${sidebarGroup("", [
       const profileTile = (title) =>
         `<div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>${title}</span></div>`;
       const profilePortal = document.createElement("div");
-      // шапка (ProfileBanner): псевдоним, строка «имя#тег — местоимения»
+      // шапка (ProfileBanner): псевдоним, строка «имя#тег — местоимения»;
+      // стили строки — классами, как у for-web (Panda CSS), а не в атрибуте
+      // style, который важнее любых правил
+      const bannerStyle = document.createElement("style");
+      bannerStyle.textContent =
+        ".e2e-names { display: flex; gap: 8px; } .e2e-pronouns { min-width: 0; flex-grow: 1; text-align: right; }";
+      document.head.append(bannerStyle);
       const profileBanner = (pronouns) => `<div style="grid-column:1/3;height:120px;display:flex;flex-direction:column;justify-content:end">
           <div style="display:flex;align-items:center;gap:16px"><div style="width:48px;height:48px"></div>
             <div style="flex-grow:1;display:flex;flex-direction:column;gap:4px;line-height:1rem">
               <span>Псевдоним</span>
-              <div style="display:flex;gap:8px">
+              <div class="e2e-names">
                 <div style="flex-shrink:0"><div><span>e2e<span>#1234</span></span></div></div>
-                <div style="min-width:0;flex-grow:1;text-align:right"><div style="overflow:hidden;white-space:nowrap"><span>${pronouns}</span></div></div>
+                <div class="e2e-pronouns"><div style="overflow:hidden;white-space:nowrap"><span>${pronouns}</span></div></div>
               </div>
             </div>
           </div>
@@ -1855,6 +1861,7 @@ ${sidebarGroup("", [
       menuArea.remove();
       profilePortal.remove();
       bareBanner.remove();
+      bannerStyle.remove();
       profileServer.remove();
       await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
         ripple: rippleTransition(earlyRipple),
