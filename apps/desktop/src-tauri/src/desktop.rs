@@ -431,7 +431,10 @@ fn emoji_script() -> String {
 /// функции с объектом `plugin`, как плагин-папка: по `plugin.settings`
 /// включается каждая часть.
 pub(crate) fn qol_script() -> String {
-    format!("{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}", emoji_script())
+    format!(
+        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}",
+        emoji_script()
+    )
 }
 
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
