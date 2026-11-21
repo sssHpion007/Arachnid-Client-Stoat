@@ -1742,15 +1742,30 @@ ${sidebarGroup("", [
       const profileTile = (title) =>
         `<div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>${title}</span></div>`;
       const profilePortal = document.createElement("div");
+      // шапка (ProfileBanner): псевдоним, строка «имя#тег — местоимения»
+      const profileBanner = (pronouns) => `<div style="grid-column:1/3;height:120px;display:flex;flex-direction:column;justify-content:end">
+          <div style="display:flex;align-items:center;gap:16px"><div style="width:48px;height:48px"></div>
+            <div style="flex-grow:1;display:flex;flex-direction:column;gap:4px;line-height:1rem">
+              <span>Псевдоним</span>
+              <div style="display:flex;gap:8px">
+                <div style="flex-shrink:0"><div><span>e2e<span>#1234</span></span></div></div>
+                <div style="min-width:0;flex-grow:1;text-align:right"><div style="overflow:hidden;white-space:nowrap"><span>${pronouns}</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>`;
       profilePortal.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:340px">
-        <div style="grid-column:1/3;height:120px"></div>
+        ${profileBanner("он/его")}
         ${profileTile("Roles")}${profileTile("Badges")}${profileTile("Status")}
         <div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>Joined</span><span><div>Stoat</div></span><span>12 Mar 2023</span><span><div>Тестовый сервер</div></span><span>05 Jan 2024</span></div>
         <div style="grid-column:1/3;height:60px"></div>
       </div>`;
-      document.getElementById("floating").append(profilePortal);
+      // та же шапка без местоимений (карточка по щелчку на ник)
+      const bareBanner = document.createElement("div");
+      bareBanner.innerHTML = profileBanner("");
+      document.getElementById("floating").append(profilePortal, bareBanner);
       const profileGrid = profilePortal.firstElementChild;
-      const [, , , statusTile, joinedTile, bioTile] = profileGrid.children;
+      const [bannerTile, , , statusTile, joinedTile, bioTile] = profileGrid.children;
       const joinedFormat = new Intl.DateTimeFormat(/^ru\b/i.test(navigator.language) ? "ru" : undefined, {
         day: "numeric",
         month: "short",
@@ -1791,6 +1806,26 @@ ${sidebarGroup("", [
       );
       await check("профиль: полоса «Участник с» следует за датой for-web", joinedUpdated, joinedDates());
 
+      const bannerNames = (banner) => banner.querySelector("span").nextElementSibling;
+      const namesRow = bannerNames(bannerTile);
+      const bareRow = bannerNames(bareBanner.firstElementChild);
+      await waitFor(() => namesRow.hasAttribute("data-arachnid-profile-names"), 3000, 50);
+      const rect = (element) => element.getBoundingClientRect();
+      const [nameBox, pronounsBox] = namesRow.children;
+      const nicknameBox = bannerTile.querySelector("span");
+      const namesSeen = {
+        marked: namesRow.hasAttribute("data-arachnid-profile-names") && bareRow.hasAttribute("data-arachnid-profile-names"),
+        nameBelowNickname: rect(nameBox).top >= rect(nicknameBox).bottom,
+        pronounsBelowName: rect(pronounsBox).top >= rect(nameBox).bottom,
+        pronounsLeft: Math.round(rect(pronounsBox.querySelector("span")).left - rect(nameBox).left),
+        bareHidden: getComputedStyle(bareRow.lastElementChild).display === "none",
+      };
+      await check(
+        "профиль: псевдоним, имя#тег и местоимения — друг под другом, пустые местоимения не занимают строку",
+        namesSeen.marked && namesSeen.nameBelowNickname && namesSeen.pronounsBelowName && namesSeen.pronounsLeft === 0 && namesSeen.bareHidden,
+        namesSeen,
+      );
+
       qolInput("interface")?.click();
       const interfaceOff = await waitFor(
         () =>
@@ -1799,7 +1834,9 @@ ${sidebarGroup("", [
           rightClick(plainText) &&
           !joinedTile.hasAttribute("data-arachnid-joined") &&
           !joinedTile.querySelector(".arachnid-joined") &&
-          !statusTile.hasAttribute("data-arachnid-lone"),
+          !statusTile.hasAttribute("data-arachnid-lone") &&
+          !namesRow.hasAttribute("data-arachnid-profile-names") &&
+          getComputedStyle(namesRow).flexDirection === "row",
         3000,
         50,
       );
@@ -1810,12 +1847,14 @@ ${sidebarGroup("", [
           rippleTransition(earlyRipple) === "0s" &&
           !rightClick(plainText) &&
           joinedTile.querySelector(".arachnid-joined") &&
-          statusTile.hasAttribute("data-arachnid-lone"),
+          statusTile.hasAttribute("data-arachnid-lone") &&
+          namesRow.hasAttribute("data-arachnid-profile-names"),
         3000,
         50,
       );
       menuArea.remove();
       profilePortal.remove();
+      bareBanner.remove();
       profileServer.remove();
       await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
         ripple: rippleTransition(earlyRipple),

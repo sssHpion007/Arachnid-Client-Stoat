@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Spraudņi",
-    "about": "Stoat darbvirsmas klients: motīvi, spraudņi un QuickCSS.",
+    "about": "Stoat darbvirsmas klients: motīvi un spraudņi.",
     "builtin": "Iebūvēts",
     "builtinDescription": {
       "builtin:qol": "Labojumi un ērtību uzlabojumi."

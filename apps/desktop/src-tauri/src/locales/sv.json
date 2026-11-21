@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Plugins",
-    "about": "Skrivbordsklient för Stoat: teman, plugins och QuickCSS.",
+    "about": "Skrivbordsklient för Stoat: teman och plugins.",
     "builtin": "Inbyggd",
     "builtinDescription": {
       "builtin:qol": "Rättningar och bekvämlighetsförbättringar."

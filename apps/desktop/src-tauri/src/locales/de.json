@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Plugins",
-    "about": "Desktop-Client für Stoat: Designs, Plugins und QuickCSS.",
+    "about": "Desktop-Client für Stoat: Designs und Plugins.",
     "builtin": "Integriert",
     "builtinDescription": {
       "builtin:qol": "Korrekturen und Komfortverbesserungen."

@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "المكوّنات",
-    "about": "عميل سطح مكتب لـ Stoat: سمات ومكوّنات وQuickCSS.",
+    "about": "عميل سطح مكتب لـ Stoat: سمات ومكوّنات.",
     "builtin": "مدمج",
     "builtinDescription": {
       "builtin:qol": "إصلاحات وتحسينات تجعل الاستخدام أسهل."

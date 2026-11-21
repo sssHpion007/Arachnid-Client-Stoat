@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Плагины",
-    "about": "Настольный клиент Stoat: темы, плагины и QuickCSS.",
+    "about": "Настольный клиент Stoat: темы и плагины.",
     "builtin": "Встроенный",
     "builtinDescription": {
       "builtin:qol": "Исправления и улучшения качества жизни."

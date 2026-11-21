@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Pluginad",
-    "about": "Stoati töölauaklient: teemad, pluginad ja QuickCSS.",
+    "about": "Stoati töölauaklient: teemad ja pluginad.",
     "builtin": "Sisseehitatud",
     "builtinDescription": {
       "builtin:qol": "Parandused ja mugavuse täiustused."

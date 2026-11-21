@@ -221,6 +221,8 @@
   const JOINED_MARK = "data-arachnid-joined";
   /** Пометка плитки профиля, оставшейся в ряду одной: она во всю ширину */
   const LONE_MARK = "data-arachnid-lone";
+  /** Пометка строки баннера профиля «имя#тег — местоимения»: она столбцом */
+  const NAMES_MARK = "data-arachnid-profile-names";
 
   /**
    * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
@@ -596,6 +598,16 @@ ${MESSAGE_ROLE_ICON} > img {
   grid-column: 1 / -1;
   aspect-ratio: auto;
 }
+[${NAMES_MARK}] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-xs, 4px);
+}
+[${NAMES_MARK}] > :last-child {
+  align-self: stretch;
+  text-align: start;
+}
+[${NAMES_MARK}] > :last-child:has(span:empty) { display: none; }
 .arachnid-joined {
   display: flex;
   flex-direction: column;
@@ -1623,6 +1635,17 @@ span.arachnid-joined-icon {
   //
   // Без плитки в ряду квадратных плиток может остаться одна — она
   // растягивается во всю ширину (LONE_MARK), чтобы рядом не было дыры.
+  //
+  // В баннере профиля (ProfileBanner.tsx for-web) — псевдоним, под ним одной
+  // строкой (Row) имя#тег и местоимения, прижатые вправо. Строка становится
+  // столбцом (NAMES_MARK): псевдоним, под ним имя#тег, под ним местоимения,
+  // как в Discord; пустые местоимения не занимают строку. Опора — Row из двух
+  // div: в первом через обёртку подсказки — имя (span), последний span в нём
+  // — «#» и четыре цифры тега; во втором через OverflowingText — span
+  // местоимений.
+
+  /** Строки баннера с именем и местоимениями, ставшие столбцом */
+  const profileNames = new Set();
 
   /** Плитки профиля, ставшие полосой: плитка → { observer, grid } */
   const joinedCards = new Map();
@@ -1824,15 +1847,33 @@ span.arachnid-joined-icon {
     if (restore) for (const marked of grid.querySelectorAll(`:scope > [${LONE_MARK}]`)) marked.removeAttribute(LONE_MARK);
   }
 
+  /** Строка баннера: имя#тег и местоимения (см. выше) */
+  function isProfileNames(element) {
+    const parts = element.children;
+    if (parts.length !== 2 || parts[0].localName !== "div" || parts[1].localName !== "div") return false;
+    const username = parts[0].firstElementChild?.firstElementChild;
+    if (username?.localName !== "span" || parts[0].children.length !== 1) return false;
+    const tag = username.lastElementChild;
+    if (tag?.localName !== "span" || !/^#\d{4}$/.test(tag.textContent.trim())) return false;
+    return parts[1].firstElementChild?.firstElementChild?.localName === "span";
+  }
+
   function scanProfiles() {
     for (const card of joinedCards.keys()) if (!card.isConnected) releaseJoined(card, { restore: false });
+    for (const row of profileNames) if (!row.isConnected) profileNames.delete(row);
     const roots = profileRoots;
     profileRoots = [];
     if (!interfaceOn) return;
     for (const root of roots) {
       if (!root.isConnected || root.nodeType !== Node.ELEMENT_NODE) continue;
-      if (root.localName === "div" && isJoinedCard(root)) adoptJoined(root);
-      for (const element of root.querySelectorAll("div")) if (isJoinedCard(element)) adoptJoined(element);
+      const elements = root.localName === "div" ? [root, ...root.querySelectorAll("div")] : root.querySelectorAll("div");
+      for (const element of elements) {
+        if (isJoinedCard(element)) adoptJoined(element);
+        else if (!profileNames.has(element) && isProfileNames(element)) {
+          element.setAttribute(NAMES_MARK, "");
+          profileNames.add(element);
+        }
+      }
     }
   }
 
@@ -1856,7 +1897,7 @@ span.arachnid-joined-icon {
     let node = record.target;
     for (let level = 0; node && node !== floating && level < PROFILE_DEPTH; level += 1) node = node.parentElement;
     if (node !== floating) return;
-    if (record.removedNodes.length > 0 && joinedCards.size > 0) queueProfiles(null);
+    if (record.removedNodes.length > 0 && (joinedCards.size > 0 || profileNames.size > 0)) queueProfiles(null);
     for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) queueProfiles(node);
   }
 
@@ -1868,6 +1909,8 @@ span.arachnid-joined-icon {
   /** Вернуть профилям вид for-web */
   function unwatchProfiles() {
     for (const card of Array.from(joinedCards.keys())) releaseJoined(card, { restore: true });
+    for (const row of profileNames) row.removeAttribute(NAMES_MARK);
+    profileNames.clear();
     profileRoots = [];
   }
 

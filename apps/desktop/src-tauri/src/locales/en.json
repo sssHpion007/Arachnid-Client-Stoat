@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Plugins",
-    "about": "Desktop client for Stoat: themes, plugins and QuickCSS.",
+    "about": "Desktop client for Stoat: themes and plugins.",
     "builtin": "Built-in",
     "builtinDescription": {
       "builtin:qol": "Fixes and quality of life improvements."

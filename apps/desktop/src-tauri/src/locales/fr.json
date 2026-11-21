@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Plugins",
-    "about": "Client de bureau pour Stoat : thèmes, plugins et QuickCSS.",
+    "about": "Client de bureau pour Stoat : thèmes et plugins.",
     "builtin": "Intégré",
     "builtinDescription": {
       "builtin:qol": "Corrections et améliorations du confort d’utilisation."

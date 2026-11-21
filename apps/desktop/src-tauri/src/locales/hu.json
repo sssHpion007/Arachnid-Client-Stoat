@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "Pluginok",
-    "about": "Asztali kliens a Stoathoz: témák, pluginok és QuickCSS.",
+    "about": "Asztali kliens a Stoathoz: témák és pluginok.",
     "builtin": "Beépített",
     "builtinDescription": {
       "builtin:qol": "Javítások és kényelmi fejlesztések."

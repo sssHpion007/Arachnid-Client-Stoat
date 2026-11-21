@@ -15,7 +15,7 @@
   },
   "settings": {
     "plugins": "پلاگین‌ها",
-    "about": "کلاینت دسکتاپ Stoat: پوسته‌ها، پلاگین‌ها و QuickCSS.",
+    "about": "کلاینت دسکتاپ Stoat: پوسته‌ها و پلاگین‌ها.",
     "builtin": "داخلی",
     "builtinDescription": {
       "builtin:qol": "رفع اشکال‌ها و بهبودهای رفاهی."
