@@ -1,6 +1,6 @@
 // Статический сервер превью с частичными ответами (Range), как у autumn.
 // Запуск: node serve.mjs [порт] — затем открыть http://localhost:8090/
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,8 +30,22 @@ createServer((request, response) => {
   const headers = {
     "Content-Type": types[extname(file)] ?? "application/octet-stream",
     "Accept-Ranges": "bytes",
-    "Cache-Control": "no-cache",
+    "Cache-Control": "no-store",
   };
+  // скрипты и стили — с меткой версии, чтобы браузер не взял старые из кэша
+  if (extname(file) === ".html") {
+    const html = readFileSync(file, "utf8").replace(/(src|href)="([\w-]+\.(?:js|css))"/g, (_, attribute, name) => {
+      let version = 0;
+      try {
+        version = Math.floor(statSync(join(root, name)).mtimeMs);
+      } catch {}
+      return `${attribute}="${name}?v=${version}"`;
+    });
+    console.log(`${request.method} ${request.url} страница`);
+    response.writeHead(200, { ...headers, "Content-Length": Buffer.byteLength(html) });
+    response.end(request.method === "HEAD" ? undefined : html);
+    return;
+  }
   const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.range ?? "");
   if (range && (range[1] || range[2])) {
     let start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
