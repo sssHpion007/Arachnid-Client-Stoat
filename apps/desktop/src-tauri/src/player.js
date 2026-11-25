@@ -681,6 +681,8 @@
   // в H.264; страница спрашивает, как идут дела, и получает адрес готового
   // файла. Без клиента (или без ffmpeg в нём) — «unavailable».
 
+  /** Столько секунд видео может играть без картинки, пока это не считается ошибкой */
+  const NO_PICTURE_S = 0.75;
   /** Как часто спрашивать о ходе перекодирования, мс */
   const CONVERT_POLL_MS = 250;
 
@@ -1064,6 +1066,10 @@
     let pollTimer = 0;
     /** Включить видео, когда перекодирование закончится (нажали ▶) */
     let playWhenReady = false;
+    /** Адрес, который после ошибки уже загружался заново */
+    let reloaded = null;
+    /** Видео без картинки: выясняется, почему */
+    let checking = false;
     let dragging = false;
     let hovering = false;
     let hideTimer = 0;
@@ -1211,16 +1217,37 @@
 
     // Видео не играет: перекодировать (если есть чем), иначе — ошибка.
     // Сеть тут не поможет; перекодированный файл второй раз не перекодируется.
-    async function cannotPlay(src) {
+    // `start` — сразу, не дожидаясь ▶ (его уже нажали).
+    async function cannotPlay(src, start = false) {
       if (failure !== "network" && !original) {
         const status = await transcode(src, false).catch(() => ({ state: "unavailable" }));
         if (currentSrc() !== src) return;
         if (status.state !== "unavailable") {
           conversion = { src, state: "idle", progress: null };
-          return applyConversion(status);
+          applyConversion(status);
+          if (start) startConversion();
+          return;
         }
       }
       showError();
+    }
+
+    // Ошибка бывает и разовой: декодер видеокарты не создался, пока
+    // загружались другие видео, оборвался ответ. Поэтому сначала видео
+    // загружается заново — с того же места, — и только вторая ошибка
+    // подряд выясняется и показывается.
+    function reload() {
+      const src = currentSrc();
+      if (reloaded === src) return false;
+      reloaded = src;
+      const position = video.currentTime;
+      const resume = started && !video.ended;
+      spinner.hidden = false;
+      video.load();
+      // до метаданных — позиция, с которой начнётся воспроизведение
+      if (position > 0) video.currentTime = position;
+      if (resume) void video.play().catch(() => {});
+      return true;
     }
 
     function startConversion() {
@@ -1300,16 +1327,24 @@
     }
 
     // Chromium, не умея декодировать дорожку видео, бывает, ошибки не даёт:
-    // играет один звук без картинки. Если картинки нет из-за HEVC — это та
-    // же ошибка.
+    // играет один звук без картинки (videoWidth 0) — это та же ошибка, видео
+    // сразу перекодируется (▶ уже нажат). Размер кадра декодер видеокарты
+    // может сообщить и позже метаданных, с первым кадром, поэтому судить
+    // можно только по видео, которое уже играет.
     async function checkPicture() {
-      if (video.videoWidth > 0 || hevcPlayable() || original) return;
+      if (checking || original || conversion || video.paused || video.videoWidth > 0) return;
+      if (video.currentTime < NO_PICTURE_S) return;
+      checking = true;
       const src = currentSrc();
-      const entries = await sampleEntries(src).catch(() => []);
-      if (currentSrc() !== src || video.videoWidth > 0 || !entries.some((entry) => HEVC.has(entry))) return;
       video.pause();
-      failure = "hevc";
-      await cannotPlay(src);
+      overlay.classList.add("ap-failed");
+      spinner.hidden = false;
+      // HEVC — для подсказки, если перекодировать не получится
+      const entries = await sampleEntries(src).catch(() => []);
+      checking = false;
+      if (currentSrc() !== src) return;
+      failure = entries.some((entry) => HEVC.has(entry)) ? "hevc" : "format";
+      await cannotPlay(src, true);
     }
 
     const listeners = [
@@ -1334,6 +1369,7 @@
         video,
         "error",
         () => {
+          if (reload()) return;
           // пока причина выясняется — без управления, со спиннером
           overlay.classList.add("ap-failed");
           spinner.hidden = false;
@@ -1348,7 +1384,7 @@
           });
         },
       ],
-      [video, "loadedmetadata", checkPicture],
+      [video, "timeupdate", checkPicture],
       [
         video,
         "click",
@@ -1413,7 +1449,6 @@
     player.applySpeed();
     sync();
     if (video.error) video.dispatchEvent(new Event("error"));
-    else if (video.readyState >= HTMLMediaElement.HAVE_METADATA) void checkPicture();
     return player;
   }
 
