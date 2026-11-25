@@ -79,7 +79,8 @@ cd "$build"
   exit 1
 }
 
-make -j"$(nproc)" ffmpeg
+# ffplay, ffprobe и документация выключены: собирается только ffmpeg(.exe)
+make -j"$(nproc)"
 exe=ffmpeg
 [[ -f ffmpeg.exe ]] && exe=ffmpeg.exe
 strip "$exe"
