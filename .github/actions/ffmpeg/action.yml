@@ -50,5 +50,8 @@ runs:
       shell: pwsh
       run: |
         $exe = Join-Path $env:GITHUB_WORKSPACE "ffmpeg-bin\ffmpeg.exe"
-        if (-not (Test-Path $exe)) { throw "нет $exe" }
+        if (-not (Test-Path $exe)) {
+          "::error title=ffmpeg::нет $exe"
+          exit 1
+        }
         "ARACHNID_FFMPEG=$exe" >> $env:GITHUB_ENV

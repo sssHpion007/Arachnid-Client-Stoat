@@ -15,7 +15,8 @@
 set -euo pipefail
 
 src=$(cd "$1" && pwd)
-out=$2
+# сборка идёт в другой папке: путь — от текущей
+out=$(realpath -m "$2")
 build=$(mktemp -d)
 
 join() {
