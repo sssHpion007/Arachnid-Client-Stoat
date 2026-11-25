@@ -1,0 +1,514 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Превью: плашка «сейчас играет»</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --md-sys-color-primary: #b9c3ff;
+        --md-sys-color-on-primary: #202c61;
+        --md-sys-color-primary-container: #384379;
+        --md-sys-color-on-primary-container: #dde1ff;
+        --md-sys-color-secondary-container: #424659;
+        --md-sys-color-on-secondary-container: #dfe1f9;
+        --md-sys-color-surface: #121318;
+        --md-sys-color-surface-container-lowest: #0d0e13;
+        --md-sys-color-surface-container-low: #1b1b21;
+        --md-sys-color-surface-container: #1f1f25;
+        --md-sys-color-surface-container-high: #292a2f;
+        --md-sys-color-surface-container-highest: #34343a;
+        --md-sys-color-on-surface: #e3e1e9;
+        --md-sys-color-on-surface-variant: #c6c5d0;
+        --md-sys-color-outline: #90909a;
+        --md-sys-color-outline-variant: #45464f;
+        --md-sys-color-inverse-surface: #e3e1e9;
+        --md-sys-color-inverse-on-surface: #303036;
+        --md-sys-color-error: #ffb4ab;
+        --gap-md: 8px;
+        --gap-lg: 16px;
+        --borderRadius-md: 8px;
+        --borderRadius-lg: 16px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        background: var(--md-sys-color-surface-container-high);
+        color: var(--md-sys-color-on-surface);
+        font: 15px/1.4 Inter, "Segoe UI", system-ui, sans-serif;
+      }
+
+      /* ── боковая панель ── */
+      .rail {
+        width: 64px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 0;
+      }
+
+      .rail i {
+        width: 42px;
+        height: 42px;
+        border-radius: 50%;
+        background: var(--md-sys-color-surface-container-highest);
+      }
+
+      .rail i:first-child {
+        border-radius: 14px;
+        background: var(--md-sys-color-primary-container);
+      }
+
+      .channels {
+        width: 232px;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 8px;
+        gap: 2px;
+        color: var(--md-sys-color-outline);
+      }
+
+      .channels h2 {
+        margin: 8px 8px 12px;
+        font-size: 16px;
+        color: var(--md-sys-color-on-surface);
+      }
+
+      .channels a {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 20px;
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .channels a:hover {
+        background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+      }
+
+      .channels a.active {
+        background: var(--md-sys-color-secondary-container);
+        color: var(--md-sys-color-on-secondary-container);
+      }
+
+      .channels a b {
+        font-weight: 400;
+        font-size: 20px;
+        width: 20px;
+        text-align: center;
+      }
+
+      .toggle {
+        margin-top: auto;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        padding: 12px;
+        font-size: 13px;
+        color: var(--md-sys-color-on-surface-variant);
+        cursor: pointer;
+      }
+
+      .note {
+        padding: 0 12px 8px;
+        font-size: 12px;
+        color: var(--md-sys-color-outline);
+      }
+
+      /* ── for-web: .app_body > страница > заголовок, содержимое ── */
+      .app_body {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        background: var(--md-sys-color-surface-container-low);
+        border-top-left-radius: var(--borderRadius-lg);
+        border-bottom-left-radius: var(--borderRadius-lg);
+        overflow: hidden;
+      }
+
+      .page {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+        height: 48px;
+        margin: var(--gap-md) var(--gap-md) var(--gap-md) 0;
+        padding: 0 12px;
+        font-weight: 600;
+        border-radius: var(--borderRadius-lg);
+      }
+
+      .header b {
+        font-weight: 400;
+        font-size: 22px;
+        color: var(--md-sys-color-outline);
+      }
+
+      .content {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .messages {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 8px 16px 16px 0;
+      }
+
+      .message {
+        display: flex;
+        gap: 12px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        transition: background 0.6s;
+      }
+
+      .message.highlight {
+        background: color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
+        transition: none;
+      }
+
+      .avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        flex-shrink: 0;
+        display: grid;
+        place-items: center;
+        font-weight: 600;
+        color: var(--md-sys-color-on-primary);
+      }
+
+      .body {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .author {
+        font-weight: 600;
+      }
+
+      .author small {
+        margin-left: 8px;
+        font-weight: 400;
+        font-size: 12px;
+        color: var(--md-sys-color-outline);
+      }
+
+      .sized {
+        display: grid;
+        height: auto;
+        max-width: 100%;
+        overflow: hidden;
+        border-radius: var(--borderRadius-md);
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr;
+      }
+
+      .sized > * {
+        grid-area: 1 / 1 / 2 / 2;
+        width: 100%;
+        height: 100%;
+        min-height: 0;
+        object-fit: contain;
+      }
+
+      .attachment {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gap-md);
+        align-self: start;
+        width: 420px;
+        max-width: 100%;
+        padding: var(--gap-md);
+        border-radius: var(--borderRadius-md);
+        overflow: hidden;
+        background: var(--md-sys-color-secondary-container);
+        color: var(--md-sys-color-on-secondary-container);
+      }
+
+      .attachment audio {
+        width: 100%;
+      }
+
+      .file-info {
+        display: flex;
+        align-items: center;
+        gap: var(--gap-md);
+      }
+
+      .file-info > svg {
+        width: 24px;
+        height: 24px;
+        fill: currentColor;
+      }
+
+      .file-info .name {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      .file-info .name span:last-child {
+        font-size: 12px;
+        opacity: 0.8;
+      }
+
+      .file-info > button:last-child {
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 50%;
+        background: none;
+        color: inherit;
+        display: grid;
+        place-items: center;
+      }
+
+      .file-info > button:last-child svg {
+        width: 22px;
+        height: 22px;
+        fill: currentColor;
+      }
+
+      .composer {
+        margin: 0 var(--gap-md) var(--gap-md) 0;
+        height: 48px;
+        border-radius: var(--borderRadius-lg);
+        background: var(--md-sys-color-surface-container-high);
+        display: flex;
+        align-items: center;
+        padding: 0 16px;
+        color: var(--md-sys-color-outline);
+        font-size: 14px;
+      }
+
+      .home {
+        flex: 1;
+        display: grid;
+        place-items: center;
+        color: var(--md-sys-color-outline);
+      }
+
+      .toast {
+        position: fixed;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        padding: 8px 14px;
+        border-radius: 8px;
+        background: var(--md-sys-color-inverse-surface);
+        color: var(--md-sys-color-inverse-on-surface);
+        font-size: 13px;
+        opacity: 0;
+        transition: opacity 0.2s;
+        pointer-events: none;
+      }
+
+      .toast.show {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <nav class="rail"><i></i><i></i><i></i><i></i></nav>
+    <nav class="channels">
+      <h2>Arachnid</h2>
+      <a href="/app"><b>⌂</b>Главная</a>
+      <div id="channel-links"></div>
+      <label class="toggle"><input type="checkbox" id="enabled" checked />Свой видео- и аудиоплеер</label>
+      <div class="note">
+        Плашку видно, пока играет аудио. Смените канал — звук не прервётся. Видео при смене канала уходит в «картинку в
+        картинке»; в окне превью Arena она может быть недоступна — откройте страницу в отдельной вкладке.
+      </div>
+    </nav>
+    <div class="app_body"></div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+      const SERVER = "01HZXSERVER000000000000000";
+      const ids = (n) => `01HZX${String(n).padStart(21, "0")}`;
+      const att = (file, name) => `/attachments/${file}/${encodeURIComponent(name)}`;
+      const CHANNELS = [
+        {
+          id: "01HZXMUSIC0000000000000000",
+          name: "музыка",
+          messages: [
+            { id: ids(1), author: "Лиса", text: "Вечерний плейлист 🌙" },
+            { id: ids(2), author: "Лиса", audio: att("night-city.mp3", "Ночной город.mp3"), size: "980 КБ" },
+            { id: ids(3), author: "Ёжик", text: "А у меня утреннее" },
+            { id: ids(4), author: "Ёжик", audio: att("morning.mp3", "Утро.mp3"), size: "320 КБ" },
+            { id: ids(5), author: "Лиса", audio: att("night-city.mp3", "Ночной город (ремикс).mp3"), size: "980 КБ" },
+            { id: ids(6), author: "Сова", text: "Включила на фоне, переключаюсь в #общий — играет дальше?" },
+          ],
+        },
+        {
+          id: "01HZXVIDEO0000000000000000",
+          name: "видео",
+          messages: [
+            { id: ids(11), author: "Сова", text: "Мультик 🐰" },
+            { id: ids(12), author: "Сова", video: att("big-buck-bunny.mp4", "Big Buck Bunny.mp4") },
+          ],
+        },
+        {
+          id: "01HZXGENERAL00000000000000",
+          name: "общий",
+          messages: Array.from({ length: 14 }, (_, i) => ({
+            id: ids(21 + i),
+            author: ["Лиса", "Ёжик", "Сова"][i % 3],
+            text: ["Привет!", "Как дела?", "Смотрите, что нашла", "Ага", "Завтра созвон в 19:00", "👍", "Кто-нибудь видел мою кружку?"][i % 7],
+          })),
+        },
+      ];
+      const COLORS = { Лиса: "#ffb68a", Ёжик: "#9fd49b", Сова: "#b9c3ff" };
+      const ICON_HEADPHONES =
+        '<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v7a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2H5v-1a7 7 0 0 1 14 0v1h-1a2 2 0 0 0-2 2v4a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-7a9 9 0 0 0-9-9z"/></svg>';
+      const ICON_DOWNLOAD = '<svg viewBox="0 0 24 24"><path d="M5 20h14v-2H5v2zm7-4 5.5-5.5-1.4-1.4L13 12.2V2h-2v10.2L7.9 9.1l-1.4 1.4L12 16z"/></svg>';
+
+      const toast = (message) => {
+        const element = document.getElementById("toast");
+        element.textContent = message;
+        element.classList.add("show");
+        clearTimeout(toast.timer);
+        toast.timer = setTimeout(() => element.classList.remove("show"), 1600);
+      };
+
+      // ── «роутер» for-web: ссылки приложения меняют адрес без перезагрузки ──
+      document.addEventListener("click", (event) => {
+        const link = event.target.closest?.("a[href]");
+        if (!link || event.defaultPrevented || event.button !== 0 || link.target || link.hasAttribute("download")) return;
+        const url = new URL(link.href, location.href);
+        if (url.origin !== location.origin) return;
+        event.preventDefault();
+        history.pushState(null, "", url.pathname);
+        render();
+      });
+      addEventListener("popstate", render);
+
+      document.getElementById("channel-links").innerHTML = CHANNELS.map(
+        (channel) => `<a href="/server/${SERVER}/channel/${channel.id}" data-channel="${channel.id}"><b>#</b>${channel.name}</a>`,
+      ).join("");
+
+      const body = document.querySelector(".app_body");
+      let page = null;
+
+      function message(item) {
+        const root = document.createElement("div");
+        root.className = "message";
+        root.id = item.id;
+        root.innerHTML = `<div class="avatar" style="background:${COLORS[item.author]}">${item.author[0]}</div><div class="body"><div class="author">${item.author}<small>сегодня в 18:${String(10 + (parseInt(item.id.slice(-2)) % 50)).padStart(2, "0")}</small></div></div>`;
+        const content = root.querySelector(".body");
+        if (item.text) content.append(Object.assign(document.createElement("div"), { textContent: item.text }));
+        let media = null;
+        if (item.video) {
+          const sized = document.createElement("div");
+          sized.className = "sized";
+          sized.style.cssText = "width:420px;aspect-ratio:16/9";
+          media = document.createElement("video");
+          media.controls = true;
+          media.playsInline = true;
+          media.preload = "metadata";
+          media.src = item.video;
+          sized.append(media);
+          content.append(sized);
+        }
+        if (item.audio) {
+          const card = document.createElement("div");
+          card.className = "attachment";
+          const name = decodeURIComponent(item.audio.split("/").pop());
+          card.innerHTML = `<div class="file-info">${ICON_HEADPHONES}<div class="name"><span>${name}</span><span>${item.size}</span></div><button type="button">${ICON_DOWNLOAD}</button></div>`;
+          media = document.createElement("audio");
+          media.controls = true;
+          media.src = item.audio;
+          card.append(media);
+          content.append(card);
+        }
+        // как use:floating for-web: меню сообщения по правому щелчку на элементе
+        media?.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          toast("Здесь откроется меню сообщения for-web");
+        });
+        return root;
+      }
+
+      // как for-web: при смене канала заголовок остаётся, сообщения — новые
+      function render() {
+        const match = /\/channel\/([0-9A-Z]{26})(?:\/([0-9A-Z]{26}))?/.exec(location.pathname);
+        const channel = match && CHANNELS.find((item) => item.id === match[1]);
+        for (const link of document.querySelectorAll("[data-channel]")) link.classList.toggle("active", link.dataset.channel === channel?.id);
+        if (!channel) {
+          page = null;
+          body.innerHTML = `<div class="page"><div class="header"><b>⌂</b>Главная</div><div class="home">Выберите канал слева</div></div>`;
+          return;
+        }
+        if (!page) {
+          body.innerHTML = `<div class="page"><div class="header"></div><div class="content"><div class="messages"></div><div class="composer">Сообщение…</div></div></div>`;
+          page = body.firstElementChild;
+        }
+        page.querySelector(".header").innerHTML = `<b>#</b>${channel.name}`;
+        const list = page.querySelector(".messages");
+        list.replaceChildren(...channel.messages.map(message));
+        const target = match[2] && document.getElementById(match[2]);
+        if (target) {
+          target.scrollIntoView({ block: "center" });
+          target.classList.add("highlight");
+          setTimeout(() => target.classList.remove("highlight"), 1200);
+        } else list.scrollTop = list.scrollHeight;
+      }
+
+      if (!/\/channel\//.test(location.pathname)) history.replaceState(null, "", `/server/${SERVER}/channel/${CHANNELS[0].id}`);
+      render();
+
+      // ── окружение клиента: словари, API плагина, сам скрипт плеера ──
+      (async () => {
+        const [ru, en] = await Promise.all(["ru", "en"].map((code) => fetch(`/client/locales/${code}.json`).then((r) => r.json())));
+        const messages = { ru, en };
+        const listeners = new Set();
+        window.__arachnidI18n = {
+          language: () => "ru",
+          intl: () => "ru",
+          text: (section) => new Proxy({}, { get: (_, key) => messages.ru[section]?.[key] ?? messages.en[section]?.[key] }),
+          onChange: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+        };
+        const subscribers = [];
+        const plugin = { settings: { media_player: true }, onSettingsChange: (listener) => subscribers.push(listener) };
+        document.getElementById("enabled").addEventListener("change", (event) => {
+          plugin.settings = { media_player: event.target.checked };
+          for (const listener of subscribers) listener(plugin.settings);
+        });
+        const code = await (await fetch("/client/player.js", { cache: "no-store" })).text();
+        new Function("plugin", code)(plugin);
+      })();
+    </script>
+  </body>
+</html>

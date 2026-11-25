@@ -71,6 +71,9 @@
     download:
       "M480-313 287-506l43-43 120 120v-371h60v371l120-120 43 43-193 193ZM220-160q-24 0-42-18t-18-42v-143h60v143h520v-143h60v143q0 24-18 42t-42 18H220Z",
     check: "M378-246 154-470l43-43 181 181 384-384 43 43-427 427Z",
+    skipPrevious: "M220-240v-480h60v480h-60Zm520 0L394-480l346-240v480Z",
+    skipNext: "M680-240v-480h60v480h-60Zm-460 0v-480l346 240-346 240Z",
+    close: "m249-207-42-42 231-231-231-231 42-42 231 231 231-231 42 42-231 231 231 231-42 42-231-231-231 231Z",
     error:
       "M503.5-289.48q9.5-9.48 9.5-23.5t-9.48-23.52q-9.48-9.5-23.5-9.5t-23.52 9.48q-9.5 9.48-9.5 23.5t9.48 23.52q9.48 9.5 23.5 9.5t23.52-9.48ZM453-433h60v-253h-60v253Zm27.27 353q-82.74 0-155.5-31.5Q252-143 197.5-197.5t-86-127.34Q80-397.68 80-480.5t31.5-155.66Q143-709 197.5-763t127.34-85.5Q397.68-880 480.5-880t155.66 31.5Q709-817 763-763t85.5 127Q880-563 880-480.27q0 82.74-31.5 155.5Q817-252 763-197.68q-54 54.31-127 86Q563-80 480.27-80Zm.23-60Q622-140 721-239.5t99-241Q820-622 721.19-721T480-820q-141 0-240.5 98.81T140-480q0 141 99.5 240.5t241 99.5Zm-.5-340Z",
   };
@@ -496,15 +499,18 @@
   const speedLabel = (value) => (value === 1 ? text.normal : speedValue(value));
 
   /** Скачать файл, как кнопка FileInfo for-web */
+  /** Имя файла из адреса autumn: /attachments/<id>/<имя> */
+  function fileName(url) {
+    try {
+      return decodeURIComponent(new URL(url, location.href).pathname.split("/").pop()) || "file";
+    } catch {
+      return "file";
+    }
+  }
+
   function download(url) {
     if (!url) return;
-    let name = "file";
-    try {
-      name = decodeURIComponent(new URL(url, location.href).pathname.split("/").pop()) || name;
-    } catch {
-      // имя — не главное
-    }
-    const link = h("a", { href: url, download: name, target: "_blank" });
+    const link = h("a", { href: url, download: fileName(url), target: "_blank" });
     document.body.append(link);
     link.click();
     link.remove();
@@ -657,6 +663,7 @@
   function setSpeed(value) {
     speed = value;
     for (const player of players) player.applySpeed();
+    bar?.applySpeed();
   }
 
   /**
@@ -783,7 +790,7 @@
 
   // ───────────────────────────────── видео ─────────────────────────────────
 
-  function enhanceVideo(video) {
+  function enhanceVideo(video, menuTarget = video) {
     const host = video.parentElement;
     const before = { controls: video.controls, rate: video.playbackRate, tabindex: host.getAttribute("tabindex") };
     video.controls = false;
@@ -980,7 +987,7 @@
             : void video.requestPictureInPicture().catch(() => {}),
       ],
       [corner, "click", () => download(video.currentSrc || video.src)],
-      [overlay, "contextmenu", forwardContextMenu(video)],
+      [overlay, "contextmenu", forwardContextMenu(menuTarget)],
     ];
     for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
 
@@ -1004,7 +1011,8 @@
         if (before.tabindex === null) host.removeAttribute("tabindex");
         else host.setAttribute("tabindex", before.tabindex);
         video.controls = before.controls;
-        video.playbackRate = before.rate;
+        // играет вне чата — скорость остаётся
+        if (!keep.contains(video)) video.playbackRate = before.rate;
         players.delete(player);
       },
     };
@@ -1020,7 +1028,7 @@
   /** Три полоски «играет» поверх обложки */
   const equalizer = () => h("span", { class: "ap-eq", "aria-hidden": "true" }, h("i"), h("i"), h("i"));
 
-  function enhanceAudio(audio) {
+  function enhanceAudio(audio, menuTarget = audio) {
     const card = audio.parentElement;
     const info = audio.previousElementSibling;
     // значок наушников FileInfo — первый ребёнок, svg solid-icons
@@ -1100,7 +1108,7 @@
       frame = audio.paused ? 0 : requestAnimationFrame(tick);
     }
 
-    const contextMenu = forwardContextMenu(audio);
+    const contextMenu = forwardContextMenu(menuTarget);
     const listeners = [
       [
         audio,
@@ -1169,7 +1177,7 @@
         headphones?.classList.remove("ap-replaced");
         card.classList.remove("ap-audio-card", "ap-playing", "ap-failed", "ap-loading");
         audio.controls = before.controls;
-        audio.playbackRate = before.rate;
+        if (!keep.contains(audio)) audio.playbackRate = before.rate;
         players.delete(player);
       },
     };
@@ -1178,6 +1186,342 @@
     sync();
     if (audio.error) audio.dispatchEvent(new Event("error"));
     return player;
+  }
+
+  // ─────────────────────── плашка «сейчас играет» ───────────────────────
+  // Как в Telegram: пока играет аудио (или видео ушло в «картинку в
+  // картинке»), под заголовком страницы — плашка: ⏮ ▶ ⏭, обложка, имя файла
+  // (щелчок — к сообщению), время, скорость, громкость, ✕. Играет всегда один
+  // файл: новый ставит прошлый на паузу.
+  //
+  // Сменили канал — for-web убирает сообщения вместе с <audio>/<video>, а
+  // убранный элемент браузер ставит на паузу. Плеер в том же такте переносит
+  // играющий элемент в скрытый контейнер, и он играет дальше; видео при этом
+  // уходит в «картинку в картинке» (щелчок по каналу — жест пользователя,
+  // браузер это разрешает). Вернулись в канал — тот же элемент встаёт на
+  // место нового элемента for-web: без перезагрузки и с того же места.
+  //
+  // ⏮ ⏭ — соседние аудио того же канала: список берётся со страницы, а после
+  // ухода из канала — каким он был при запуске.
+
+  /** Сообщение for-web — div с id-ULID; путь канала — как в адресе for-web */
+  const MESSAGE_ID = /^[0-9A-Z]{26}$/;
+  const CHANNEL_PATH = /^(?:\/i\/[\w:.]+)?(?:\/server\/[0-9A-Z]{26})?\/channel\/[0-9A-Z]{26}/;
+
+  /** Элементы, которые играют вне чата */
+  const keep = h("div", { class: "ap-keep", "aria-hidden": "true" });
+  /** Что играет: элемент, его файл и соседи по каналу; closed — плашку закрыли */
+  const now = { media: null, playlist: [], closed: true };
+  /** Элемент → файл: адрес, имя, сообщение и путь к нему */
+  const tracks = new WeakMap();
+
+  function trackOf(media) {
+    let track = tracks.get(media);
+    if (track) return track;
+    const src = media.currentSrc || media.src;
+    let message = null;
+    for (let node = media.parentElement; node && !message; node = node.parentElement) {
+      if (MESSAGE_ID.test(node.id)) message = node.id;
+    }
+    const channel = CHANNEL_PATH.exec(location.pathname)?.[0] ?? null;
+    track = {
+      src,
+      name: fileName(src),
+      video: media instanceof HTMLVideoElement,
+      message,
+      link: channel && message ? `${channel}/${message}` : null,
+    };
+    if (message) tracks.set(media, track);
+    return track;
+  }
+
+  const sameTrack = (a, b) => Boolean(a && b && a.src === b.src && a.message === b.message);
+
+  /** Аудио в чате по порядку сообщений */
+  function chatAudio() {
+    return [...attached.keys()]
+      .filter((media) => media instanceof HTMLAudioElement && media.isConnected && !keep.contains(media))
+      .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  }
+
+  /** Какой-то из наших элементов начал играть */
+  function onPlay(event) {
+    const media = event.target;
+    if (!(media instanceof HTMLMediaElement) || !(attached.has(media) || keep.contains(media))) return;
+    if (now.media !== media) {
+      const previous = now.media;
+      now.media = media;
+      if (previous) {
+        previous.pause();
+        if (keep.contains(previous)) release(previous);
+      }
+      const track = trackOf(media);
+      if (!keep.contains(media)) now.playlist = track.video ? [] : chatAudio().map(trackOf);
+    }
+    now.closed = false;
+    bar?.bind(now.media);
+    placeBar();
+  }
+
+  /** Отпустить элемент вне чата: он больше не нужен */
+  function release(media) {
+    if (document.pictureInPictureElement === media) void document.exitPictureInPicture().catch(() => {});
+    media.pause();
+    media.remove();
+  }
+
+  /** for-web убрал играющий элемент — он остаётся играть вне чата; видео на
+   *  паузе не держится, аудио на паузе — да, как в Telegram */
+  function adopt() {
+    const media = now.media;
+    if (media instanceof HTMLVideoElement && media.paused) {
+      now.media = null;
+      now.closed = true;
+      bar?.unbind();
+      return;
+    }
+    keep.append(media);
+    if (media instanceof HTMLVideoElement) pictureInPicture(media);
+    bar?.bind(media);
+  }
+
+  function pictureInPicture(video) {
+    if (document.pictureInPictureEnabled && document.pictureInPictureElement !== video) {
+      void video.requestPictureInPicture().catch(() => {});
+    }
+  }
+
+  /** Новый элемент for-web того же файла, что играет вне чата, — вернуть на
+   *  его место играющий; иначе null */
+  function heldFor(media) {
+    const held = now.media;
+    if (!held || !keep.contains(held) || held.constructor !== media.constructor) return null;
+    if (!sameTrack(trackOf(held), trackOf(media))) return null;
+    media.replaceWith(held);
+    if (document.pictureInPictureElement === held) void document.exitPictureInPicture().catch(() => {});
+    return held;
+  }
+
+  /** Соседний файл по каналу: шаг -1 или 1 */
+  function neighbour(step) {
+    const current = now.media && trackOf(now.media);
+    if (!current || current.video) return null;
+    const fresh = chatAudio().map(trackOf);
+    if (fresh.some((track) => sameTrack(track, current))) now.playlist = fresh;
+    const index = now.playlist.findIndex((track) => sameTrack(track, current));
+    return index < 0 ? null : (now.playlist[index + step] ?? null);
+  }
+
+  function playTrack(track) {
+    if (!track) return;
+    const inChat = chatAudio().find((media) => sameTrack(trackOf(media), track));
+    if (inChat) {
+      inChat.currentTime = 0;
+      void inChat.play().catch(() => {});
+      return;
+    }
+    // файла уже нет на странице — играет свой элемент вне чата
+    const audio = document.createElement("audio");
+    audio.preload = "auto";
+    audio.src = track.src;
+    tracks.set(audio, track);
+    audio.volume = now.media?.volume ?? 1;
+    audio.muted = now.media?.muted ?? false;
+    audio.defaultPlaybackRate = audio.playbackRate = speed;
+    keep.append(audio);
+    void audio.play().catch(() => {});
+  }
+
+  function closeBar() {
+    const media = now.media;
+    now.closed = true;
+    now.media = null;
+    if (media) {
+      media.pause();
+      if (keep.contains(media)) release(media);
+    }
+    bar?.unbind();
+    placeBar();
+  }
+
+  /** Плашка видна, пока играет аудио или видео вне чата; место — сразу под
+   *  заголовком страницы for-web (первый ребёнок страницы в .app_body) */
+  function placeBar() {
+    if (!bar) return;
+    const media = now.media;
+    const visible = active && media && !now.closed && (media instanceof HTMLAudioElement || keep.contains(media));
+    const header = visible ? document.querySelector(".app_body > *")?.firstElementChild : null;
+    if (!header || header === bar.root) {
+      bar.root.remove();
+      return;
+    }
+    if (header.nextElementSibling !== bar.root) header.after(bar.root);
+  }
+
+  /** Плашка: есть, пока настройка включена */
+  let bar = null;
+
+  function createBar() {
+    const previous = button("skipPrevious", "ap-first");
+    const play = button("play");
+    const next = button("skipNext");
+    const art = h("button", { type: "button", class: "ap-now-art" });
+    const title = h("a", { class: "ap-now-title" });
+    const clock = h("span", { class: "ap-time" });
+    const speedButton = h("button", { type: "button", class: "ap-button ap-speed-button" });
+    const volumeSlot = h("span", { class: "ap-now-volume" });
+    const close = button("close", "ap-edge");
+    const seekSlot = h("div", { class: "ap-now-seek" });
+    const root = h(
+      "div",
+      { class: "ap-now", role: "region" },
+      previous,
+      play,
+      next,
+      art,
+      h("div", { class: "ap-now-text" }, title, clock),
+      h("span", { class: "ap-spacer" }),
+      speedButton,
+      volumeSlot,
+      close,
+      seekSlot,
+    );
+    const menu = speedMenu(speedButton, root, { onOpen: () => {}, floating: true });
+    /** Привязка к играющему элементу: его громкость, перемотка, события */
+    let bound = null;
+
+    function paintTime() {
+      const media = bound?.media;
+      if (!media) return;
+      const total = Number.isFinite(media.duration) ? time(media.duration) : UNKNOWN_TIME;
+      clock.textContent = `${time(media.currentTime)} / ${total}`;
+      bound.seek.paint();
+    }
+    function tick() {
+      paintTime();
+      bound.frame = bound.media.paused ? 0 : requestAnimationFrame(tick);
+    }
+
+    function sync() {
+      const media = bound?.media;
+      if (!media) return;
+      const track = trackOf(media);
+      const paused = media.paused || media.ended;
+      root.setAttribute("aria-label", text.nowPlaying);
+      play.setIcon(paused ? "play" : "pause");
+      play.setTip(paused ? (track.video ? text.play : text.listen) : text.pause);
+      previous.hidden = next.hidden = track.video;
+      previous.disabled = !neighbour(-1);
+      next.disabled = !neighbour(1);
+      previous.setTip(text.previous);
+      next.setTip(text.next);
+      close.setTip(text.close);
+      speedButton.dataset.tip = text.speed;
+      speedButton.setAttribute("aria-label", text.speed);
+      title.textContent = track.name;
+      if (track.link) title.setAttribute("href", track.link);
+      else title.removeAttribute("href");
+      title.title = track.link ? text.goToMessage : "";
+      art.dataset.tip = track.video ? text.pip : "";
+      art.setAttribute("aria-label", track.video ? text.pip : track.name);
+      art.tabIndex = track.video ? 0 : -1;
+      root.classList.toggle("ap-now-video", track.video);
+      bound.volume.sync();
+      paintTime();
+    }
+
+    function bind(media) {
+      if (bound?.media === media) return sync();
+      unbind();
+      const volumeControl = volume(media);
+      const seek = progress(media, () => {});
+      volumeSlot.replaceChildren(volumeControl.root);
+      seekSlot.replaceChildren(seek.root);
+      const track = trackOf(media);
+      art.replaceChildren();
+      art.classList.remove("ap-has-cover");
+      if (track.video) setIcon(art, "pip");
+      else {
+        delete art.dataset.icon;
+        Covers.cover(track.src).then((url) => {
+          if (!url || bound?.media !== media) return;
+          art.replaceChildren(h("img", { src: url, alt: "", draggable: "false" }));
+          art.classList.add("ap-has-cover");
+        });
+      }
+      const onState = () => {
+        sync();
+        if (!media.paused) bound.frame ||= requestAnimationFrame(tick);
+      };
+      // закрыли «картинку в картинке» кнопкой «Назад во вкладку» — к сообщению
+      const onLeave = () => {
+        if (keep.contains(media) && !media.paused && track.link) openMessage(track.link);
+      };
+      const listeners = [
+        [media, "play", onState],
+        [media, "pause", onState],
+        [media, "ended", onState],
+        [media, "loadedmetadata", onState],
+        [media, "durationchange", onState],
+        [media, "seeked", onState],
+        [media, "progress", () => seek.paint()],
+        [media, "leavepictureinpicture", onLeave],
+      ];
+      for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
+      bound = { media, volume: volumeControl, seek, listeners, frame: 0 };
+      onState();
+      applySpeed();
+    }
+
+    function unbind() {
+      if (!bound) return;
+      for (const [target, type, handler] of bound.listeners) target.removeEventListener(type, handler);
+      bound.volume.dispose();
+      cancelAnimationFrame(bound.frame);
+      menu.close();
+      bound = null;
+    }
+
+    function applySpeed() {
+      speedButton.textContent = speedValue(speed);
+      // у элементов вне чата нет своего плеера — скорость ставит плашка
+      if (bound && keep.contains(bound.media)) bound.media.playbackRate = speed;
+    }
+
+    play.addEventListener("click", () => {
+      const media = bound?.media;
+      if (!media) return;
+      togglePlayback(media);
+      if (media instanceof HTMLVideoElement && keep.contains(media) && media.paused === false) pictureInPicture(media);
+    });
+    previous.addEventListener("click", () => playTrack(neighbour(-1)));
+    next.addEventListener("click", () => playTrack(neighbour(1)));
+    close.addEventListener("click", closeBar);
+    art.addEventListener("click", () => {
+      const media = bound?.media;
+      if (media instanceof HTMLVideoElement && keep.contains(media)) pictureInPicture(media);
+    });
+    // щелчок по ссылке перехватывает роутер for-web, как у любой ссылки
+    // приложения; адрес — канал и сообщение
+    title.addEventListener("click", (event) => {
+      if (!title.hasAttribute("href")) event.preventDefault();
+    });
+
+    function destroy() {
+      unbind();
+      menu.remove();
+      root.remove();
+    }
+
+    return { root, bind, unbind, sync, applySpeed, destroy };
+  }
+
+  /** Перейти к сообщению: обычная ссылка приложения, её ведёт роутер for-web */
+  function openMessage(link) {
+    const anchor = h("a", { href: link, hidden: true });
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
   }
 
   // ─────────────────────────────── стили ───────────────────────────────
@@ -1977,6 +2321,195 @@
     .ap-audio-card .ap-audio {
       margin-left: 2px;
     }
+
+    /* ─────────────────────── плашка «сейчас играет» ─────────────────────── */
+
+    .ap-keep {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    /* под заголовком страницы, с его отступами */
+    .ap-now {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+      height: 48px;
+      margin: 0 var(--gap-md, 8px) var(--gap-md, 8px) 0;
+      padding: 0 6px;
+      border-radius: var(--borderRadius-lg, 16px);
+      background: var(--md-sys-color-surface-container-high);
+      color: var(--md-sys-color-on-surface);
+      font-size: 14px;
+      font-weight: 400;
+      user-select: none;
+      animation: ap-now-in 0.18s ease-out;
+    }
+
+    @keyframes ap-now-in {
+      from {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+    }
+
+    .ap-now .ap-button[hidden] {
+      display: none;
+    }
+
+    .ap-now .ap-button:disabled {
+      opacity: 0.38;
+      cursor: default;
+      background: none;
+    }
+
+    .ap-now .ap-button:disabled::after {
+      display: none;
+    }
+
+    .ap-now-art {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      margin: 0 6px 0 4px;
+      padding: 0;
+      border: 0;
+      border-radius: 6px;
+      overflow: hidden;
+      flex-shrink: 0;
+      background: color-mix(in srgb, currentColor 12%, transparent);
+      color: inherit;
+    }
+
+    .ap-now-art:not(.ap-has-cover, [data-icon]) {
+      display: none;
+    }
+
+    .ap-now-art img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      animation: ap-fade 0.2s;
+    }
+
+    .ap-now-art svg {
+      width: 20px;
+      height: 20px;
+      fill: currentColor;
+    }
+
+    .ap-now-video .ap-now-art {
+      cursor: pointer;
+    }
+
+    .ap-now-video .ap-now-art:hover {
+      background: color-mix(in srgb, currentColor 20%, transparent);
+    }
+
+    .ap-now-art[data-tip]:not([data-tip=""]):hover::after {
+      content: attr(data-tip);
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: var(--md-sys-color-inverse-surface);
+      color: var(--md-sys-color-inverse-on-surface);
+      font: 500 12px/16px inherit;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .ap-now-art:focus-visible {
+      outline: 2px solid var(--md-sys-color-primary);
+      outline-offset: -2px;
+    }
+
+    .ap-now-text {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+      margin-left: 4px;
+    }
+
+    .ap-now-title {
+      overflow: hidden;
+      color: inherit;
+      font-weight: 600;
+      text-decoration: none;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .ap-now-title[href]:hover {
+      text-decoration: underline;
+    }
+
+    .ap-now .ap-time {
+      color: var(--md-sys-color-on-surface-variant);
+    }
+
+    .ap-now-volume .ap-volume:hover .ap-volume-slider,
+    .ap-now-volume .ap-volume:focus-within .ap-volume-slider {
+      width: 72px;
+    }
+
+    /* подсказки плашки — под кнопками: над ней заголовок страницы */
+    .ap-now .ap-button[data-tip]:hover::after {
+      bottom: auto;
+      top: calc(100% + 6px);
+    }
+
+    /* перемотка — тонкая полоса по нижнему краю */
+    .ap-now-seek {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 0;
+    }
+
+    .ap-now .ap-progress {
+      height: 10px;
+      align-items: flex-end;
+      padding-bottom: 2px;
+    }
+
+    .ap-now .ap-rail {
+      height: 2px;
+    }
+
+    .ap-now .ap-progress:hover .ap-rail,
+    .ap-now .ap-dragging .ap-rail {
+      height: 4px;
+    }
+
+    .ap-now .ap-thumb {
+      top: calc(100% - 4px);
+      width: 12px;
+      height: 12px;
+    }
+
+    .ap-now .ap-progress:hover .ap-thumb,
+    .ap-now .ap-dragging .ap-thumb {
+      transform: translate(-50%, -50%) scale(1);
+    }
+
+    .ap-now .ap-seek-tip {
+      bottom: auto;
+      top: calc(100% + 4px);
+    }
   `;
 
   // ─────────────────────────── элементы for-web ───────────────────────────
@@ -2000,14 +2533,18 @@
   function attach(media) {
     if (attached.has(media) || !fits(media)) return;
     try {
-      attached.set(media, media instanceof HTMLVideoElement ? enhanceVideo(media) : enhanceAudio(media));
+      // этот файл играет вне чата — на место элемента for-web встаёт играющий
+      const element = heldFor(media) ?? media;
+      const enhance = element instanceof HTMLVideoElement ? enhanceVideo : enhanceAudio;
+      attached.set(element, enhance(element, media));
+      if (element !== media) placeBar();
     } catch (error) {
       console.error("[Arachnid] плеер", error);
     }
   }
 
   function scan(root) {
-    if (!(root instanceof Element)) return;
+    if (!(root instanceof Element) || keep.contains(root)) return;
     if (root.matches(MEDIA)) attach(root);
     for (const media of root.querySelectorAll(MEDIA)) attach(media);
   }
@@ -2015,7 +2552,7 @@
   /** Плееры элементов, которые for-web убрал со страницы */
   function sweep() {
     for (const [media, player] of attached) {
-      if (media.isConnected) continue;
+      if (media.isConnected && !keep.contains(media)) continue;
       player.destroy();
       attached.delete(media);
     }
@@ -2027,7 +2564,10 @@
       for (const node of record.addedNodes) scan(node);
       if (record.removedNodes.length) removed = true;
     }
+    // играющий элемент for-web убрал (сменили канал) — играет дальше вне чата
+    if (removed && now.media && !now.media.isConnected && !now.closed) adopt();
     if (removed && attached.size) sweep();
+    placeBar();
   }
 
   function start() {
@@ -2037,6 +2577,9 @@
       style.textContent = STYLE;
       document.head.append(style);
     }
+    document.body.append(keep);
+    bar = createBar();
+    document.addEventListener("play", onPlay, true);
     observer = new MutationObserver(onMutations);
     observer.observe(document.body, { childList: true, subtree: true });
     scan(document.body);
@@ -2045,6 +2588,11 @@
   function stop() {
     observer?.disconnect();
     observer = null;
+    closeBar();
+    bar?.destroy();
+    bar = null;
+    document.removeEventListener("play", onPlay, true);
+    keep.remove();
     for (const player of attached.values()) player.destroy();
     attached.clear();
     document.getElementById(STYLE_ID)?.remove();
@@ -2064,6 +2612,8 @@
       player.sync();
       player.applySpeed();
     }
+    bar?.sync();
+    bar?.applySpeed();
   });
 
   function boot() {

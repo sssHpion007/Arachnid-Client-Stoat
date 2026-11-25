@@ -244,6 +244,11 @@
     "download": "Herunterladen",
     "videoError": "Video kann nicht abgespielt werden",
     "audioError": "Audio kann nicht abgespielt werden",
-    "errorHint": "Dieses Format wird nicht unterstützt – die Datei kann heruntergeladen werden."
+    "errorHint": "Dieses Format wird nicht unterstützt – die Datei kann heruntergeladen werden.",
+    "nowPlaying": "Wird gerade abgespielt",
+    "previous": "Zurück",
+    "next": "Weiter",
+    "close": "Schließen",
+    "goToMessage": "Zur Nachricht springen"
   }
 }

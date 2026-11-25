@@ -244,6 +244,11 @@
     "download": "Pellgargañ",
     "videoError": "N’haller ket lenn ar video-mañ",
     "audioError": "N’haller ket lenn ar restr son-mañ",
-    "errorHint": "N’eo ket skoret ar mentrezh-mañ, met gallout a rit pellgargañ ar restr."
+    "errorHint": "N’eo ket skoret ar mentrezh-mañ, met gallout a rit pellgargañ ar restr.",
+    "nowPlaying": "O vezañ lennet",
+    "previous": "Kent",
+    "next": "War-lerc’h",
+    "close": "Serriñ",
+    "goToMessage": "Mont d’ar gemennadenn"
   }
 }

@@ -244,6 +244,11 @@
     "download": "Télécharger",
     "videoError": "Impossible de lire cette vidéo",
     "audioError": "Impossible de lire cet audio",
-    "errorHint": "Ce format n’est pas pris en charge, mais le fichier peut être téléchargé."
+    "errorHint": "Ce format n’est pas pris en charge, mais le fichier peut être téléchargé.",
+    "nowPlaying": "En cours de lecture",
+    "previous": "Précédent",
+    "next": "Suivant",
+    "close": "Fermer",
+    "goToMessage": "Aller au message"
   }
 }

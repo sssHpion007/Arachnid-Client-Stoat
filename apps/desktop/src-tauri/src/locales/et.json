@@ -244,6 +244,11 @@
     "download": "Laadi alla",
     "videoError": "Seda videot ei saa esitada",
     "audioError": "Seda heli ei saa esitada",
-    "errorHint": "Seda vormingut ei toetata, kuid faili saab alla laadida."
+    "errorHint": "Seda vormingut ei toetata, kuid faili saab alla laadida.",
+    "nowPlaying": "Praegu mängib",
+    "previous": "Eelmine",
+    "next": "Järgmine",
+    "close": "Sulge",
+    "goToMessage": "Mine sõnumi juurde"
   }
 }

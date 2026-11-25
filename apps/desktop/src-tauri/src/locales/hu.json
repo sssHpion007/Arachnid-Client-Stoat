@@ -244,6 +244,11 @@
     "download": "Letöltés",
     "videoError": "A videó nem játszható le",
     "audioError": "A hang nem játszható le",
-    "errorHint": "Ez a formátum nem támogatott, de a fájl letölthető."
+    "errorHint": "Ez a formátum nem támogatott, de a fájl letölthető.",
+    "nowPlaying": "Most szól",
+    "previous": "Előző",
+    "next": "Következő",
+    "close": "Bezárás",
+    "goToMessage": "Ugrás az üzenethez"
   }
 }

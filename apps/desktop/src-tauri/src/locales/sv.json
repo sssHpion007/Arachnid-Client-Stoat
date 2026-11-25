@@ -244,6 +244,11 @@
     "download": "Ladda ned",
     "videoError": "Videon kan inte spelas upp",
     "audioError": "Ljudet kan inte spelas upp",
-    "errorHint": "Formatet stöds inte, men filen kan laddas ned."
+    "errorHint": "Formatet stöds inte, men filen kan laddas ned.",
+    "nowPlaying": "Spelas nu",
+    "previous": "Föregående",
+    "next": "Nästa",
+    "close": "Stäng",
+    "goToMessage": "Gå till meddelandet"
   }
 }

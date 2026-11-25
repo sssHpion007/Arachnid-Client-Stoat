@@ -244,6 +244,11 @@
     "download": "Download",
     "videoError": "Can't play this video",
     "audioError": "Can't play this audio",
-    "errorHint": "This format isn't supported, but you can download the file."
+    "errorHint": "This format isn't supported, but you can download the file.",
+    "nowPlaying": "Now playing",
+    "previous": "Previous",
+    "next": "Next",
+    "close": "Close",
+    "goToMessage": "Go to message"
   }
 }

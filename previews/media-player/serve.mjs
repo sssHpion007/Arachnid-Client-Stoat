@@ -6,6 +6,8 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
+// скрипт и словари клиента — для страницы с плашкой (now-playing.html)
+const client = fileURLToPath(new URL("../../apps/desktop/src-tauri/src/", import.meta.url));
 const port = Number(process.argv[2] ?? 8090);
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -14,14 +16,26 @@ const types = {
   ".css": "text/css; charset=utf-8",
   ".mp3": "audio/mpeg",
   ".mp4": "video/mp4",
+  ".json": "application/json; charset=utf-8",
 };
+
+/** Путь запроса → файл: /client/… — из клиента, /attachments/<файл>/<имя> —
+ *  файл превью под другим именем (как адреса autumn), адреса каналов —
+ *  страница с плашкой */
+function resolve(path) {
+  if (/^client[/\\]/.test(path)) return join(client, path.slice("client/".length));
+  const attachment = /^attachments[/\\]([^/\\]+)[/\\]/.exec(path);
+  if (attachment) return join(root, attachment[1]);
+  if (/^(server|channel)[/\\]/.test(path)) return join(root, "now-playing.html");
+  return join(root, path || "index.html");
+}
 
 createServer((request, response) => {
   const path = normalize(decodeURIComponent(new URL(request.url, "http://x").pathname)).replace(/^([/\\])+/, "");
-  const file = join(root, path || "index.html");
+  const file = resolve(path);
   let size;
   try {
-    if (!file.startsWith(root)) throw new Error();
+    if (!file.startsWith(root) && !file.startsWith(client)) throw new Error();
     size = statSync(file).size;
   } catch {
     response.writeHead(404).end();

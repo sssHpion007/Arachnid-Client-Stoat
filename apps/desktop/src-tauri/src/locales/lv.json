@@ -244,6 +244,11 @@
     "download": "Lejupielādēt",
     "videoError": "Šo video nevar atskaņot",
     "audioError": "Šo audio nevar atskaņot",
-    "errorHint": "Šis formāts netiek atbalstīts, bet failu var lejupielādēt."
+    "errorHint": "Šis formāts netiek atbalstīts, bet failu var lejupielādēt.",
+    "nowPlaying": "Pašlaik skan",
+    "previous": "Iepriekšējais",
+    "next": "Nākamais",
+    "close": "Aizvērt",
+    "goToMessage": "Pāriet uz ziņu"
   }
 }
