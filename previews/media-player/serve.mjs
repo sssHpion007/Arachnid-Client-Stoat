@@ -1,5 +1,6 @@
 // Статический сервер превью с частичными ответами (Range), как у autumn.
 // Запуск: node serve.mjs [порт] — затем открыть http://localhost:8090/
+// (плашка «сейчас играет»; прежнее превью плеера — /index.html)
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, normalize } from "node:path";
@@ -27,7 +28,7 @@ function resolve(path) {
   const attachment = /^attachments[/\\]([^/\\]+)[/\\]/.exec(path);
   if (attachment) return join(root, attachment[1]);
   if (/^(server|channel)[/\\]/.test(path)) return join(root, "now-playing.html");
-  return join(root, path || "index.html");
+  return join(root, path || "now-playing.html");
 }
 
 createServer((request, response) => {
