@@ -566,6 +566,8 @@
   const IMAGE_SHOWN = "data-arachnid-shown";
   /** Анимация, по началу которой видно, что картинка попала в документ */
   const IMAGE_APPEARED = "arachnid-image-appeared";
+  /** Повторы загрузки картинки после ошибки, мс; потом — значок битой картинки */
+  const IMAGE_RETRIES_MS = [1000, 2000, 5000, 10000, 30000];
 
   /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
   const INTERFACE_STYLE = `
@@ -1675,21 +1677,69 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   // выдаёт начало пустой анимации, которая у неё есть, пока она не показана:
   // анимация начинается, когда картинка попала в документ, — если она к
   // этому времени уже загружена, она показывается сразу.
+  //
+  // Не загрузилась (оборвался ответ, сбой сети) — for-web так и оставил бы
+  // её битой, пока сообщение не пересоздастся. Она незаметно загружается
+  // заново, через IMAGE_RETRIES_MS, а когда сеть возвращается — сразу и снова
+  // с первого повтора; пока она грузится, её не видно, как и в первый раз.
+
+  /** Картинка → сколько раз она уже загружалась заново */
+  const imageRetries = new WeakMap();
+  /** Повтор назначен: картинка → таймер */
+  const imageTimers = new Map();
+
+  /** Загрузилась ли картинка с ошибкой (complete без размеров) */
+  const broken = (img) => img.complete && img.naturalWidth === 0 && Boolean(img.getAttribute("src"));
 
   function onSizedImage(event) {
     const img = event.target;
     if (!(img instanceof HTMLImageElement) || !img.matches(SIZED_IMAGE)) return;
     if (event.type === "animationstart" && (event.animationName !== IMAGE_APPEARED || !img.complete)) return;
+    if ((event.type === "error" || broken(img)) && retryImage(img)) return;
     img.setAttribute(IMAGE_SHOWN, "");
+  }
+
+  /** Загрузить картинку заново после паузы; false — повторы кончились */
+  function retryImage(img) {
+    if (imageTimers.has(img)) return true;
+    const attempt = imageRetries.get(img) ?? 0;
+    if (attempt >= IMAGE_RETRIES_MS.length) return false;
+    imageRetries.set(img, attempt + 1);
+    const timer = setTimeout(() => {
+      imageTimers.delete(img);
+      reloadImage(img);
+    }, IMAGE_RETRIES_MS[attempt]);
+    imageTimers.set(img, timer);
+    img.removeAttribute(IMAGE_SHOWN);
+    return true;
+  }
+
+  // Тот же адрес заново: картинку с ошибкой браузер в памяти не держит
+  function reloadImage(img) {
+    const src = img.getAttribute("src");
+    if (!img.isConnected || !src) return;
+    img.removeAttribute("src");
+    img.setAttribute("src", src);
+  }
+
+  // сеть вернулась — битые картинки сразу и снова со всеми повторами
+  function onOnline() {
+    for (const img of document.querySelectorAll(SIZED_IMAGE)) {
+      if (!broken(img)) continue;
+      imageRetries.delete(img);
+      img.removeAttribute(IMAGE_SHOWN);
+      reloadImage(img);
+    }
   }
 
   function watchImages() {
     document.addEventListener("load", onSizedImage, true);
     document.addEventListener("error", onSizedImage, true);
     document.addEventListener("animationstart", onSizedImage, true);
+    window.addEventListener("online", onOnline);
     // уже загруженные до запуска плагина или до включения настройки
     for (const img of document.querySelectorAll(`${SIZED_IMAGE}:not([${IMAGE_SHOWN}])`)) {
-      if (img.complete) img.setAttribute(IMAGE_SHOWN, "");
+      if (img.complete && !(broken(img) && retryImage(img))) img.setAttribute(IMAGE_SHOWN, "");
     }
   }
 
@@ -1697,6 +1747,9 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
     document.removeEventListener("load", onSizedImage, true);
     document.removeEventListener("error", onSizedImage, true);
     document.removeEventListener("animationstart", onSizedImage, true);
+    window.removeEventListener("online", onOnline);
+    for (const timer of imageTimers.values()) clearTimeout(timer);
+    imageTimers.clear();
   }
 
   // ─────────────────────────── дата присоединения ───────────────────────────

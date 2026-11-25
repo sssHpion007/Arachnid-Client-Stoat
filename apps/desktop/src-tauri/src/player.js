@@ -26,9 +26,11 @@
 //   ответы кэширует браузер; своего кэша на диске нет.
 // * Правый щелчок по плееру открывает меню сообщения for-web: событие
 //   пересылается самому <video>/<audio> (меню for-web встаёт у указателя).
+// * Видео и аудио, которые не загрузились (оборвался ответ, загрузка встала),
+//   незаметно загружаются заново — см. «надёжная загрузка».
 // * Видео, которое WebView2 не показывает (HEVC из TikTok и с телефона,
-//   AVI, WMV…), клиент перекодирует в H.264 (transcode.rs): по нажатию на ▶
-//   в плеере — ход перекодирования, затем видео играет из готового файла.
+//   AVI, WMV…), клиент по нажатию ▶ незаметно перекодирует в H.264
+//   (transcode.rs): пока идёт перекодирование — обычный значок загрузки.
 // * GIF for-web (видео без controls) не трогаются.
 //
 // Выключенная настройка возвращает элементы for-web как были.
@@ -621,12 +623,17 @@
   const MOOV_LIMIT = 16 * 1024 * 1024;
 
   /** Сервер не отдал файл (ответ с ошибкой) */
-  class FetchError extends Error {}
+  class FetchError extends Error {
+    constructor(status) {
+      super(String(status));
+      this.status = status;
+    }
+  }
 
   /** Байты [start, start + length) файла — запросом с Range (autumn его понимает) */
   async function readRange(url, start, length) {
     const response = await fetch(url, { headers: { Range: `bytes=${start}-${start + length - 1}` } });
-    if (!response.ok) throw new FetchError(String(response.status));
+    if (!response.ok) throw new FetchError(response.status);
     const data = new Uint8Array(await response.arrayBuffer());
     return response.status === 206 ? data : data.subarray(start, start + length);
   }
@@ -663,7 +670,10 @@
   const hevcPlayable = () =>
     typeof MediaSource === "function" && MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"');
 
-  /** Причина ошибки воспроизведения: "network" | "hevc" | "format" */
+  /** Ответы сервера, после которых повторять бесполезно: файла нет или нельзя */
+  const MISSING = (status) => status >= 400 && status < 500 && status !== 408 && status !== 429;
+
+  /** Причина ошибки воспроизведения: "network" | "missing" | "hevc" | "format" */
   async function failureOf(media) {
     if (media.error?.code === MediaError.MEDIA_ERR_NETWORK) return "network";
     try {
@@ -672,19 +682,134 @@
     } catch (error) {
       // сервер не отдаёт файл и отдельному запросу, или нет сети — дело не в
       // формате (запрет CORS у чужого сайта о самом файле ничего не говорит)
-      return error instanceof FetchError || !navigator.onLine ? "network" : "format";
+      if (error instanceof FetchError) return MISSING(error.status) ? "missing" : "network";
+      return navigator.onLine ? "format" : "network";
     }
+  }
+
+  // ─────────────────────────── надёжная загрузка ───────────────────────────
+  // Видео и аудио иногда не загружаются с первого раза: оборвался ответ,
+  // декодер видеокарты не создался, пока грузились другие видео, загрузка
+  // встала без ошибки. for-web такой элемент так и оставляет сломанным — пока
+  // сообщение не пересоздастся (прокрутили далеко и вернулись). Здесь файл
+  // незаметно загружается заново, с того же места:
+  //
+  // * после ошибки — сразу и через секунду; если ошибка и тогда, выясняется
+  //   её причина: сбой сети или сервера — повтор каждые RETRY_MS, пока не
+  //   загрузится (и сразу, как только сеть вернулась); файла нет (4xx) или
+  //   формат не тот — дальше решает плеер;
+  // * загрузка (до метаданных) или воспроизведение стоят дольше STALL_MS, не
+  //   получив ни байта, — тоже заново.
+
+  /** Повторы сразу после ошибки, мс */
+  const QUICK_RETRIES_MS = [0, 1000];
+  /** Повтор при сбое сети, мс */
+  const RETRY_MS = 5000;
+  /** Столько загрузка может стоять без данных, мс */
+  const STALL_MS = 10000;
+  const WATCH_MS = 2000;
+
+  /** Проверки зависшей загрузки всех плееров — одним таймером */
+  const stallWatches = new Set();
+  let stallTimer = 0;
+
+  /**
+   * Самовосстановление загрузки media. wanted() — пользователь хочет, чтобы
+   * оно играло; onRetry(resume) — загрузка началась заново; onGiveUp(reason)
+   * — повторять бесполезно ("missing" | "hevc" | "format").
+   */
+  function keepLoading(media, { wanted, onRetry, onGiveUp }) {
+    /** Повторы для адреса src (новый адрес — повторы заново) */
+    let attempts = 0;
+    let src = media.currentSrc || media.src;
+    let timer = 0;
+    let last = performance.now();
+    const touch = () => (last = performance.now());
+
+    function reload() {
+      timer = 0;
+      if (!media.isConnected) return;
+      const position = media.currentTime;
+      const resume = wanted();
+      attempts += 1;
+      touch();
+      onRetry(resume);
+      media.load();
+      // до метаданных — позиция, с которой начнётся воспроизведение
+      if (position > 0) media.currentTime = position;
+      if (resume) void media.play().catch(() => {});
+    }
+
+    function later(delay) {
+      clearTimeout(timer);
+      timer = setTimeout(reload, delay);
+    }
+
+    function onError() {
+      const current = media.currentSrc || media.src;
+      if (current !== src) [src, attempts] = [current, 0];
+      if (attempts < QUICK_RETRIES_MS.length) return later(QUICK_RETRIES_MS[attempts]);
+      const failed = media.error;
+      void failureOf(media).then((reason) => {
+        if (media.error !== failed || timer) return;
+        if (reason === "network") later(RETRY_MS);
+        else onGiveUp(reason);
+      });
+    }
+
+    // сеть вернулась — не ждать повтора
+    const onOnline = () => timer && later(0);
+
+    function watch(now) {
+      if (timer || media.error || !media.isConnected || now - last < STALL_MS) return;
+      const loading =
+        media.readyState === HTMLMediaElement.HAVE_NOTHING && media.networkState === HTMLMediaElement.NETWORK_LOADING;
+      const stuck = wanted() && !media.paused && media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
+      if (loading || stuck) reload();
+    }
+
+    const listeners = [
+      [media, "error", onError],
+      [media, "loadstart", touch],
+      [media, "progress", touch],
+      [media, "timeupdate", touch],
+      [media, "seeking", touch],
+      [media, "canplay", touch],
+      [window, "online", onOnline],
+    ];
+    for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
+    stallWatches.add(watch);
+    stallTimer ||= setInterval(() => {
+      const now = performance.now();
+      for (const check of stallWatches) check(now);
+    }, WATCH_MS);
+    // ошибка случилась до плеера
+    if (media.error) onError();
+
+    return {
+      dispose() {
+        for (const [target, type, handler] of listeners) target.removeEventListener(type, handler);
+        clearTimeout(timer);
+        stallWatches.delete(watch);
+        if (stallWatches.size) return;
+        clearInterval(stallTimer);
+        stallTimer = 0;
+      },
+    };
   }
 
   // ────────────────────────────── перекодирование ──────────────────────────────
   // Задачу выполняет клиент (transcode.rs): скачивает файл и перекодирует его
   // в H.264; страница спрашивает, как идут дела, и получает адрес готового
-  // файла. Без клиента (или без ffmpeg в нём) — «unavailable».
+  // файла. Без клиента (или без ffmpeg в нём) — «unavailable». Для
+  // пользователя это просто загрузка: значок загрузки, затем видео.
 
   /** Столько секунд видео может играть без картинки, пока это не считается ошибкой */
   const NO_PICTURE_S = 0.75;
   /** Как часто спрашивать о ходе перекодирования, мс */
   const CONVERT_POLL_MS = 250;
+
+  const TRANSCODE_FAILED = { state: "failed", code: "io" };
 
   /** media_transcode: { state, progress?, src?, code? } */
   async function transcode(url, start) {
@@ -692,15 +817,6 @@
     if (!window.__arachnidDesktop || !internals) return { state: "unavailable" };
     const name = await Covers.name(url);
     return internals.invoke("media_transcode", { url, name, start });
-  }
-
-  /** «42 %» — по правилам языка интерфейса */
-  function percent(value) {
-    try {
-      return new Intl.NumberFormat(i18n.intl(), { style: "percent" }).format(value);
-    } catch {
-      return `${Math.round(value * 100)}%`;
-    }
   }
 
   /** Правый щелчок по плееру — меню сообщения for-web у самого элемента */
@@ -1017,26 +1133,6 @@
     const errorHint = h("span");
     const storeLink = h("a", { class: "ap-error-link", href: HEVC_STORE, target: "_blank", hidden: true });
     const errorBox = h("div", { class: "ap-error", hidden: true }, icon("error"), errorTitle, errorHint, storeLink);
-    // перекодирование: кнопка ▶, затем кольцо хода
-    const convertStart = h("button", { type: "button", class: "ap-convert-start" }, icon("play"));
-    const ringCircle = document.createElementNS(SVG, "circle");
-    const ringSvg = document.createElementNS(SVG, "svg");
-    ringSvg.setAttribute("viewBox", "0 0 36 36");
-    ringSvg.setAttribute("aria-hidden", "true");
-    for (const className of ["ap-ring-track", "ap-ring-value"]) {
-      const circle = className === "ap-ring-value" ? ringCircle : document.createElementNS(SVG, "circle");
-      circle.setAttribute("class", className);
-      circle.setAttribute("cx", "18");
-      circle.setAttribute("cy", "18");
-      circle.setAttribute("r", "16");
-      circle.setAttribute("pathLength", "100");
-      ringSvg.append(circle);
-    }
-    const ringText = h("span");
-    const ring = h("div", { class: "ap-ring", hidden: true }, ringSvg, ringText);
-    const convertTitle = h("strong");
-    const convertHint = h("span");
-    const convertBox = h("div", { class: "ap-convert", hidden: true }, convertStart, ring, convertTitle, convertHint);
 
     const play = button("play", "ap-first");
     const vol = volume(video);
@@ -1058,16 +1154,13 @@
     let failure = "format";
     /** Исходный адрес, пока играет перекодированный файл */
     let original = null;
-    /**
-     * Перекодирование: null — не нужно; { src, state, progress } — для видео
-     * по адресу src, state как у media_transcode ("idle" — ждёт ▶)
-     */
-    let conversion = null;
+    /** Адрес видео, которое WebView2 не показывает: ▶ перекодирует его */
+    let undecodable = null;
+    /** Перекодирование идёт */
+    let converting = false;
     let pollTimer = 0;
-    /** Включить видео, когда перекодирование закончится (нажали ▶) */
-    let playWhenReady = false;
-    /** Адрес, который после ошибки уже загружался заново */
-    let reloaded = null;
+    /** Пользователь хочет, чтобы видео играло (нажал ▶ и не ставил паузу) */
+    let intent = !video.paused;
     /** Видео без картинки: выясняется, почему */
     let checking = false;
     let dragging = false;
@@ -1102,7 +1195,6 @@
       flash,
       bigPlay,
       errorBox,
-      convertBox,
       corner,
       h(
         "div",
@@ -1124,7 +1216,7 @@
     );
     host.append(overlay);
 
-    const toggle = () => (conversion ? startConversion() : togglePlayback(video));
+    const toggle = () => (undecodable ? convert() : togglePlayback(video));
 
     // Управление видно, пока мышь над видео и двигается; на паузе — пока
     // мышь над видео. Мышь ушла — управление и «скачать» прячутся.
@@ -1174,11 +1266,9 @@
       full.setIcon(fullscreen ? "fullscreenExit" : "fullscreen");
       full.setTip(withKey(fullscreen ? text.exitFullscreen : text.fullscreen, "f"));
       errorTitle.textContent = text.videoError;
-      errorHint.textContent =
-        { network: text.networkError, hevc: text.hevcError, convert: text.convertError }[failure] ?? text.errorHint;
+      errorHint.textContent = { network: text.networkError, hevc: text.hevcError }[failure] ?? text.errorHint;
       storeLink.hidden = failure !== "hevc";
       storeLink.textContent = text.hevcStore;
-      paintConversion();
       vol.sync();
       paintTime();
       if (hovering) wake();
@@ -1215,115 +1305,69 @@
 
     const currentSrc = () => video.currentSrc || video.src;
 
-    // Видео не играет: перекодировать (если есть чем), иначе — ошибка.
-    // Сеть тут не поможет; перекодированный файл второй раз не перекодируется.
-    // `start` — сразу, не дожидаясь ▶ (его уже нажали).
-    async function cannotPlay(src, start = false) {
-      if (failure !== "network" && !original) {
-        const status = await transcode(src, false).catch(() => ({ state: "unavailable" }));
-        if (currentSrc() !== src) return;
-        if (status.state !== "unavailable") {
-          conversion = { src, state: "idle", progress: null };
-          applyConversion(status);
-          if (start) startConversion();
-          return;
-        }
-      }
-      showError();
-    }
-
-    // Ошибка бывает и разовой: декодер видеокарты не создался, пока
-    // загружались другие видео, оборвался ответ. Поэтому сначала видео
-    // загружается заново — с того же места, — и только вторая ошибка
-    // подряд выясняется и показывается.
-    function reload() {
+    // Загрузить не вышло. Файла нет — ошибка. Формат, которого WebView2 не
+    // показывает, — видео перекодируется (если есть чем) по нажатию ▶, а если
+    // ▶ уже нажат — сразу; на вид это обычная загрузка.
+    async function cannotPlay(reason) {
+      failure = reason === "missing" ? "network" : reason;
+      if (reason === "missing" || original) return showError();
       const src = currentSrc();
-      if (reloaded === src) return false;
-      reloaded = src;
-      const position = video.currentTime;
-      const resume = started && !video.ended;
-      spinner.hidden = false;
-      video.load();
-      // до метаданных — позиция, с которой начнётся воспроизведение
-      if (position > 0) video.currentTime = position;
-      if (resume) void video.play().catch(() => {});
-      return true;
-    }
-
-    function startConversion() {
-      if (!conversion || conversion.state !== "idle") return;
-      playWhenReady = true;
-      const { src } = conversion;
-      conversion.state = "queued";
-      sync();
-      void transcode(src, true)
-        .catch(() => ({ state: "failed", code: "io" }))
-        .then((status) => conversion?.src === src && applyConversion(status));
-    }
-
-    // ответ media_transcode
-    function applyConversion(status) {
-      clearTimeout(pollTimer);
-      if (status.state === "done") {
-        conversion = null;
-        useConverted(status.src);
-        return;
-      }
-      if (status.state === "failed") {
-        conversion = null;
-        overlay.classList.remove("ap-converting");
-        // HEVC без перекодирования (нет Media Foundation в Windows N и т. п.)
-        // — подсказка про расширение из Microsoft Store
-        if (failure !== "hevc") failure = "convert";
-        showError();
-        return;
-      }
-      conversion.state = status.state;
-      conversion.progress = status.progress ?? null;
+      const status = await transcode(src, false).catch(() => ({ state: "unavailable" }));
+      if (currentSrc() !== src) return;
+      if (status.state === "unavailable") return showError();
+      undecodable = src;
+      overlay.classList.add("ap-undecodable");
       hideSpinner();
-      overlay.classList.add("ap-failed");
+      follow(status);
+      if (status.state === "idle" && intent) convert();
       sync();
+    }
+
+    function convert() {
+      if (!undecodable || converting) return;
+      intent = true;
+      const src = undecodable;
+      follow({ state: "queued" }, false);
+      void transcode(src, true)
+        .catch(() => TRANSCODE_FAILED)
+        .then((status) => undecodable === src && follow(status));
+    }
+
+    // состояние задачи media_transcode; `poll` — спросить ещё раз
+    function follow(status, poll = true) {
+      clearTimeout(pollTimer);
+      if (status.state === "done") return useConverted(status.src);
+      if (status.state === "failed") {
+        undecodable = null;
+        converting = false;
+        overlay.classList.remove("ap-busy", "ap-undecodable");
+        return showError();
+      }
       if (status.state === "idle") return;
-      const { src } = conversion;
+      // идёт (её мог начать и плеер того же видео в другом сообщении)
+      converting = true;
+      overlay.classList.add("ap-busy");
+      spinner.hidden = false;
+      if (!poll) return;
+      const src = undecodable;
       pollTimer = setTimeout(() => {
         void transcode(src, false)
-          .catch(() => ({ state: "failed", code: "io" }))
-          .then((next) => conversion?.src === src && applyConversion(next));
+          .catch(() => TRANSCODE_FAILED)
+          .then((next) => undecodable === src && follow(next));
       }, CONVERT_POLL_MS);
-    }
-
-    function paintConversion() {
-      convertBox.hidden = !conversion;
-      overlay.classList.toggle("ap-converting", Boolean(conversion));
-      if (!conversion) return;
-      const waiting = conversion.state === "idle";
-      convertBox.classList.toggle("ap-busy", !waiting);
-      convertStart.hidden = !waiting;
-      convertStart.setAttribute("aria-label", text.play);
-      ring.hidden = waiting;
-      const progress = conversion.progress;
-      ring.classList.toggle("ap-ring-unknown", progress == null);
-      ringCircle.style.strokeDashoffset = String(100 - Math.round((progress ?? 0.25) * 100));
-      ringText.textContent = progress == null ? "" : percent(progress);
-      convertTitle.textContent = waiting
-        ? text.convertTitle
-        : conversion.state === "converting"
-          ? text.converting
-          : text.downloading;
-      convertHint.hidden = !waiting;
-      convertHint.textContent = text.convertHint;
     }
 
     // перекодированный файл вместо исходного
     function useConverted(src) {
       original ??= currentSrc();
+      undecodable = null;
+      converting = false;
       failure = "format";
       errorBox.hidden = true;
-      overlay.classList.remove("ap-failed", "ap-converting");
+      overlay.classList.remove("ap-busy", "ap-undecodable", "ap-failed");
       video.src = src;
+      if (intent) void video.play().catch(() => {});
       sync();
-      if (playWhenReady) void video.play().catch(() => {});
-      playWhenReady = false;
     }
 
     // Chromium, не умея декодировать дорожку видео, бывает, ошибки не даёт:
@@ -1332,24 +1376,38 @@
     // может сообщить и позже метаданных, с первым кадром, поэтому судить
     // можно только по видео, которое уже играет.
     async function checkPicture() {
-      if (checking || original || conversion || video.paused || video.videoWidth > 0) return;
+      if (checking || original || undecodable || video.paused || video.videoWidth > 0) return;
       if (video.currentTime < NO_PICTURE_S) return;
       checking = true;
-      const src = currentSrc();
       video.pause();
-      overlay.classList.add("ap-failed");
       spinner.hidden = false;
+      const src = currentSrc();
       // HEVC — для подсказки, если перекодировать не получится
       const entries = await sampleEntries(src).catch(() => []);
       checking = false;
       if (currentSrc() !== src) return;
-      failure = entries.some((entry) => HEVC.has(entry)) ? "hevc" : "format";
-      await cannotPlay(src, true);
+      await cannotPlay(entries.some((entry) => HEVC.has(entry)) ? "hevc" : "format");
     }
 
+    const healing = keepLoading(video, {
+      wanted: () => intent,
+      onRetry: (resume) => {
+        if (resume) spinner.hidden = false;
+      },
+      onGiveUp: (reason) => void cannotPlay(reason),
+    });
+
     const listeners = [
-      [video, "play", () => ((started = true), sync(), (frame ||= requestAnimationFrame(tick)))],
-      [video, "pause", sync],
+      [video, "play", () => ((started = true), (intent = true), sync(), (frame ||= requestAnimationFrame(tick)))],
+      [
+        video,
+        "pause",
+        () => {
+          // пауза по ошибке или для проверки картинки — не пользователя
+          if (!video.error && !checking) intent = false;
+          sync();
+        },
+      ],
       [video, "ended", sync],
       [video, "loadedmetadata", sync],
       [video, "durationchange", sync],
@@ -1365,25 +1423,6 @@
       ],
       [video, "playing", hideSpinner],
       [video, "canplay", hideSpinner],
-      [
-        video,
-        "error",
-        () => {
-          if (reload()) return;
-          // пока причина выясняется — без управления, со спиннером
-          overlay.classList.add("ap-failed");
-          spinner.hidden = false;
-          const failed = video.error;
-          const src = currentSrc();
-          void failureOf(video).then((reason) => {
-            // пока выяснялось, адрес сменился
-            if (video.error !== failed) return;
-            failure = reason;
-            if (original) showError();
-            else void cannotPlay(src);
-          });
-        },
-      ],
       [video, "timeupdate", checkPicture],
       [
         video,
@@ -1412,7 +1451,6 @@
       [repeat, "click", () => ((video.loop = !video.loop), sync())],
       [full, "click", fullscreen],
       [pip, "click", togglePip],
-      [convertBox, "click", startConversion],
       [corner, "click", () => download(original ?? currentSrc())],
       [overlay, "contextmenu", forwardContextMenu(menuTarget)],
     ];
@@ -1433,7 +1471,7 @@
         clearTimeout(hideTimer);
         clearTimeout(spinnerTimer);
         clearTimeout(pollTimer);
-        conversion = null;
+        healing.dispose();
         menu.remove();
         overlay.remove();
         host.classList.remove("ap-host", "ap-idle");
@@ -1448,7 +1486,6 @@
     players.add(player);
     player.applySpeed();
     sync();
-    if (video.error) video.dispatchEvent(new Event("error"));
     return player;
   }
 
@@ -1496,6 +1533,8 @@
     const toggle = () => togglePlayback(audio);
     let frame = 0;
     let loadTimer = 0;
+    /** Пользователь хочет, чтобы аудио играло */
+    let intent = !audio.paused;
 
     function paintTime() {
       current.textContent = time(audio.currentTime);
@@ -1543,6 +1582,7 @@
         audio,
         "play",
         () => {
+          intent = true;
           sync();
           frame ||= requestAnimationFrame(tick);
           if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) loading();
@@ -1550,13 +1590,20 @@
       ],
       [audio, "waiting", loading],
       [audio, "playing", loaded],
-      [audio, "pause", () => (loaded(), sync())],
+      [
+        audio,
+        "pause",
+        () => {
+          if (!audio.error) intent = false;
+          loaded();
+          sync();
+        },
+      ],
       [audio, "ended", () => (loaded(), sync())],
       [audio, "loadedmetadata", sync],
       [audio, "durationchange", sync],
       [audio, "progress", () => seek.paint()],
       [audio, "seeked", sync],
-      [audio, "error", () => ((errorLine.hidden = false), card.classList.add("ap-failed"), loaded())],
       [card, "keydown", keys(audio, { toggle, volume: vol })],
       [art, "click", toggle],
       [repeat, "click", () => ((audio.loop = !audio.loop), sync())],
@@ -1564,6 +1611,16 @@
       [bar, "contextmenu", contextMenu],
     ];
     for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
+
+    const healing = keepLoading(audio, {
+      wanted: () => intent,
+      onRetry: (resume) => resume && loading(),
+      onGiveUp: () => {
+        errorLine.hidden = false;
+        card.classList.add("ap-failed");
+        loaded();
+      },
+    });
 
     // обложка — когда карточка подходит к экрану
     let alive = true;
@@ -1599,6 +1656,7 @@
         vol.dispose();
         cancelAnimationFrame(frame);
         clearTimeout(loadTimer);
+        healing.dispose();
         menu.remove();
         bar.remove();
         errorLine.remove();
@@ -1613,7 +1671,6 @@
     players.add(player);
     player.applySpeed();
     sync();
-    if (audio.error) audio.dispatchEvent(new Event("error"));
     return player;
   }
 
@@ -2692,115 +2749,14 @@
       display: none;
     }
 
-    /* перекодирование: ▶, затем кольцо хода */
-    .ap-convert {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      padding: 12px;
-      background: rgb(0 0 0 / 0.6);
-      text-align: center;
-      font-size: 13px;
-      cursor: pointer;
-    }
-
-    .ap-convert[hidden],
-    .ap-convert [hidden] {
+    /* видео перекодируется: только значок загрузки; до ▶ — только ▶ */
+    .ap-video.ap-undecodable .ap-bottom,
+    .ap-video.ap-busy .ap-big-play {
       display: none;
     }
 
-    .ap-convert.ap-busy {
-      cursor: default;
-    }
-
-    .ap-convert-start {
+    .ap-video.ap-undecodable:not(.ap-busy) .ap-big-play {
       display: grid;
-      place-items: center;
-      width: 60px;
-      height: 60px;
-      margin-bottom: 8px;
-      padding: 0;
-      border: 0;
-      border-radius: 50%;
-      background: rgb(0 0 0 / 0.6);
-      color: #fff;
-      cursor: pointer;
-      transition:
-        background 0.15s,
-        transform 0.15s;
-    }
-
-    .ap-convert-start svg {
-      width: 36px;
-      height: 36px;
-      fill: currentColor;
-    }
-
-    .ap-convert:hover .ap-convert-start,
-    .ap-convert-start:focus-visible {
-      background: var(--md-sys-color-primary);
-      color: var(--md-sys-color-on-primary);
-      transform: scale(1.06);
-    }
-
-    .ap-convert span {
-      color: rgb(255 255 255 / 0.8);
-    }
-
-    .ap-ring {
-      position: relative;
-      display: grid;
-      place-items: center;
-      width: 60px;
-      height: 60px;
-      margin-bottom: 8px;
-    }
-
-    .ap-ring svg {
-      position: absolute;
-      inset: 0;
-      transform: rotate(-90deg);
-    }
-
-    .ap-ring circle {
-      fill: none;
-      stroke-width: 3;
-    }
-
-    .ap-ring-track {
-      stroke: rgb(255 255 255 / 0.25);
-    }
-
-    .ap-ring-value {
-      stroke: var(--md-sys-color-primary);
-      stroke-dasharray: 100;
-      stroke-linecap: round;
-      transition: stroke-dashoffset 0.25s linear;
-    }
-
-    /* доля неизвестна — четверть кольца крутится */
-    .ap-ring-unknown svg {
-      animation: ap-ring-spin 0.9s linear infinite;
-    }
-
-    @keyframes ap-ring-spin {
-      from {
-        transform: rotate(-90deg);
-      }
-      to {
-        transform: rotate(270deg);
-      }
-    }
-
-    .ap-convert .ap-ring span {
-      color: #fff;
-      font-size: 12px;
-      font-weight: 600;
-      font-variant-numeric: tabular-nums;
     }
 
     /* ───────────────────────────────── аудио ───────────────────────────────── */
