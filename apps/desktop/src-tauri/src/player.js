@@ -44,6 +44,8 @@
   const VOLUME_STEP = 0.05;
   /** Спиннер — только если ждать дольше этого, мс */
   const SPINNER_DELAY = 300;
+  /** Длительность, пока она неизвестна */
+  const UNKNOWN_TIME = "–:––";
   const STYLE_ID = "arachnid-player-style";
 
   /** Значки Material Symbols (outlined, как у for-web), viewBox 0 -960 960 960 */
@@ -1032,13 +1034,13 @@
       "button",
       { type: "button", class: "ap-cover" },
       h("span", { class: "ap-cover-image" }),
-      h("span", { class: "ap-cover-state" }, equalizer()),
+      h("span", { class: "ap-cover-state" }, equalizer(), h("span", { class: "ap-cover-spinner", "aria-hidden": "true" })),
     );
     const state = art.lastChild;
     setIcon(state, "play");
 
     const current = h("span", { class: "ap-time" }, "0:00");
-    const total = h("span", { class: "ap-time" }, "0:00");
+    const total = h("span", { class: "ap-time" }, UNKNOWN_TIME);
     const seek = progress(audio, () => {});
     const vol = volume(audio);
     const repeat = button("repeat", "ap-toggle");
@@ -1056,11 +1058,24 @@
 
     const toggle = () => togglePlayback(audio);
     let frame = 0;
+    let loadTimer = 0;
 
     function paintTime() {
       current.textContent = time(audio.currentTime);
-      total.textContent = time(audio.duration);
+      total.textContent = Number.isFinite(audio.duration) ? time(audio.duration) : UNKNOWN_TIME;
       seek.paint();
+    }
+    // Загрузка: аудио должно играть, а данных ещё нет (медленная сеть) — на
+    // обложке-кнопке индикатор вместо полосок «играет»; короткое ожидание
+    // его не показывает.
+    function loading() {
+      clearTimeout(loadTimer);
+      if (audio.paused || card.classList.contains("ap-loading")) return;
+      loadTimer = setTimeout(() => card.classList.add("ap-loading"), SPINNER_DELAY);
+    }
+    function loaded() {
+      clearTimeout(loadTimer);
+      card.classList.remove("ap-loading");
     }
     function sync() {
       const paused = audio.paused || audio.ended;
@@ -1087,14 +1102,24 @@
 
     const contextMenu = forwardContextMenu(audio);
     const listeners = [
-      [audio, "play", () => (sync(), (frame ||= requestAnimationFrame(tick)))],
-      [audio, "pause", sync],
-      [audio, "ended", sync],
+      [
+        audio,
+        "play",
+        () => {
+          sync();
+          frame ||= requestAnimationFrame(tick);
+          if (audio.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) loading();
+        },
+      ],
+      [audio, "waiting", loading],
+      [audio, "playing", loaded],
+      [audio, "pause", () => (loaded(), sync())],
+      [audio, "ended", () => (loaded(), sync())],
       [audio, "loadedmetadata", sync],
       [audio, "durationchange", sync],
       [audio, "progress", () => seek.paint()],
       [audio, "seeked", sync],
-      [audio, "error", () => ((errorLine.hidden = false), card.classList.add("ap-failed"))],
+      [audio, "error", () => ((errorLine.hidden = false), card.classList.add("ap-failed"), loaded())],
       [card, "keydown", keys(audio, { toggle, volume: vol })],
       [art, "click", toggle],
       [repeat, "click", () => ((audio.loop = !audio.loop), sync())],
@@ -1136,12 +1161,13 @@
         for (const [target, type, handler] of listeners) target.removeEventListener(type, handler);
         vol.dispose();
         cancelAnimationFrame(frame);
+        clearTimeout(loadTimer);
         menu.remove();
         bar.remove();
         errorLine.remove();
         art.remove();
         headphones?.classList.remove("ap-replaced");
-        card.classList.remove("ap-audio-card", "ap-playing", "ap-failed");
+        card.classList.remove("ap-audio-card", "ap-playing", "ap-failed", "ap-loading");
         audio.controls = before.controls;
         audio.playbackRate = before.rate;
         players.delete(player);
@@ -1865,6 +1891,27 @@
 
     .ap-playing .ap-cover:not(:hover, :focus-visible) .ap-cover-state svg {
       opacity: 0;
+    }
+
+    /* загрузка: индикатор вместо полосок; при наведении — пауза */
+    .ap-cover-spinner {
+      grid-area: 1 / 1;
+      display: none;
+      width: calc(var(--ap-cover) * 0.42);
+      height: calc(var(--ap-cover) * 0.42);
+      box-sizing: border-box;
+      border: 3px solid color-mix(in srgb, currentColor 30%, transparent);
+      border-top-color: currentColor;
+      border-radius: 50%;
+      animation: ap-spin 0.8s linear infinite;
+    }
+
+    .ap-loading .ap-cover:not(:hover, :focus-visible) .ap-eq {
+      display: none;
+    }
+
+    .ap-loading .ap-cover:not(:hover, :focus-visible) .ap-cover-spinner {
+      display: block;
     }
 
     .ap-cover[data-tip]:hover::after {
