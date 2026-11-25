@@ -564,6 +564,8 @@
   const SIZED_IMAGE = `${SIZED_CONTENT} > img`;
   /** Отметка загрузившейся (или не загрузившейся) картинки */
   const IMAGE_SHOWN = "data-arachnid-shown";
+  /** Анимация, по началу которой видно, что картинка попала в документ */
+  const IMAGE_APPEARED = "arachnid-image-appeared";
 
   /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
   const INTERFACE_STYLE = `
@@ -684,6 +686,10 @@ ${SIZED_IMAGE} {
 }
 ${SIZED_IMAGE}:not([${IMAGE_SHOWN}]) {
   opacity: 0;
+  /* пустая анимация: её начало сообщает, что картинка появилась в документе */
+  animation: ${IMAGE_APPEARED} 1ms;
+}
+@keyframes ${IMAGE_APPEARED} {
 }
 ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   background: linear-gradient(
@@ -1663,16 +1669,24 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   // ─────────────────────── плавное появление картинок ───────────────────────
   // Картинка видна, когда загрузилась целиком или не загрузилась вовсе
   // (тогда — значок битой картинки браузера); событие load/error ловится при
-  // перехвате на document, как у значков ролей.
+  // перехвате на document, как у значков ролей. Но Solid задаёт картинке
+  // адрес до того, как вставить её в документ, и картинка из кэша успевает
+  // загрузиться раньше: её load до document не доходит. Такую картинку
+  // выдаёт начало пустой анимации, которая у неё есть, пока она не показана:
+  // анимация начинается, когда картинка попала в документ, — если она к
+  // этому времени уже загружена, она показывается сразу.
 
   function onSizedImage(event) {
     const img = event.target;
-    if (img instanceof HTMLImageElement && img.matches(SIZED_IMAGE)) img.setAttribute(IMAGE_SHOWN, "");
+    if (!(img instanceof HTMLImageElement) || !img.matches(SIZED_IMAGE)) return;
+    if (event.type === "animationstart" && (event.animationName !== IMAGE_APPEARED || !img.complete)) return;
+    img.setAttribute(IMAGE_SHOWN, "");
   }
 
   function watchImages() {
     document.addEventListener("load", onSizedImage, true);
     document.addEventListener("error", onSizedImage, true);
+    document.addEventListener("animationstart", onSizedImage, true);
     // уже загруженные до запуска плагина или до включения настройки
     for (const img of document.querySelectorAll(`${SIZED_IMAGE}:not([${IMAGE_SHOWN}])`)) {
       if (img.complete) img.setAttribute(IMAGE_SHOWN, "");
@@ -1682,6 +1696,7 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   function unwatchImages() {
     document.removeEventListener("load", onSizedImage, true);
     document.removeEventListener("error", onSizedImage, true);
+    document.removeEventListener("animationstart", onSizedImage, true);
   }
 
   // ─────────────────────────── дата присоединения ───────────────────────────

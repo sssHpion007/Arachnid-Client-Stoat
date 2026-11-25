@@ -603,6 +603,74 @@
     link.remove();
   }
 
+  // ─────────────────────────── почему видео не играет ───────────────────────────
+  // WebView2 декодирует HEVC (H.265) только через «Расширения для видео HEVC»
+  // из Microsoft Store, а Chrome — сам, через видеокарту: поэтому в браузере
+  // такое видео (например, из TikTok) играет, а в клиенте — нет. Чтобы
+  // сказать об этом, а не просто «формат не поддерживается», после ошибки
+  // кодеки файла читаются из описаний дорожек MP4/MOV (stsd).
+
+  const HEVC_STORE = "https://apps.microsoft.com/detail/9NMZLZ57R3T7";
+  const HEVC = new Set(["hvc1", "hev1", "dvh1", "dvhe"]);
+  /** Больше moov не читается: столько не бывает даже у часовых видео */
+  const MOOV_LIMIT = 16 * 1024 * 1024;
+
+  /** Сервер не отдал файл (ответ с ошибкой) */
+  class FetchError extends Error {}
+
+  /** Байты [start, start + length) файла — запросом с Range (autumn его понимает) */
+  async function readRange(url, start, length) {
+    const response = await fetch(url, { headers: { Range: `bytes=${start}-${start + length - 1}` } });
+    if (!response.ok) throw new FetchError(String(response.status));
+    const data = new Uint8Array(await response.arrayBuffer());
+    return response.status === 206 ? data : data.subarray(start, start + length);
+  }
+
+  const fourcc = (data, at) => String.fromCharCode(data[at], data[at + 1], data[at + 2], data[at + 3]);
+
+  /** Типы образцов дорожек MP4/MOV (`hvc1`, `avc1`, `mp4a`…); не MP4 — пусто */
+  async function sampleEntries(url) {
+    let offset = 0;
+    // верхние блоки: ftyp, free, mdat, moov… — moov бывает и в конце файла
+    for (let box = 0; box < 32; box++) {
+      const head = await readRange(url, offset, 16);
+      if (head.length < 8) return [];
+      const view = new DataView(head.buffer, head.byteOffset, head.byteLength);
+      let size = view.getUint32(0);
+      const type = fourcc(head, 4);
+      if (box === 0 && type !== "ftyp") return [];
+      if (size === 1 && head.length >= 16) size = Number(view.getBigUint64(8));
+      if (type === "moov") {
+        const moov = await readRange(url, offset, Math.min(size || MOOV_LIMIT, MOOV_LIMIT));
+        const entries = [];
+        // описание образцов: размер, «stsd», версия, число записей, размер записи, тип
+        for (let at = moov.indexOf(0x73); at !== -1 && at + 20 <= moov.length; at = moov.indexOf(0x73, at + 1)) {
+          if (fourcc(moov, at) === "stsd") entries.push(fourcc(moov, at + 16));
+        }
+        return entries;
+      }
+      if (size < 8) return [];
+      offset += size;
+    }
+    return [];
+  }
+
+  const hevcPlayable = () =>
+    typeof MediaSource === "function" && MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"');
+
+  /** Причина ошибки воспроизведения: "network" | "hevc" | "format" */
+  async function failureOf(media) {
+    if (media.error?.code === MediaError.MEDIA_ERR_NETWORK) return "network";
+    try {
+      const entries = await sampleEntries(media.currentSrc || media.src);
+      return entries.some((entry) => HEVC.has(entry)) && !hevcPlayable() ? "hevc" : "format";
+    } catch (error) {
+      // сервер не отдаёт файл и отдельному запросу, или нет сети — дело не в
+      // формате (запрет CORS у чужого сайта о самом файле ничего не говорит)
+      return error instanceof FetchError || !navigator.onLine ? "network" : "format";
+    }
+  }
+
   /** Правый щелчок по плееру — меню сообщения for-web у самого элемента */
   function forwardContextMenu(target) {
     return (event) => {
@@ -758,12 +826,19 @@
    * у аудио — всплывающее (popover) поверх страницы: карточка for-web
    * обрезает всё, что выходит за её края.
    */
-  function speedMenu(anchorButton, menuHost, { onOpen, floating = false }) {
+  /**
+   * Меню скорости. `spare` — кнопки, которые в узком плеере не помещаются в
+   * строку управления и переезжают в начало меню: [{ icon, label, on, action }]
+   * (видно только в узком плеере, см. стиль).
+   */
+  function speedMenu(anchorButton, menuHost, { onOpen, floating = false, spare = null }) {
+    const spareList = h("div", { class: "ap-menu-spare", role: "group" });
     const title = h("div", { class: "ap-menu-title" });
     const list = h("div", { class: "ap-menu-list", role: "menu" });
     const menu = h(
       "div",
       { class: `ap-menu${floating ? " ap-floating" : ""}`, hidden: !floating, popover: floating ? "manual" : null },
+      spare ? spareList : null,
       title,
       list,
     );
@@ -779,6 +854,23 @@
     }
 
     function render() {
+      if (spare) {
+        spareList.replaceChildren(
+          ...spare().map(({ icon: name, label, on, action }) => {
+            const item = h(
+              "button",
+              { type: "button", class: `ap-menu-item${on ? " ap-selected" : ""}`, role: "menuitem" },
+              h("span", { class: "ap-menu-check" }, icon(name)),
+              label,
+            );
+            item.addEventListener("click", () => {
+              action();
+              close();
+            });
+            return item;
+          }),
+        );
+      }
       title.textContent = text.speed;
       list.replaceChildren(
         ...SPEEDS.map((value) => {
@@ -891,20 +983,27 @@
     const corner = button("download", "ap-corner");
     const errorTitle = h("strong");
     const errorHint = h("span");
-    const errorBox = h("div", { class: "ap-error", hidden: true }, icon("error"), errorTitle, errorHint);
+    const storeLink = h("a", { class: "ap-error-link", href: HEVC_STORE, target: "_blank", hidden: true });
+    const errorBox = h("div", { class: "ap-error", hidden: true }, icon("error"), errorTitle, errorHint, storeLink);
 
     const play = button("play", "ap-first");
     const vol = volume(video);
-    const clock = h("span", { class: "ap-time" }, "0:00 / 0:00");
-    const repeat = button("repeat", "ap-toggle");
+    const now = h("span", {}, "0:00");
+    const total = h("span", {}, "\u00a0/ 0:00");
+    const clock = h("span", { class: "ap-time" }, now, total);
+    // в узком плеере (вертикальное видео) повтор и «картинка в картинке» —
+    // в меню скорости
+    const repeat = button("repeat", "ap-toggle ap-spare");
     const settings = button("settings");
     const speedBadge = h("span", { class: "ap-speed-badge", hidden: true });
     settings.append(speedBadge);
-    const pip = button("pip");
+    const pip = button("pip", "ap-spare");
     const full = button("fullscreen", "ap-edge");
     const overlay = h("div", { class: "ap-video" });
 
     let started = video.played.length > 0 || !video.paused;
+    /** Причина ошибки (`failureOf`), пока она выясняется — "format" */
+    let failure = "format";
     let dragging = false;
     let hovering = false;
     let hideTimer = 0;
@@ -915,7 +1014,22 @@
       dragging = on;
       wake();
     });
-    const menu = speedMenu(settings, overlay, { onOpen: () => wake() });
+    const togglePip = () =>
+      document.pictureInPictureElement === video
+        ? void document.exitPictureInPicture().catch(() => {})
+        : void video.requestPictureInPicture().catch(() => {});
+    const menu = speedMenu(settings, overlay, {
+      onOpen: () => wake(),
+      spare: () => [
+        {
+          icon: "repeat",
+          label: video.loop ? text.repeatOn : text.repeatOff,
+          on: video.loop,
+          action: () => ((video.loop = !video.loop), sync()),
+        },
+        ...(document.pictureInPictureEnabled ? [{ icon: "pip", label: text.pip, on: false, action: togglePip }] : []),
+      ],
+    });
 
     overlay.append(
       spinner,
@@ -967,7 +1081,8 @@
     }
 
     function paintTime() {
-      clock.textContent = `${time(video.currentTime)} / ${time(video.duration)}`;
+      now.textContent = time(video.currentTime);
+      total.textContent = `\u00a0/ ${time(video.duration)}`;
       seek.paint();
     }
 
@@ -992,7 +1107,9 @@
       full.setIcon(fullscreen ? "fullscreenExit" : "fullscreen");
       full.setTip(withKey(fullscreen ? text.exitFullscreen : text.fullscreen, "f"));
       errorTitle.textContent = text.videoError;
-      errorHint.textContent = text.errorHint;
+      errorHint.textContent = { network: text.networkError, hevc: text.hevcError }[failure] ?? text.errorHint;
+      storeLink.hidden = failure !== "hevc";
+      storeLink.textContent = text.hevcStore;
       vol.sync();
       paintTime();
       if (hovering) wake();
@@ -1020,6 +1137,26 @@
       spinner.hidden = true;
     };
 
+    function showError() {
+      errorBox.hidden = false;
+      overlay.classList.add("ap-failed");
+      hideSpinner();
+      sync();
+    }
+
+    // Chromium, не умея декодировать дорожку видео, бывает, ошибки не даёт:
+    // играет один звук без картинки. Если картинки нет из-за HEVC — это та
+    // же ошибка.
+    async function checkPicture() {
+      if (video.videoWidth > 0 || hevcPlayable()) return;
+      const src = video.currentSrc;
+      const entries = await sampleEntries(src).catch(() => []);
+      if (video.currentSrc !== src || video.videoWidth > 0 || !entries.some((entry) => HEVC.has(entry))) return;
+      video.pause();
+      failure = "hevc";
+      showError();
+    }
+
     const listeners = [
       [video, "play", () => ((started = true), sync(), (frame ||= requestAnimationFrame(tick)))],
       [video, "pause", sync],
@@ -1038,7 +1175,21 @@
       ],
       [video, "playing", hideSpinner],
       [video, "canplay", hideSpinner],
-      [video, "error", () => ((errorBox.hidden = false), overlay.classList.add("ap-failed"), hideSpinner())],
+      [
+        video,
+        "error",
+        () => {
+          showError();
+          const failed = video.error;
+          void failureOf(video).then((reason) => {
+            // пока выяснялось, адрес сменился
+            if (video.error !== failed) return;
+            failure = reason;
+            sync();
+          });
+        },
+      ],
+      [video, "loadedmetadata", checkPicture],
       [
         video,
         "click",
@@ -1065,14 +1216,7 @@
       [play, "click", toggle],
       [repeat, "click", () => ((video.loop = !video.loop), sync())],
       [full, "click", fullscreen],
-      [
-        pip,
-        "click",
-        () =>
-          document.pictureInPictureElement === video
-            ? void document.exitPictureInPicture().catch(() => {})
-            : void video.requestPictureInPicture().catch(() => {}),
-      ],
+      [pip, "click", togglePip],
       [corner, "click", () => download(video.currentSrc || video.src)],
       [overlay, "contextmenu", forwardContextMenu(menuTarget)],
     ];
@@ -1107,6 +1251,7 @@
     player.applySpeed();
     sync();
     if (video.error) video.dispatchEvent(new Event("error"));
+    else if (video.readyState >= HTMLMediaElement.HAVE_METADATA) void checkPicture();
     return player;
   }
 
@@ -1861,6 +2006,18 @@
 
     /* ─────────────────────────────── меню скорости ─────────────────────────────── */
 
+    /* кнопки, переехавшие из узкого плеера; в широком их нет */
+    .ap-menu-spare {
+      display: none;
+      padding-bottom: 4px;
+      margin-bottom: 4px;
+      border-bottom: 1px solid var(--md-sys-color-outline-variant);
+    }
+
+    .ap-menu-spare .ap-menu-check svg {
+      fill: currentColor;
+    }
+
     .ap-menu {
       position: absolute;
       right: 8px;
@@ -1972,6 +2129,7 @@
     .ap-video {
       grid-area: 1 / 1 / 2 / 2;
       position: relative;
+      container: ap-video / inline-size;
       pointer-events: none;
       color: #fff;
       font-family: inherit;
@@ -2027,6 +2185,107 @@
     .ap-host:focus-visible .ap-bottom {
       opacity: 1;
       visibility: visible;
+    }
+
+    /*
+     * Узкий плеер — вертикальное видео (SizedContent for-web: не шире
+     * 420 px и не выше 420 px, у 9:16 это 236 px): кнопки и значки меньше,
+     * громкость — всплывающей полосой над кнопкой, меню — по ширине плеера.
+     */
+    @container ap-video (max-width: 359px) {
+      .ap-bottom {
+        padding: 20px 4px 2px;
+      }
+
+      .ap-bottom .ap-progress {
+        margin: 0 4px;
+      }
+
+      .ap-bar {
+        gap: 0;
+        height: 34px;
+      }
+
+      .ap-bar .ap-button {
+        width: 32px;
+        height: 32px;
+      }
+
+      .ap-bar .ap-button svg {
+        width: 20px;
+        height: 20px;
+      }
+
+      .ap-bar .ap-time {
+        margin-left: 4px;
+        font-size: 11px;
+      }
+
+      .ap-bar .ap-volume {
+        position: relative;
+      }
+
+      .ap-bar .ap-volume-slider {
+        position: absolute;
+        left: 0;
+        bottom: 100%;
+        box-sizing: content-box;
+        width: 0;
+        height: 16px;
+        margin: 0;
+        padding: 6px 10px;
+        border-radius: 14px;
+        background: rgb(0 0 0 / 0.6);
+        /* мостик до кнопки, чтобы мышь не теряла полосу по дороге */
+        border-bottom: 6px solid transparent;
+        background-clip: padding-box;
+        visibility: hidden;
+      }
+
+      .ap-bar .ap-volume:hover .ap-volume-slider,
+      .ap-bar .ap-volume:focus-within .ap-volume-slider {
+        width: 80px;
+        margin: 0;
+        visibility: visible;
+      }
+
+      /* подсказку кнопки громкости заслоняла бы полоса — её место занято */
+      .ap-bar .ap-volume-button[data-tip]:hover::after {
+        display: none;
+      }
+
+      .ap-video .ap-menu {
+        left: 4px;
+        right: 4px;
+        bottom: 48px;
+        min-width: 0;
+      }
+
+      .ap-video .ap-menu:not([hidden]) {
+        max-height: calc(100% - 56px);
+      }
+    }
+
+    /* повтор и «картинка в картинке» узкому плееру — в меню скорости */
+    @container ap-video (max-width: 359px) {
+      .ap-spare {
+        display: none;
+      }
+
+      .ap-menu-spare {
+        display: block;
+      }
+    }
+
+    /* не помещается всё время — длительность переносится на скрытую
+       вторую строку, остаётся текущее время */
+    .ap-bar .ap-time {
+      display: flex;
+      flex-wrap: wrap;
+      min-width: 0;
+      height: 16px;
+      line-height: 16px;
+      overflow: hidden;
     }
 
     .ap-speed-badge {
@@ -2213,8 +2472,26 @@
       fill: var(--md-sys-color-error);
     }
 
-    .ap-failed .ap-big-play,
-    .ap-failed .ap-bottom {
+    .ap-error-link {
+      margin-top: 8px;
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      font-weight: 500;
+      text-decoration: none;
+    }
+
+    .ap-error-link:hover {
+      background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
+    }
+
+    .ap-error-link[hidden] {
+      display: none;
+    }
+
+    .ap-video.ap-failed .ap-big-play,
+    .ap-video.ap-failed .ap-bottom {
       display: none;
     }
 

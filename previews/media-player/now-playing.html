@@ -444,6 +444,12 @@
           messages: [
             { id: ids(11), author: "Сова", text: "Мультик 🐰" },
             { id: ids(12), author: "Сова", video: att("bunny") },
+            { id: ids(13), author: "Ёжик", text: "А вот вертикальное, с телефона" },
+            { id: ids(14), author: "Ёжик", video: att("vertical"), ratio: [9, 16] },
+            { id: ids(15), author: "Лиса", text: "И совсем узкое" },
+            { id: ids(16), author: "Лиса", video: att("vertical"), ratio: [9, 20] },
+            { id: ids(17), author: "Сова", text: "Скачала из TikTok — у вас играет?" },
+            { id: ids(18), author: "Сова", video: att("tiktok"), ratio: [9, 16] },
           ],
         },
         {
@@ -499,7 +505,10 @@
         if (item.video) {
           const sized = document.createElement("div");
           sized.className = "sized";
-          sized.style.cssText = "width:420px;aspect-ratio:16/9";
+          // как SizedContent for-web: не шире и не выше 420 px
+          const [w, hgt] = item.ratio ?? [16, 9];
+          const scale = Math.min(420 / w, 420 / hgt);
+          sized.style.cssText = `width:${Math.round(w * scale)}px;aspect-ratio:${w}/${hgt}`;
           media = document.createElement("video");
           media.controls = true;
           media.playsInline = true;

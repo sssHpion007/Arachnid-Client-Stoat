@@ -26,6 +26,9 @@ const attachments = {
   morning: ["morning.mp3", "Утро.mp3"],
   remix: ["night-city.mp3", "Ночной город (ремикс).mp3"],
   bunny: ["big-buck-bunny.mp4", "Big Buck Bunny.mp4"],
+  vertical: ["bunny-vertical.mp4", "VID_20261110_183012.mp4"],
+  // HEVC (H.265), как у видео из TikTok
+  tiktok: ["tiktok-hevc.mp4", "tiktok_7436512345678901234.mp4"],
 };
 
 /** Путь запроса → файл: /client/… — из клиента, /attachments/<id>/<имя> —
