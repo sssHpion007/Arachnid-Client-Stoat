@@ -34,10 +34,10 @@
 //    результатах Gifbox избранного нет, а их видео не играют сами; меню
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
-//    сразу (свой видео- и аудиоплеер, избранное в окне GIF, окно сразу на
-//    избранном, исправления интерфейса, в том числе подсветка md-ripple
-//    без перехода и меню браузера только в полях ввода и при выделенном
-//    тексте, пункт меню сообщения для эмодзи); вход
+//    сразу (свой видео- и аудиоплеер и плашка «сейчас играет», избранное в
+//    окне GIF, окно сразу на избранном, исправления интерфейса, в том числе
+//    подсветка md-ripple без перехода и меню браузера только в полях ввода и
+//    при выделенном тексте, пункт меню сообщения для эмодзи); вход
 //    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
 //    остаётся).
 //
@@ -1688,6 +1688,80 @@ ${sidebarGroup("", [
         playerOff,
         playerBack,
       });
+
+      // плашка «сейчас играет»: играющее аудио — плашка сразу под заголовком
+      // страницы (.app_body > страница > заголовок); for-web убрал сообщение
+      // (сменили канал) — элемент играет дальше вне чата; сообщение вернулось
+      // — на место нового элемента for-web встаёт играющий; ✕ останавливает
+      // воспроизведение и убирает плашку
+      const silence = (() => {
+        const rate = 8000;
+        const length = rate * 4;
+        const buffer = new ArrayBuffer(44 + length);
+        const view = new DataView(buffer);
+        const ascii = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+        ascii(0, "RIFF");
+        view.setUint32(4, 36 + length, true);
+        ascii(8, "WAVEfmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, rate, true);
+        view.setUint32(28, rate, true);
+        view.setUint16(32, 1, true);
+        view.setUint16(34, 8, true);
+        ascii(36, "data");
+        view.setUint32(40, length, true);
+        new Uint8Array(buffer, 44).fill(128);
+        return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+      })();
+      const appBody = document.createElement("div");
+      appBody.className = "app_body";
+      const barPage = document.createElement("div");
+      const barHeader = document.createElement("div");
+      barHeader.textContent = "# e2e";
+      const chatList = document.createElement("div");
+      barPage.append(barHeader, chatList);
+      appBody.append(barPage);
+      document.body.append(appBody);
+      const audioMessage = () => {
+        const message = document.createElement("div");
+        message.id = "01E2EAUDIOMESSAGE000000000";
+        const card = document.createElement("div");
+        const info = document.createElement("div");
+        info.append(document.createElementNS("http://www.w3.org/2000/svg", "svg"), document.createElement("div"));
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = silence;
+        card.append(info, audio);
+        message.append(card);
+        chatList.append(message);
+        return { message, audio };
+      };
+      const nowBar = () => barHeader.nextElementSibling?.classList.contains("ap-now") ? barHeader.nextElementSibling : null;
+      const firstTrack = audioMessage();
+      (await waitFor(() => firstTrack.message.querySelector(".ap-cover"), 3000, 50))?.click();
+      const barState = {
+        shown: Boolean(await waitFor(() => nowBar() && !firstTrack.audio.paused, 5000, 50)),
+        title: nowBar()?.querySelector(".ap-now-title")?.textContent ?? null,
+      };
+      chatList.replaceChildren();
+      barState.kept = Boolean(
+        await waitFor(() => firstTrack.audio.parentElement?.classList.contains("ap-keep") && !firstTrack.audio.paused && nowBar(), 3000, 50),
+      );
+      const secondTrack = audioMessage();
+      barState.returned = Boolean(
+        await waitFor(() => secondTrack.message.contains(firstTrack.audio) && !secondTrack.audio.isConnected && !firstTrack.audio.paused, 3000, 50),
+      );
+      nowBar()?.querySelector(":scope > .ap-edge")?.click();
+      barState.closed = Boolean(await waitFor(() => !document.querySelector(".ap-now") && firstTrack.audio.paused, 3000, 50));
+      appBody.remove();
+      URL.revokeObjectURL(silence);
+      await check(
+        "плашка «сейчас играет»: под заголовком, звук не прерывается при смене канала, элемент возвращается в сообщение, ✕ закрывает",
+        barState.shown && barState.kept && barState.returned && barState.closed,
+        barState,
+      );
 
       // настройки действуют сразу: избранное в открытом окне GIF
       qolInput("favorite_gifs")?.click();
