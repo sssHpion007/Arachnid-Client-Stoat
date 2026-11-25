@@ -722,6 +722,18 @@ pub fn media_transcode(
     transcoder.inner().request(&url, &name, start)
 }
 
+/// Самое длинное поле отчёта плеера, символов
+const REPORT_LIMIT: usize = 400;
+
+/// Отчёт плеера о сбое загрузки — в журнал клиента: по нему видно, почему
+/// файл не загрузился (текст ошибки Chromium, состояние элемента).
+#[tauri::command]
+pub fn media_report(url: String, event: String, detail: String) {
+    let cut = |text: &str| text.chars().take(REPORT_LIMIT).collect::<String>();
+    let (url, event, detail) = (cut(&url), cut(&event), cut(&detail));
+    tracing::warn!(%url, %event, %detail, "плеер: сбой загрузки");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

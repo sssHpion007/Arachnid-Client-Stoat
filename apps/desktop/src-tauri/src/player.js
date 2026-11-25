@@ -667,18 +667,35 @@
     return [];
   }
 
-  const hevcPlayable = () =>
-    typeof MediaSource === "function" && MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"');
-
   /** Ответы сервера, после которых повторять бесполезно: файла нет или нельзя */
   const MISSING = (status) => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
-  /** Причина ошибки воспроизведения: "network" | "missing" | "hevc" | "format" */
+  /** Дорожки MP4, которые WebView2 показывает и без расширений Windows */
+  const PLAYABLE = new Set(["avc1", "avc3", "mp4a", ".mp3", "Opus", "fLaC", "vp09", "av01"]);
+
+  /** Начало файла — MP3, Ogg, FLAC или WAV: их WebView2 играет всегда */
+  function playableAudio(head) {
+    const text = fourcc(head, 0);
+    if (text === "OggS" || text === "fLaC" || text.startsWith("ID3")) return true;
+    if (text === "RIFF" && head.length >= 12) return fourcc(head, 8) === "WAVE";
+    // кадр MPEG audio без тегов: синхрослово 0xFFE
+    return head.length >= 2 && head[0] === 0xff && (head[1] & 0xe0) === 0xe0;
+  }
+
+  /**
+   * Причина ошибки воспроизведения: "network" | "missing" | "hevc" | "format"
+   * | "transient" — файл в формате, который WebView2 показывает, значит, не
+   * вышла сама загрузка
+   */
   async function failureOf(media) {
     if (media.error?.code === MediaError.MEDIA_ERR_NETWORK) return "network";
     try {
       const entries = await sampleEntries(media.currentSrc || media.src);
-      return entries.some((entry) => HEVC.has(entry)) && !hevcPlayable() ? "hevc" : "format";
+      if (entries.length && entries.every((entry) => PLAYABLE.has(entry))) return "transient";
+      if (!entries.length && playableAudio(await readRange(media.currentSrc || media.src, 0, 12))) return "transient";
+      // HEVC с ошибкой — даже если WebView2 говорит, что показывает его
+      // (бывает чёрный экран), — надёжнее перекодировать
+      return entries.some((entry) => HEVC.has(entry)) ? "hevc" : "format";
     } catch (error) {
       // сервер не отдаёт файл и отдельному запросу, или нет сети — дело не в
       // формате (запрет CORS у чужого сайта о самом файле ничего не говорит)
@@ -695,19 +712,41 @@
   // незаметно загружается заново, с того же места:
   //
   // * после ошибки — сразу и через секунду; если ошибка и тогда, выясняется
-  //   её причина: сбой сети или сервера — повтор каждые RETRY_MS, пока не
-  //   загрузится (и сразу, как только сеть вернулась); файла нет (4xx) или
-  //   формат не тот — дальше решает плеер;
+  //   её причина. Сбой сети или сервера, а также файл в формате, который
+  //   WebView2 показывает (сбой загрузки или декодера), — повторы дальше, всё
+  //   реже (RETRY_MS), пока не загрузится; когда сеть вернулась или нажали ▶
+  //   — сразу. Файла нет (4xx) или формат не тот — дальше решает плеер;
   // * загрузка (до метаданных) или воспроизведение стоят дольше STALL_MS, не
   //   получив ни байта, — тоже заново.
+  //
+  // Каждый сбой с текстом ошибки Chromium записывается в журнал клиента
+  // (media_report): по нему видно, почему файл не загрузился.
 
   /** Повторы сразу после ошибки, мс */
   const QUICK_RETRIES_MS = [0, 1000];
-  /** Повтор при сбое сети, мс */
-  const RETRY_MS = 5000;
+  /** Дальнейшие повторы, мс; последний — и все следующие */
+  const RETRY_MS = [3000, 5000, 10000, 20000, 30000];
   /** Столько загрузка может стоять без данных, мс */
   const STALL_MS = 10000;
   const WATCH_MS = 2000;
+
+  /** Сбой загрузки — в журнал клиента */
+  function reportMedia(media, event, attempts) {
+    const internals = window.__TAURI_INTERNALS__;
+    if (!window.__arachnidDesktop || !internals) return;
+    const error = media.error;
+    const detail = [
+      error ? `code ${error.code}: ${error.message || "—"}` : "no error",
+      `attempt ${attempts}`,
+      `ready ${media.readyState}`,
+      `network ${media.networkState}`,
+      `t ${media.currentTime.toFixed(1)}`,
+      media instanceof HTMLVideoElement ? `size ${media.videoWidth}x${media.videoHeight}` : "audio",
+      navigator.onLine ? "online" : "offline",
+    ].join(", ");
+    const url = media.currentSrc || media.src;
+    void internals.invoke("media_report", { url, event, detail }).catch(() => {});
+  }
 
   /** Проверки зависшей загрузки всех плееров — одним таймером */
   const stallWatches = new Set();
@@ -725,6 +764,7 @@
     let timer = 0;
     let last = performance.now();
     const touch = () => (last = performance.now());
+    const report = (event) => reportMedia(media, event, attempts);
 
     function reload() {
       timer = 0;
@@ -748,14 +788,22 @@
     function onError() {
       const current = media.currentSrc || media.src;
       if (current !== src) [src, attempts] = [current, 0];
+      report("error");
       if (attempts < QUICK_RETRIES_MS.length) return later(QUICK_RETRIES_MS[attempts]);
       const failed = media.error;
       void failureOf(media).then((reason) => {
         if (media.error !== failed || timer) return;
-        if (reason === "network") later(RETRY_MS);
-        else onGiveUp(reason);
+        if (reason === "network" || reason === "transient") {
+          const step = Math.min(attempts - QUICK_RETRIES_MS.length, RETRY_MS.length - 1);
+          return later(RETRY_MS[step]);
+        }
+        report(`give-up ${reason}`);
+        onGiveUp(reason);
       });
     }
+
+    // загрузилось после повторов — в журнал, что помогло
+    const onLoaded = () => attempts && report("recovered");
 
     // сеть вернулась — не ждать повтора
     const onOnline = () => timer && later(0);
@@ -765,7 +813,9 @@
       const loading =
         media.readyState === HTMLMediaElement.HAVE_NOTHING && media.networkState === HTMLMediaElement.NETWORK_LOADING;
       const stuck = wanted() && !media.paused && media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
-      if (loading || stuck) reload();
+      if (!loading && !stuck) return;
+      report(loading ? "stalled loading" : "stalled playback");
+      reload();
     }
 
     const listeners = [
@@ -775,6 +825,7 @@
       [media, "timeupdate", touch],
       [media, "seeking", touch],
       [media, "canplay", touch],
+      [media, "loadeddata", onLoaded],
       [window, "online", onOnline],
     ];
     for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
@@ -787,6 +838,20 @@
     if (media.error) onError();
 
     return {
+      /** Пользователь ждёт (нажал ▶): назначенный повтор — сейчас; false — повтора нет */
+      hurry() {
+        if (timer) later(0);
+        return Boolean(timer);
+      },
+      /** Загрузка не удалась, хотя ошибки не было (нет картинки), — заново */
+      retry() {
+        report("no picture");
+        reload();
+      },
+      /** Сколько раз файл уже загружался заново */
+      get attempts() {
+        return attempts;
+      },
       dispose() {
         for (const [target, type, handler] of listeners) target.removeEventListener(type, handler);
         clearTimeout(timer);
@@ -1163,6 +1228,8 @@
     let intent = !video.paused;
     /** Видео без картинки: выясняется, почему */
     let checking = false;
+    /** Видео без картинки уже загружалось заново */
+    let pictureRetried = false;
     let dragging = false;
     let hovering = false;
     let hideTimer = 0;
@@ -1216,7 +1283,16 @@
     );
     host.append(overlay);
 
-    const toggle = () => (undecodable ? convert() : togglePlayback(video));
+    const toggle = () => {
+      if (undecodable) return convert();
+      // ещё загружается заново: заиграет, как только загрузится
+      if (video.error && healing.hurry()) {
+        intent = true;
+        spinner.hidden = false;
+        return;
+      }
+      togglePlayback(video);
+    };
 
     // Управление видно, пока мышь над видео и двигается; на паузе — пока
     // мышь над видео. Мышь ушла — управление и «скачать» прячутся.
@@ -1382,10 +1458,15 @@
       video.pause();
       spinner.hidden = false;
       const src = currentSrc();
-      // HEVC — для подсказки, если перекодировать не получится
       const entries = await sampleEntries(src).catch(() => []);
       checking = false;
       if (currentSrc() !== src) return;
+      // формат, который WebView2 показывает: не создался декодер — заново, один раз
+      if (!pictureRetried && entries.length && entries.every((entry) => PLAYABLE.has(entry))) {
+        pictureRetried = true;
+        return healing.retry();
+      }
+      // HEVC — для подсказки, если перекодировать не получится
       await cannotPlay(entries.some((entry) => HEVC.has(entry)) ? "hevc" : "format");
     }
 
@@ -1530,7 +1611,12 @@
     audio.after(bar, errorLine);
     const menu = speedMenu(speedButton, bar, { onOpen: () => {}, floating: true });
 
-    const toggle = () => togglePlayback(audio);
+    const toggle = () => {
+      if (!audio.error || !healing.hurry()) return togglePlayback(audio);
+      // ещё загружается заново: заиграет, как только загрузится
+      intent = true;
+      loading();
+    };
     let frame = 0;
     let loadTimer = 0;
     /** Пользователь хочет, чтобы аудио играло */

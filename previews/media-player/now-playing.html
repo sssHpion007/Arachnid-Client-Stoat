@@ -590,7 +590,9 @@
         const jobs = new Map();
         window.__arachnidDesktop = {};
         window.__TAURI_INTERNALS__ = {
-          async invoke(command, { url, start }) {
+          async invoke(command, { url, start, event, detail }) {
+            // журнал клиента — в консоль
+            if (command === "media_report") return console.warn("плеер: сбой загрузки", event, url, detail);
             if (command !== "media_transcode") throw new Error(command);
             if (!jobs.has(url)) {
               if (!start) return { state: "idle" };

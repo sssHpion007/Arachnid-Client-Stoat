@@ -46,6 +46,7 @@ const COMMANDS: &[&str] = &[
     "hotkeys_set",
     "hotkeys_record",
     "media_transcode",
+    "media_report",
 ];
 
 /// Встроить ffmpeg для перекодирования видео (`src/transcode.rs`): путь к
