@@ -289,25 +289,6 @@
         fill: currentColor;
       }
 
-      .lightbox {
-        position: fixed;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        background: rgb(0 0 0 / 0.8);
-        cursor: zoom-out;
-        z-index: 10;
-      }
-
-      .lightbox img {
-        max-width: 80vw;
-        max-height: 80vh;
-        border-radius: 8px;
-      }
-
-      .lightbox[hidden] {
-        display: none;
-      }
 
       .toast {
         position: fixed;
@@ -351,49 +332,23 @@
           </div>
         </article>
 
-        <article class="message">
-          <div class="avatar b">S</div>
-          <div class="body">
-            <div class="meta"><b>Stoat</b><small>Сегодня в 14:05</small></div>
-            <div>Аудио с обложкой внутри файла — щёлкни по обложке.</div>
-            <div class="attachment">
-              <div class="file-info">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 2C6.486 2 2 6.486 2 12v4.143C2 17.167 2.897 18 4 18h1a1 1 0 0 0 1-1v-5.143a1 1 0 0 0-1-1h-.908C4.648 6.987 7.978 4 12 4s7.352 2.987 7.908 6.857H19a1 1 0 0 0-1 1V18c0 1.103-.897 2-2 2h-2v-1h-4v3h6c2.206 0 4-1.794 4-4 1.103 0 2-.833 2-1.857V12c0-5.514-4.486-10-10-10z"
-                  />
-                </svg>
-                <div class="names"><span>night-city.mp3</span><small>662.94 KB</small></div>
-                <button class="icon-button" type="button" data-download="night-city.mp3"></button>
-              </div>
-              <audio controls src="night-city.mp3"></audio>
+        <template id="audio-card">
+          <div class="attachment">
+            <div class="file-info">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 2C6.486 2 2 6.486 2 12v4.143C2 17.167 2.897 18 4 18h1a1 1 0 0 0 1-1v-5.143a1 1 0 0 0-1-1h-.908C4.648 6.987 7.978 4 12 4s7.352 2.987 7.908 6.857H19a1 1 0 0 0-1 1V18c0 1.103-.897 2-2 2h-2v-1h-4v3h6c2.206 0 4-1.794 4-4 1.103 0 2-.833 2-1.857V12c0-5.514-4.486-10-10-10z"
+                />
+              </svg>
+              <div class="names"><span></span><small></small></div>
+              <button class="icon-button" type="button"></button>
             </div>
+            <audio controls></audio>
           </div>
-        </article>
-
-        <article class="message">
-          <div class="avatar c">M</div>
-          <div class="body">
-            <div class="meta"><b>Mira</b><small>Сегодня в 14:07</small></div>
-            <div>А в этом файле картинки нет.</div>
-            <div class="attachment">
-              <div class="file-info">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 2C6.486 2 2 6.486 2 12v4.143C2 17.167 2.897 18 4 18h1a1 1 0 0 0 1-1v-5.143a1 1 0 0 0-1-1h-.908C4.648 6.987 7.978 4 12 4s7.352 2.987 7.908 6.857H19a1 1 0 0 0-1 1V18c0 1.103-.897 2-2 2h-2v-1h-4v3h6c2.206 0 4-1.794 4-4 1.103 0 2-.833 2-1.857V12c0-5.514-4.486-10-10-10z"
-                  />
-                </svg>
-                <div class="names"><span>morning.mp3</span><small>313.94 KB</small></div>
-                <button class="icon-button" type="button" data-download="morning.mp3"></button>
-              </div>
-              <audio controls src="morning.mp3"></audio>
-            </div>
-          </div>
-        </article>
+        </template>
       </section>
     </main>
 
-    <div class="lightbox" hidden><img alt="" /></div>
     <div class="toast"></div>
 
     <script src="icons.js"></script>
@@ -401,6 +356,36 @@
     <script src="player.js"></script>
     <script>
       "use strict";
+
+      // варианты аудио: в каждом — файл с обложкой и без
+      const VARIANTS = [
+        ["1", "Квадратная обложка-кнопка на месте значка наушников. Остальное как раньше."],
+        ["2", "Круглая обложка-кнопка с кольцом прогресса вокруг."],
+        ["3", "Большая обложка-кнопка слева во всю высоту карточки."],
+        ["4", "Компактно: круглая обложка-кнопка, справа имя, кнопки, перемотка и время."],
+      ];
+      const FILES = [
+        ["night-city.mp3", "662.94 KB"],
+        ["morning.mp3", "313.94 KB"],
+      ];
+      const template = document.getElementById("audio-card");
+      for (const [layout, text] of VARIANTS) {
+        const message = document.createElement("article");
+        message.className = "message";
+        message.innerHTML = `<div class="avatar b">${layout}</div><div class="body"><div class="meta"><b>Вариант ${layout}</b></div><div></div></div>`;
+        const body = message.querySelector(".body");
+        body.lastChild.textContent = text;
+        for (const [name, size] of FILES) {
+          const card = template.content.firstElementChild.cloneNode(true);
+          card.dataset.layout = layout;
+          card.querySelector(".names span").textContent = name;
+          card.querySelector(".names small").textContent = size;
+          card.querySelector("button").dataset.download = name;
+          card.querySelector("audio").src = name;
+          body.append(card);
+        }
+        template.before(message);
+      }
 
       // кнопки «скачать» for-web
       for (const button of document.querySelectorAll("[data-download]")) {
@@ -420,13 +405,6 @@
         link.remove();
       }
 
-      const lightbox = document.querySelector(".lightbox");
-      lightbox.addEventListener("click", () => (lightbox.hidden = true));
-      document.addEventListener("keydown", (event) => event.key === "Escape" && (lightbox.hidden = true));
-      const openCover = (src) => {
-        lightbox.querySelector("img").src = src;
-        lightbox.hidden = false;
-      };
 
       const toast = document.querySelector(".toast");
       let toastTimer = 0;
@@ -442,7 +420,11 @@
         players = [
           ...[...document.querySelectorAll(".sized video")].map((video) => Player.enhanceVideo(video, { download })),
           ...[...document.querySelectorAll(".attachment audio")].map((audio) =>
-            Player.enhanceAudio(audio, { download, cover: Covers.cover, openCover }),
+            Player.enhanceAudio(audio, {
+              download,
+              cover: Covers.cover,
+              layout: Number(audio.parentElement.dataset.layout),
+            }),
           ),
         ];
       }

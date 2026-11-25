@@ -28,7 +28,6 @@ const Player = (() => {
     fullscreen: "Во весь экран (f)",
     exitFullscreen: "Выйти из полноэкранного режима (f)",
     download: "Скачать",
-    cover: "Обложка",
     videoError: "Не удалось воспроизвести видео",
     audioError: "Не удалось воспроизвести аудио",
     errorHint: "Формат не поддерживается — файл можно скачать.",
@@ -57,6 +56,17 @@ const Player = (() => {
     return svg;
   }
 
+  /** Заменить значок, только если он другой: замена под курсором между
+   *  нажатием и отпусканием мыши съедает щелчок */
+  function setIcon(element, name) {
+    if (element.dataset.icon === name) return;
+    element.dataset.icon = name;
+    const next = icon(name);
+    const old = element.querySelector(":scope > svg");
+    if (old) old.replaceWith(next);
+    else element.prepend(next);
+  }
+
   function h(tag, attributes = {}, ...children) {
     const element = document.createElement(tag);
     for (const [key, value] of Object.entries(attributes)) {
@@ -72,7 +82,8 @@ const Player = (() => {
   /** Кнопка со значком и подсказкой; `tip` — функция, чтобы подпись менялась */
   function button(name, className = "") {
     const element = h("button", { type: "button", class: `ap-button ${className}`.trim() }, icon(name));
-    element.setIcon = (next) => element.firstChild.replaceWith(icon(next));
+    element.dataset.icon = name;
+    element.setIcon = (next) => setIcon(element, next);
     element.setTip = (text) => {
       element.dataset.tip = text;
       element.setAttribute("aria-label", text);
@@ -300,6 +311,8 @@ const Player = (() => {
     return (event) => {
       if (event.ctrlKey || event.altKey || event.metaKey) return;
       if (event.target.closest?.("input[type=range]") && event.key.startsWith("Arrow")) return;
+      // пробел и Enter на кнопке — нажатие самой кнопки
+      if ((event.key === " " || event.key === "Enter") && event.target.closest?.("button")) return;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const action = {
         " ": controls.toggle,
@@ -423,7 +436,7 @@ const Player = (() => {
       overlay.classList.toggle("ap-started", started);
       overlay.classList.toggle("ap-paused", paused);
       overlay.classList.toggle("ap-ended", video.ended && !video.loop);
-      bigPlay.replaceChildren(icon(video.ended ? "replay" : "play"));
+      setIcon(bigPlay, video.ended ? "replay" : "play");
       repeat.classList.toggle("ap-on", video.loop);
       repeat.setTip(video.loop ? T.repeatOn : T.repeatOff);
       const fullscreen = document.fullscreenElement === host;
@@ -528,21 +541,33 @@ const Player = (() => {
 
   // ───────────────────────────────── аудио ─────────────────────────────────
 
-  function enhanceAudio(audio, { download, cover, openCover }) {
+  /**
+   * Варианты карточки (для превью):
+   * 1 — квадратная обложка-кнопка на месте значка наушников;
+   * 2 — круглая обложка-кнопка с кольцом прогресса;
+   * 3 — большая обложка-кнопка слева во всю высоту карточки;
+   * 4 — компактно: круглая обложка-кнопка, справа имя, перемотка и кнопки.
+   */
+  function enhanceAudio(audio, { download, cover, layout = 1 }) {
     const card = audio.parentElement;
     const info = audio.previousElementSibling;
     const headphones = info?.firstElementChild;
+    const downloadButton = info?.lastElementChild;
     const before = { controls: audio.controls, rate: audio.playbackRate };
     audio.controls = false;
-    card.classList.add("ap-audio-card");
+    card.classList.add("ap-audio-card", `ap-layout-${layout}`);
 
-    const art = h("button", { type: "button", class: "ap-cover", "aria-label": T.cover, disabled: true }, icon("note"));
-    if (headphones) {
-      headphones.classList.add("ap-replaced");
-      headphones.before(art);
-    }
+    // обложка — она же кнопка воспроизведения
+    const ring = layout === 2 ? progressRing() : null;
+    const state = h("span", { class: "ap-cover-state" }, icon("play"), equalizer());
+    const art = h(
+      "button",
+      { type: "button", class: "ap-cover" },
+      h("span", { class: "ap-cover-image" }, icon("note")),
+      state,
+      ring?.root,
+    );
 
-    const play = h("button", { type: "button", class: "ap-round-play" }, icon("play"));
     const current = h("span", { class: "ap-time" }, "0:00");
     const total = h("span", { class: "ap-time" }, "0:00");
     const seek = progress(audio, { onDrag: () => {} });
@@ -550,17 +575,22 @@ const Player = (() => {
     const repeat = button("repeat", "ap-toggle");
     const speedButton = h("button", { type: "button", class: "ap-button ap-speed-button", "data-tip": T.speed }, "1×");
     const errorLine = h("div", { class: "ap-audio-error", hidden: true }, icon("error"), T.audioError);
-    const bar = h(
-      "div",
-      { class: "ap-audio", tabindex: "0" },
-      play,
-      current,
-      seek.root,
-      total,
-      vol.root,
-      repeat,
-      speedButton,
-    );
+    const added = [art, errorLine];
+
+    let bar;
+    if (layout === 4) {
+      // кнопки — в строке с именем, перед «скачать»; ниже — перемотка и время
+      const tools = h("div", { class: "ap-audio-tools" }, vol.root, repeat, speedButton);
+      downloadButton.before(tools);
+      bar = h("div", { class: "ap-audio" }, seek.root, h("span", { class: "ap-time ap-time-both" }, current, " / ", total));
+      added.push(tools);
+    } else {
+      bar = h("div", { class: "ap-audio" }, current, seek.root, total, vol.root, repeat, speedButton);
+    }
+    added.push(bar);
+    if (layout === 1 || layout === 2) headphones?.before(art);
+    else card.prepend(art);
+    headphones?.classList.add("ap-replaced");
     audio.after(bar, errorLine);
     const menu = speedMenu(speedButton, bar, { onOpen: () => {}, floating: true });
 
@@ -570,22 +600,31 @@ const Player = (() => {
     };
     let frame = 0;
 
-    function sync() {
-      const paused = audio.paused || audio.ended;
-      play.replaceChildren(icon(audio.ended ? "replay" : paused ? "play" : "pause"));
-      play.setAttribute("aria-label", audio.ended ? T.replay : paused ? T.listen : T.pause);
-      play.dataset.tip = play.getAttribute("aria-label");
-      repeat.classList.toggle("ap-on", audio.loop);
-      repeat.setTip(audio.loop ? T.repeatOn : T.repeatOff);
+    function paintTime() {
       current.textContent = time(audio.currentTime);
       total.textContent = time(audio.duration);
       seek.paint();
+      ring?.paint(audio.currentTime / audio.duration);
     }
+    function sync() {
+      const paused = audio.paused || audio.ended;
+      const name = audio.ended ? "replay" : paused ? "play" : "pause";
+      setIcon(state, name);
+      const label = audio.ended ? T.replay : paused ? T.listen : T.pause;
+      art.setAttribute("aria-label", label);
+      art.dataset.tip = label;
+      card.classList.toggle("ap-playing", !paused);
+      repeat.classList.toggle("ap-on", audio.loop);
+      repeat.setTip(audio.loop ? T.repeatOn : T.repeatOff);
+      paintTime();
+    }
+    // на каждом кадре — только время и полосы, без перестройки кнопок
     function tick() {
-      sync();
+      paintTime();
       frame = audio.paused ? 0 : requestAnimationFrame(tick);
     }
 
+    const onKey = keys(audio, { toggle, volume: vol });
     const listeners = [
       [audio, "play", () => (sync(), (frame ||= requestAnimationFrame(tick)))],
       [audio, "pause", sync],
@@ -594,12 +633,12 @@ const Player = (() => {
       [audio, "durationchange", sync],
       [audio, "progress", () => seek.paint()],
       [audio, "seeked", sync],
-      [audio, "error", () => ((errorLine.hidden = false), bar.classList.add("ap-failed"))],
+      [audio, "error", () => ((errorLine.hidden = false), card.classList.add("ap-failed"))],
+      [card, "keydown", onKey],
     ];
     for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
-    play.addEventListener("click", toggle);
+    art.addEventListener("click", toggle);
     repeat.addEventListener("click", () => ((audio.loop = !audio.loop), sync()));
-    bar.addEventListener("keydown", keys(audio, { toggle, volume: vol }));
 
     // обложка — когда карточка подходит к экрану
     let alive = true;
@@ -611,20 +650,14 @@ const Player = (() => {
           if (!alive || !url) return;
           const image = h("img", { src: url, alt: "", draggable: "false" });
           image.addEventListener("load", () => {
-            art.replaceChildren(image);
-            art.disabled = false;
+            art.firstChild.replaceChildren(image);
             art.classList.add("ap-has-cover");
-            art.dataset.tip = T.cover;
           });
         });
       },
       { rootMargin: "100% 0px" },
     );
     watcher.observe(card);
-    art.addEventListener("click", () => {
-      const image = art.querySelector("img");
-      if (image) openCover(image.src);
-    });
 
     const player = {
       applySpeed() {
@@ -637,11 +670,9 @@ const Player = (() => {
         for (const [target, type, handler] of listeners) target.removeEventListener(type, handler);
         cancelAnimationFrame(frame);
         menu.remove();
-        bar.remove();
-        errorLine.remove();
-        art.remove();
+        for (const node of added) node.remove();
         headphones?.classList.remove("ap-replaced");
-        card.classList.remove("ap-audio-card");
+        card.classList.remove("ap-audio-card", `ap-layout-${layout}`, "ap-playing", "ap-failed");
         audio.controls = before.controls;
         audio.playbackRate = before.rate;
         players.delete(player);
@@ -652,6 +683,39 @@ const Player = (() => {
     sync();
     if (audio.error) audio.dispatchEvent(new Event("error"));
     return player;
+  }
+
+  /** Три полоски «играет» поверх обложки */
+  function equalizer() {
+    return h("span", { class: "ap-eq", "aria-hidden": "true" }, h("i"), h("i"), h("i"));
+  }
+
+  /** Кольцо прогресса вокруг круглой обложки */
+  function progressRing() {
+    const root = document.createElementNS(SVG, "svg");
+    root.setAttribute("class", "ap-ring");
+    root.setAttribute("viewBox", "0 0 56 56");
+    root.setAttribute("aria-hidden", "true");
+    const circle = (className) => {
+      const element = document.createElementNS(SVG, "circle");
+      element.setAttribute("class", className);
+      element.setAttribute("cx", "28");
+      element.setAttribute("cy", "28");
+      element.setAttribute("r", "26");
+      element.setAttribute("pathLength", "100");
+      root.append(element);
+      return element;
+    };
+    circle("ap-ring-track");
+    const value = circle("ap-ring-value");
+    return {
+      root,
+      paint(ratio) {
+        const part = Number.isFinite(ratio) ? ratio : 0;
+        value.style.strokeDashoffset = String(100 - part * 100);
+        value.style.opacity = part > 0 ? "1" : "0";
+      },
+    };
   }
 
   return { enhanceVideo, enhanceAudio };

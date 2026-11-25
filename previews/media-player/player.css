@@ -19,9 +19,7 @@
 }
 
 .ap-button svg,
-.ap-round-play svg,
-.ap-big-play svg,
-.ap-cover svg {
+.ap-big-play svg {
   width: 24px;
   height: 24px;
   fill: currentColor;
@@ -32,7 +30,6 @@
 }
 
 .ap-button:focus-visible,
-.ap-round-play:focus-visible,
 .ap-big-play:focus-visible,
 .ap-cover:focus-visible,
 .ap-menu-item:focus-visible {
@@ -42,7 +39,6 @@
 
 /* подсказка над кнопкой */
 .ap-button[data-tip]:hover::after,
-.ap-round-play[data-tip]:hover::after,
 .ap-cover[data-tip]:hover::after {
   content: attr(data-tip);
   position: absolute;
@@ -597,34 +593,128 @@
   display: none !important;
 }
 
+/* обложка — она же кнопка воспроизведения */
 .ap-cover {
+  --ap-cover: 48px;
   position: relative;
   display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
+  width: var(--ap-cover);
+  height: var(--ap-cover);
   padding: 0;
   border: 0;
   border-radius: 8px;
   flex-shrink: 0;
-  background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 12%, transparent);
-  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-primary);
+  color: var(--md-sys-color-on-primary);
+  cursor: pointer;
 }
 
-.ap-cover:disabled {
-  cursor: default;
+.ap-cover > * {
+  grid-area: 1 / 1;
 }
 
-.ap-cover.ap-has-cover {
-  cursor: zoom-in;
+.ap-cover-image {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: inherit;
 }
 
-.ap-cover img {
+/* без обложки значок ноты не нужен: кнопка сама цвета акцента */
+.ap-cover:not(.ap-has-cover) .ap-cover-image svg {
+  display: none;
+}
+
+.ap-cover-image img {
   width: 100%;
   height: 100%;
-  border-radius: inherit;
   object-fit: cover;
   animation: ap-fade 0.2s;
+}
+
+@keyframes ap-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.ap-cover-state {
+  display: grid;
+  place-items: center;
+  border-radius: inherit;
+  transition: background 0.15s;
+}
+
+.ap-cover-state svg {
+  grid-area: 1 / 1;
+  width: calc(var(--ap-cover) * 0.5);
+  height: calc(var(--ap-cover) * 0.5);
+  fill: currentColor;
+  transition: opacity 0.15s;
+}
+
+.ap-has-cover .ap-cover-state {
+  color: #fff;
+  background: rgb(0 0 0 / 0.4);
+}
+
+.ap-has-cover .ap-cover-state svg {
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.5));
+}
+
+.ap-cover:hover .ap-cover-state {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.ap-has-cover:hover .ap-cover-state {
+  background: rgb(0 0 0 / 0.5);
+}
+
+/* играет: обложка открыта, вместо паузы — полоски; пауза — при наведении */
+.ap-playing .ap-has-cover:not(:hover, :focus-visible) .ap-cover-state {
+  background: rgb(0 0 0 / 0.15);
+}
+
+.ap-eq {
+  grid-area: 1 / 1;
+  display: none;
+  align-items: end;
+  gap: 3px;
+  height: calc(var(--ap-cover) * 0.36);
+}
+
+.ap-eq i {
+  width: 4px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: ap-eq 0.9s ease-in-out infinite alternate;
+}
+
+.ap-eq i:nth-child(2) {
+  animation-delay: -0.45s;
+}
+
+.ap-eq i:nth-child(3) {
+  animation-delay: -0.2s;
+}
+
+@keyframes ap-eq {
+  from {
+    transform: scaleY(0.25);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.ap-playing .ap-cover:not(:hover, :focus-visible) .ap-eq {
+  display: flex;
+}
+
+.ap-playing .ap-cover:not(:hover, :focus-visible) .ap-cover-state svg {
+  opacity: 0;
 }
 
 .ap-cover[data-tip]:hover::after {
@@ -634,19 +724,13 @@
   transform: none;
 }
 
-@keyframes ap-fade {
-  from {
-    opacity: 0;
-  }
-}
-
+/* полоса */
 .ap-audio {
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 -4px -4px;
-  outline: none;
+  min-width: 0;
   color: var(--md-sys-color-on-secondary-container);
 }
 
@@ -659,30 +743,6 @@
   min-width: 30px;
   text-align: center;
   opacity: 0.85;
-}
-
-.ap-round-play {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--md-sys-color-primary);
-  color: var(--md-sys-color-on-primary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.ap-round-play:hover {
-  background: color-mix(in srgb, var(--md-sys-color-primary) 88%, var(--md-sys-color-on-primary));
-}
-
-.ap-round-play[data-tip]:hover::after {
-  left: 0;
-  transform: none;
 }
 
 .ap-speed-button {
@@ -712,6 +772,157 @@
   fill: currentColor;
 }
 
-.ap-audio.ap-failed {
+.ap-failed .ap-audio,
+.ap-failed .ap-cover-state,
+.ap-failed .ap-audio-tools {
   display: none;
+}
+
+/* 1 — квадратная обложка на месте значка */
+.ap-audio-card.ap-layout-1 .ap-audio {
+  margin-left: 2px;
+}
+
+/* 2 — круглая обложка с кольцом прогресса */
+.ap-audio-card.ap-layout-2 .ap-cover {
+  --ap-cover: 52px;
+  border-radius: 50%;
+  background: none;
+}
+
+.ap-audio-card.ap-layout-2 .ap-cover-image,
+.ap-audio-card.ap-layout-2 .ap-cover-state {
+  margin: 4px;
+  border-radius: 50%;
+}
+
+.ap-audio-card.ap-layout-2 .ap-cover-state svg {
+  width: 24px;
+  height: 24px;
+}
+
+.ap-audio-card.ap-layout-2 .ap-cover:not(.ap-has-cover) .ap-cover-image {
+  background: var(--md-sys-color-primary);
+}
+
+.ap-audio-card.ap-layout-2 .ap-eq {
+  height: 16px;
+}
+
+.ap-ring {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.ap-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.ap-ring-track {
+  stroke: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 20%, transparent);
+}
+
+.ap-ring-value {
+  stroke: var(--md-sys-color-primary);
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  stroke-linecap: round;
+}
+
+.ap-audio-card.ap-layout-2 .ap-audio {
+  margin-left: 2px;
+}
+
+/* 3 — большая обложка слева во всю высоту */
+.ap-audio-card.ap-layout-3 {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 4px;
+  align-items: center;
+}
+
+.ap-audio-card.ap-layout-3 .ap-cover {
+  --ap-cover: 88px;
+  grid-row: 1 / span 3;
+  align-self: start;
+}
+
+.ap-audio-card.ap-layout-3 .ap-cover-state svg {
+  width: 40px;
+  height: 40px;
+}
+
+.ap-audio-card.ap-layout-3 > :not(.ap-cover) {
+  grid-column: 2;
+}
+
+.ap-audio-card.ap-layout-3 .ap-audio {
+  margin-left: -4px;
+}
+
+/* 4 — компактно: всё справа от круглой обложки */
+.ap-audio-card.ap-layout-4 {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 0;
+  align-items: center;
+}
+
+.ap-audio-card.ap-layout-4 .ap-cover {
+  --ap-cover: 56px;
+  grid-row: 1 / span 3;
+  border-radius: 50%;
+}
+
+.ap-audio-card.ap-layout-4 .ap-cover-state svg {
+  width: 28px;
+  height: 28px;
+}
+
+.ap-audio-card.ap-layout-4 > :not(.ap-cover) {
+  grid-column: 2;
+}
+
+.ap-audio-card.ap-layout-4 > .ap-cover + * {
+  gap: 0;
+}
+
+.ap-audio-tools {
+  display: flex;
+  align-items: center;
+}
+
+.ap-audio-card.ap-layout-4 .ap-audio-tools .ap-button {
+  width: 32px;
+  height: 32px;
+}
+
+.ap-audio-card.ap-layout-4 .ap-audio-tools .ap-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ap-audio-card.ap-layout-4 .ap-audio-tools .ap-speed-button {
+  width: auto;
+  min-width: 32px;
+}
+
+.ap-audio-card.ap-layout-4 .ap-audio-tools .ap-speed-button::after,
+.ap-audio-card.ap-layout-4 .ap-audio-tools .ap-button::after {
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+}
+
+.ap-audio-card.ap-layout-4 .ap-audio {
+  gap: 10px;
+  margin-right: 8px;
+}
+
+.ap-audio-card.ap-layout-4 .ap-time-both {
+  min-width: auto;
 }
