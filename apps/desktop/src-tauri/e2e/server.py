@@ -54,7 +54,7 @@ LOGINS: list[dict] = []
 # запросы истории (GET /api/channels/<id>/messages): канал → сколько было
 HISTORY: dict[str, int] = {}
 HISTORY_PATH = re.compile(r"/api/channels/([0-9A-Za-z]+)/messages")
-# ответ на запрос, который повис: дольше тайм-аута клиента (15 с)
+# ответ на запрос, который повис: клиент через 5 с отправляет его ещё раз
 STALL_SECONDS = 20
 # через сколько мс освободится корзина после 429
 RESET_AFTER_MS = 700
@@ -113,7 +113,7 @@ class Handler(BaseHTTPRequestHandler):
         count = HISTORY.get(channel, 0) + 1
         HISTORY[channel] = count
         if channel.startswith("E2ESTALL") and count == 1:
-            # повисший запрос: клиент отменяет его сам и повторяет
+            # повисший запрос: клиент не ждёт его и отправляет запрос ещё раз
             time.sleep(STALL_SECONDS)
             self.close_connection = True
             return

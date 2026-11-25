@@ -250,5 +250,9 @@
     "next": "Következő",
     "close": "Bezárás",
     "goToMessage": "Ugrás az üzenethez"
+  },
+  "history": {
+    "loading": "Kérjük, várjon, az üzenetek betöltése folyamatban…",
+    "retry": "Kérjük, várjon, újrapróbálás {0} mp múlva…"
   }
 }

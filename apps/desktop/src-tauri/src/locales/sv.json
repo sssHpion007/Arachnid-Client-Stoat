@@ -250,5 +250,9 @@
     "next": "Nästa",
     "close": "Stäng",
     "goToMessage": "Gå till meddelandet"
+  },
+  "history": {
+    "loading": "Vänta, meddelanden läses in…",
+    "retry": "Vänta, nytt försök om {0} s…"
   }
 }

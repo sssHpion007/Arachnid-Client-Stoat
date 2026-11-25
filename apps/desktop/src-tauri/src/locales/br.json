@@ -250,5 +250,9 @@
     "next": "War-lerc’h",
     "close": "Serriñ",
     "goToMessage": "Mont d’ar gemennadenn"
+  },
+  "history": {
+    "loading": "Gortozit, o kargañ ar c'hemennadennoù…",
+    "retry": "Gortozit, klask en-dro a-benn {0} eil…"
   }
 }

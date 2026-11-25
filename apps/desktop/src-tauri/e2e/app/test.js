@@ -1620,8 +1620,8 @@ ${sidebarGroup("", [
         fetchHistory(`E2ELIMIT${runId}`),
       ]);
       await check(
-        "история чата: повисший запрос отменяется по тайм-ауту и повторяется",
-        stalled.status === 200 && stalled.body?.request === 2 && stalled.ms >= 14000 && stalled.ms < 19000,
+        "история чата: без ответа 5 с запрос отправляется ещё раз, берётся первый ответ",
+        stalled.status === 200 && stalled.body?.request === 2 && stalled.ms >= 4900 && stalled.ms < 9000,
         stalled,
       );
       await check(

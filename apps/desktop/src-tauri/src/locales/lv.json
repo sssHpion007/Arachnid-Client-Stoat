@@ -250,5 +250,9 @@
     "next": "Nākamais",
     "close": "Aizvērt",
     "goToMessage": "Pāriet uz ziņu"
+  },
+  "history": {
+    "loading": "Lūdzu, uzgaidiet, ziņas tiek ielādētas…",
+    "retry": "Lūdzu, uzgaidiet, atkārtots mēģinājums pēc {0} s…"
   }
 }

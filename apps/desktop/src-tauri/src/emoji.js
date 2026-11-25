@@ -558,6 +558,13 @@
 }
 `;
 
+  /** Рамка картинки или видео в сообщении — SizedContent for-web: размеры
+   *  задаёт встроенный стиль с aspect-ratio */
+  const SIZED_CONTENT = 'main div[style*="aspect-ratio"]';
+  const SIZED_IMAGE = `${SIZED_CONTENT} > img`;
+  /** Отметка загрузившейся (или не загрузившейся) картинки */
+  const IMAGE_SHOWN = "data-arachnid-shown";
+
   /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
   const INTERFACE_STYLE = `
 ${REACTION} {
@@ -668,6 +675,41 @@ span.arachnid-joined-icon {
   font-weight: 500;
   white-space: nowrap;
   pointer-events: none;
+}
+/* картинки вложений и встраиваний (SizedContent for-web) — не построчно по
+   мере загрузки: пока грузятся, на их месте мерцает заглушка, как у
+   сообщений, загрузились — плавно проявляются */
+${SIZED_IMAGE} {
+  transition: opacity 0.25s ease-out;
+}
+${SIZED_IMAGE}:not([${IMAGE_SHOWN}]) {
+  opacity: 0;
+}
+${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
+  background: linear-gradient(
+    90deg,
+    var(--md-sys-color-surface-container-highest) 25%,
+    var(--md-sys-color-surface-container-high) 50%,
+    var(--md-sys-color-surface-container-highest) 75%
+  );
+  background-size: 200% 100%;
+  animation: arachnid-image-shimmer 1.5s infinite;
+}
+@keyframes arachnid-image-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ${SIZED_IMAGE} {
+    transition: none;
+  }
+  ${SIZED_CONTENT} {
+    animation: none;
+  }
 }
 `;
 
@@ -1618,6 +1660,30 @@ span.arachnid-joined-icon {
     }
   }
 
+  // ─────────────────────── плавное появление картинок ───────────────────────
+  // Картинка видна, когда загрузилась целиком или не загрузилась вовсе
+  // (тогда — значок битой картинки браузера); событие load/error ловится при
+  // перехвате на document, как у значков ролей.
+
+  function onSizedImage(event) {
+    const img = event.target;
+    if (img instanceof HTMLImageElement && img.matches(SIZED_IMAGE)) img.setAttribute(IMAGE_SHOWN, "");
+  }
+
+  function watchImages() {
+    document.addEventListener("load", onSizedImage, true);
+    document.addEventListener("error", onSizedImage, true);
+    // уже загруженные до запуска плагина или до включения настройки
+    for (const img of document.querySelectorAll(`${SIZED_IMAGE}:not([${IMAGE_SHOWN}])`)) {
+      if (img.complete) img.setAttribute(IMAGE_SHOWN, "");
+    }
+  }
+
+  function unwatchImages() {
+    document.removeEventListener("load", onSizedImage, true);
+    document.removeEventListener("error", onSizedImage, true);
+  }
+
   // ─────────────────────────── дата присоединения ───────────────────────────
   // Плитка «Joined» профиля (ProfileJoined.tsx for-web) — квадрат с крупным
   // заголовком, который по-русски («Присоединившиеся») не влезает в плитку, и
@@ -2003,6 +2069,7 @@ span.arachnid-joined-icon {
     if (wanted === interfaceOn) return;
     interfaceOn = wanted;
     if (wanted) {
+      watchImages();
       ensureStyle(INTERFACE_STYLE_ID, INTERFACE_STYLE);
       watchRoleIcons();
       watchProfiles();
@@ -2010,6 +2077,7 @@ span.arachnid-joined-icon {
     } else {
       document.getElementById(INTERFACE_STYLE_ID)?.remove();
       unwatchRoleIcons();
+      unwatchImages();
       unwatchProfiles();
       removeEventListener("contextmenu", onBrowserMenu);
     }

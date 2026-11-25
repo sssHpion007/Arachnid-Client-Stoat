@@ -250,5 +250,9 @@
     "next": "Weiter",
     "close": "Schließen",
     "goToMessage": "Zur Nachricht springen"
+  },
+  "history": {
+    "loading": "Bitte warten, Nachrichten werden geladen…",
+    "retry": "Bitte warten, neuer Versuch in {0} s…"
   }
 }

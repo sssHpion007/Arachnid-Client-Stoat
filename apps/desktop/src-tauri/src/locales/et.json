@@ -250,5 +250,9 @@
     "next": "Järgmine",
     "close": "Sulge",
     "goToMessage": "Mine sõnumi juurde"
+  },
+  "history": {
+    "loading": "Palun oota, sõnumeid laaditakse…",
+    "retry": "Palun oota, uus katse {0} s pärast…"
   }
 }

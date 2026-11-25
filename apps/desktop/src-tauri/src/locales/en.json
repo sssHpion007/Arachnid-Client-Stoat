@@ -250,5 +250,9 @@
     "next": "Next",
     "close": "Close",
     "goToMessage": "Go to message"
+  },
+  "history": {
+    "loading": "Please wait, loading messages…",
+    "retry": "Please wait, retrying in {0} s…"
   }
 }
