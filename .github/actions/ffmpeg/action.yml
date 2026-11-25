@@ -29,7 +29,8 @@ runs:
       name: Сборка ffmpeg
       shell: msys2 {0}
       run: |
-        set -uo pipefail
+        # msys2 запускает bash с -e: без +e шаг кончился бы до аннотации
+        set +e -uo pipefail
         version=n9.0.2
         temp=$(cygpath -u "$RUNNER_TEMP")
         log="$temp/ffmpeg-build.log"
