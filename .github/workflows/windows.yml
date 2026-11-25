@@ -35,14 +35,16 @@ jobs:
       # встраивается в exe: перекодирование видео, которые WebView2 не играет
       - uses: ./.github/actions/ffmpeg
 
+      # ошибки компиляции и упавшие тесты — аннотациями
       - name: Тесты приложения
-        run: cargo test -p arachnid-client
+        shell: bash
+        run: .github/scripts/annotate.sh cargo test -p arachnid-client
 
       # как в release.yml: сборка Tauri CLI с возможностью portable
       - name: Сборка приложения
         shell: bash
         working-directory: apps/desktop/src-tauri
-        run: npx --yes "@tauri-apps/cli@2" build --no-bundle --features portable
+        run: ../../../.github/scripts/annotate.sh npx --yes "@tauri-apps/cli@2" build --no-bundle --features portable
 
       - name: ArachnidClient.exe
         shell: bash

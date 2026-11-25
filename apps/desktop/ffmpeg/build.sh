@@ -73,7 +73,11 @@ cd "$build"
   --enable-protocol="$(join "${protocols[@]}")" \
   --enable-filter="$(join "${filters[@]}")" \
   ${hwaccels[@]+--enable-hwaccel="$(join "${hwaccels[@]}")"} \
-  "${extra[@]}"
+  "${extra[@]}" || {
+  # причина — в конце журнала configure
+  tail -n 40 ffbuild/config.log
+  exit 1
+}
 
 make -j"$(nproc)" ffmpeg
 exe=ffmpeg

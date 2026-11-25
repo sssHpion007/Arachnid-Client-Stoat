@@ -29,11 +29,21 @@ runs:
       name: Сборка ffmpeg
       shell: msys2 {0}
       run: |
-        set -euo pipefail
+        set -uo pipefail
         version=n9.0.2
         temp=$(cygpath -u "$RUNNER_TEMP")
-        curl -fsSL "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/$version" | tar xz -C "$temp"
-        apps/desktop/ffmpeg/build.sh "$temp/FFmpeg-$version" ffmpeg-bin/ffmpeg.exe
+        log="$temp/ffmpeg-build.log"
+        {
+          curl -fsSL "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/$version" | tar xz -C "$temp" &&
+            apps/desktop/ffmpeg/build.sh "$temp/FFmpeg-$version" ffmpeg-bin/ffmpeg.exe
+        } 2>&1 | tee "$log"
+        status=${PIPESTATUS[0]}
+        if [ "$status" -ne 0 ]; then
+          # логи Actions доступны не всем инструментам, аннотации — через API
+          printf '::error title=ffmpeg не собран (%s)::%s\n' "$status" \
+            "$(tail -n 60 "$log" | sed 's/%/%25/g; s/\r//g' | awk '{ printf "%s%%0A", $0 }')"
+          exit "$status"
+        fi
 
     - name: ARACHNID_FFMPEG
       shell: pwsh
