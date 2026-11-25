@@ -29,6 +29,8 @@ const attachments = {
   vertical: ["bunny-vertical.mp4", "VID_20261110_183012.mp4"],
   // HEVC (H.265), как у видео из TikTok
   tiktok: ["tiktok-hevc.mp4", "tiktok_7436512345678901234.mp4"],
+  // то же видео, перекодированное в H.264 (ответ клиента на media_transcode)
+  converted: ["tiktok-h264.mp4", "tiktok_7436512345678901234.mp4"],
 };
 
 /** Путь запроса → файл: /client/… — из клиента, /attachments/<id>/<имя> —

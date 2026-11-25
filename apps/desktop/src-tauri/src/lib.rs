@@ -33,6 +33,7 @@ mod media;
 mod memory;
 mod plugin_host;
 mod system_emoji;
+mod transcode;
 mod usercss;
 
 /// Проблема, которую нужно сообщить странице.
@@ -129,6 +130,7 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-hotkeys-activate",
     "allow-hotkeys-set",
     "allow-hotkeys-record",
+    "allow-media-transcode",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -353,6 +355,8 @@ pub fn run() {
             // горячие клавиши «Quality of Life»: до создания окна, оно
             // подключает к ним WebView2
             app.manage(hotkeys::start(app.handle(), &data_dir));
+            // перекодирование видео, которые WebView2 не показывает (плеер)
+            app.manage(Arc::new(transcode::Transcoder::in_temp_dir()));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -410,6 +414,7 @@ pub fn run() {
             hotkeys::hotkeys_activate,
             hotkeys::hotkeys_set,
             hotkeys::hotkeys_record,
+            transcode::media_transcode,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

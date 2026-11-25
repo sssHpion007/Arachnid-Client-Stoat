@@ -585,6 +585,24 @@
           plugin.settings = { media_player: event.target.checked };
           for (const listener of subscribers) listener(plugin.settings);
         });
+        // клиент: media_transcode (transcode.rs) — скачивание ~1,5 с,
+        // перекодирование ~3 с, затем готовый файл H.264
+        const jobs = new Map();
+        window.__arachnidDesktop = {};
+        window.__TAURI_INTERNALS__ = {
+          async invoke(command, { url, start }) {
+            if (command !== "media_transcode") throw new Error(command);
+            if (!jobs.has(url)) {
+              if (!start) return { state: "idle" };
+              jobs.set(url, performance.now());
+            }
+            const elapsed = (performance.now() - jobs.get(url)) / 1000;
+            if (elapsed < 0.3) return { state: "queued" };
+            if (elapsed < 1.8) return { state: "downloading", progress: (elapsed - 0.3) / 1.5 };
+            if (elapsed < 4.8) return { state: "converting", progress: (elapsed - 1.8) / 3 };
+            return { state: "done", src: "/attachments/converted/tiktok_7436512345678901234.mp4" };
+          },
+        };
         const code = await (await fetch("/client/player.js", { cache: "no-store" })).text();
         new Function("plugin", code)(plugin);
       })();

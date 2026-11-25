@@ -32,6 +32,9 @@ jobs:
         with:
           key: windows-fast
 
+      # встраивается в exe: перекодирование видео, которые WebView2 не играет
+      - uses: ./.github/actions/ffmpeg
+
       - name: Тесты приложения
         run: cargo test -p arachnid-client
 

@@ -45,9 +45,32 @@ const COMMANDS: &[&str] = &[
     "hotkeys_activate",
     "hotkeys_set",
     "hotkeys_record",
+    "media_transcode",
 ];
 
+/// Встроить ffmpeg для перекодирования видео (`src/transcode.rs`): путь к
+/// exe, собранному `ffmpeg/build.sh`, в переменной `ARACHNID_FFMPEG`. Без неё
+/// клиент собирается без перекодирования.
+fn ffmpeg() {
+    println!("cargo:rustc-check-cfg=cfg(arachnid_ffmpeg)");
+    println!("cargo:rerun-if-env-changed=ARACHNID_FFMPEG");
+    let Some(path) = std::env::var_os("ARACHNID_FFMPEG").filter(|path| !path.is_empty()) else {
+        return;
+    };
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
+        return;
+    }
+    let path = std::path::absolute(&path)
+        .ok()
+        .filter(|path| path.is_file())
+        .unwrap_or_else(|| panic!("ARACHNID_FFMPEG: нет файла {}", path.to_string_lossy()));
+    println!("cargo:rerun-if-changed={}", path.display());
+    println!("cargo:rustc-env=ARACHNID_FFMPEG_PATH={}", path.display());
+    println!("cargo:rustc-cfg=arachnid_ffmpeg");
+}
+
 fn main() {
+    ffmpeg();
     let attributes = tauri_build::Attributes::new()
         .app_manifest(tauri_build::AppManifest::new().commands(COMMANDS));
     tauri_build::try_build(attributes).expect("ошибка сборки Tauri");

@@ -61,6 +61,7 @@ use crate::favorite_gifs::{self, FavoriteGifs};
 use crate::instance::Instance;
 use crate::manifest::{self, PluginManifest};
 use crate::plugin_host::{self, FetchRequest, FetchResponse, NativeHost, Storage};
+use crate::transcode::{self, Transcoder};
 use crate::{CmdResult, CommandError, usercss};
 
 /// Каталог тем в каталоге данных.
@@ -1492,7 +1493,8 @@ fn asset_response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Respon
         .unwrap_or_default()
 }
 
-/// Файлы из папок тем и плагинов (схема [`ASSET_SCHEME`]).
+/// Файлы из папок тем и плагинов, превью избранных GIF и перекодированные
+/// видео (схема [`ASSET_SCHEME`]).
 pub fn asset_protocol(
     context: tauri::UriSchemeContext<'_, tauri::Wry>,
     request: tauri::http::Request<Vec<u8>>,
@@ -1500,14 +1502,25 @@ pub fn asset_protocol(
 ) {
     let app = context.app_handle().clone();
     let path = request.uri().path().to_owned();
+    let range = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     // чтение с диска — не в главном потоке
     tauri::async_runtime::spawn_blocking(move || {
-        let response = match path.strip_prefix(favorite_gifs::ASSET_PREFIX) {
-            Some(file) => favorite_gif_preview(&app, file),
-            None => match app.try_state::<Arc<Extensions>>() {
+        let response = if let Some(file) = path.strip_prefix(favorite_gifs::ASSET_PREFIX) {
+            favorite_gif_preview(&app, file)
+        } else if let Some(file) = path.strip_prefix(transcode::ASSET_PREFIX) {
+            match app.try_state::<Arc<Transcoder>>() {
+                Some(transcoder) => transcode::asset(&transcoder, file, range.as_deref()),
+                None => asset_response(503, "text/plain", Vec::new()),
+            }
+        } else {
+            match app.try_state::<Arc<Extensions>>() {
                 Some(extensions) => extensions.asset(&path),
                 None => asset_response(503, "text/plain", Vec::new()),
-            },
+            }
         };
         responder.respond(response);
     });

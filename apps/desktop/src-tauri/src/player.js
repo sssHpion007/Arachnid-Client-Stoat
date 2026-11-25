@@ -26,6 +26,9 @@
 //   ответы кэширует браузер; своего кэша на диске нет.
 // * Правый щелчок по плееру открывает меню сообщения for-web: событие
 //   пересылается самому <video>/<audio> (меню for-web встаёт у указателя).
+// * Видео, которое WebView2 не показывает (HEVC из TikTok и с телефона,
+//   AVI, WMV…), клиент перекодирует в H.264 (transcode.rs): по нажатию на ▶
+//   в плеере — ход перекодирования, затем видео играет из готового файла.
 // * GIF for-web (видео без controls) не трогаются.
 //
 // Выключенная настройка возвращает элементы for-web как были.
@@ -606,9 +609,11 @@
   // ─────────────────────────── почему видео не играет ───────────────────────────
   // WebView2 декодирует HEVC (H.265) только через «Расширения для видео HEVC»
   // из Microsoft Store, а Chrome — сам, через видеокарту: поэтому в браузере
-  // такое видео (например, из TikTok) играет, а в клиенте — нет. Чтобы
-  // сказать об этом, а не просто «формат не поддерживается», после ошибки
-  // кодеки файла читаются из описаний дорожек MP4/MOV (stsd).
+  // такое видео (например, из TikTok) играет, а в клиенте — нет. Такое видео
+  // (и форматы, которых у Chromium нет вовсе) клиент перекодирует; узнать
+  // HEVC нужно и для этого, и чтобы без перекодирования (не получилось)
+  // сказать, в чём дело: после ошибки кодеки файла читаются из описаний
+  // дорожек MP4/MOV (stsd).
 
   const HEVC_STORE = "https://apps.microsoft.com/detail/9NMZLZ57R3T7";
   const HEVC = new Set(["hvc1", "hev1", "dvh1", "dvhe"]);
@@ -668,6 +673,31 @@
       // сервер не отдаёт файл и отдельному запросу, или нет сети — дело не в
       // формате (запрет CORS у чужого сайта о самом файле ничего не говорит)
       return error instanceof FetchError || !navigator.onLine ? "network" : "format";
+    }
+  }
+
+  // ────────────────────────────── перекодирование ──────────────────────────────
+  // Задачу выполняет клиент (transcode.rs): скачивает файл и перекодирует его
+  // в H.264; страница спрашивает, как идут дела, и получает адрес готового
+  // файла. Без клиента (или без ffmpeg в нём) — «unavailable».
+
+  /** Как часто спрашивать о ходе перекодирования, мс */
+  const CONVERT_POLL_MS = 250;
+
+  /** media_transcode: { state, progress?, src?, code? } */
+  async function transcode(url, start) {
+    const internals = window.__TAURI_INTERNALS__;
+    if (!window.__arachnidDesktop || !internals) return { state: "unavailable" };
+    const name = await Covers.name(url);
+    return internals.invoke("media_transcode", { url, name, start });
+  }
+
+  /** «42 %» — по правилам языка интерфейса */
+  function percent(value) {
+    try {
+      return new Intl.NumberFormat(i18n.intl(), { style: "percent" }).format(value);
+    } catch {
+      return `${Math.round(value * 100)}%`;
     }
   }
 
@@ -985,6 +1015,26 @@
     const errorHint = h("span");
     const storeLink = h("a", { class: "ap-error-link", href: HEVC_STORE, target: "_blank", hidden: true });
     const errorBox = h("div", { class: "ap-error", hidden: true }, icon("error"), errorTitle, errorHint, storeLink);
+    // перекодирование: кнопка ▶, затем кольцо хода
+    const convertStart = h("button", { type: "button", class: "ap-convert-start" }, icon("play"));
+    const ringCircle = document.createElementNS(SVG, "circle");
+    const ringSvg = document.createElementNS(SVG, "svg");
+    ringSvg.setAttribute("viewBox", "0 0 36 36");
+    ringSvg.setAttribute("aria-hidden", "true");
+    for (const className of ["ap-ring-track", "ap-ring-value"]) {
+      const circle = className === "ap-ring-value" ? ringCircle : document.createElementNS(SVG, "circle");
+      circle.setAttribute("class", className);
+      circle.setAttribute("cx", "18");
+      circle.setAttribute("cy", "18");
+      circle.setAttribute("r", "16");
+      circle.setAttribute("pathLength", "100");
+      ringSvg.append(circle);
+    }
+    const ringText = h("span");
+    const ring = h("div", { class: "ap-ring", hidden: true }, ringSvg, ringText);
+    const convertTitle = h("strong");
+    const convertHint = h("span");
+    const convertBox = h("div", { class: "ap-convert", hidden: true }, convertStart, ring, convertTitle, convertHint);
 
     const play = button("play", "ap-first");
     const vol = volume(video);
@@ -1004,6 +1054,16 @@
     let started = video.played.length > 0 || !video.paused;
     /** Причина ошибки (`failureOf`), пока она выясняется — "format" */
     let failure = "format";
+    /** Исходный адрес, пока играет перекодированный файл */
+    let original = null;
+    /**
+     * Перекодирование: null — не нужно; { src, state, progress } — для видео
+     * по адресу src, state как у media_transcode ("idle" — ждёт ▶)
+     */
+    let conversion = null;
+    let pollTimer = 0;
+    /** Включить видео, когда перекодирование закончится (нажали ▶) */
+    let playWhenReady = false;
     let dragging = false;
     let hovering = false;
     let hideTimer = 0;
@@ -1036,6 +1096,7 @@
       flash,
       bigPlay,
       errorBox,
+      convertBox,
       corner,
       h(
         "div",
@@ -1057,7 +1118,7 @@
     );
     host.append(overlay);
 
-    const toggle = () => togglePlayback(video);
+    const toggle = () => (conversion ? startConversion() : togglePlayback(video));
 
     // Управление видно, пока мышь над видео и двигается; на паузе — пока
     // мышь над видео. Мышь ушла — управление и «скачать» прячутся.
@@ -1107,9 +1168,11 @@
       full.setIcon(fullscreen ? "fullscreenExit" : "fullscreen");
       full.setTip(withKey(fullscreen ? text.exitFullscreen : text.fullscreen, "f"));
       errorTitle.textContent = text.videoError;
-      errorHint.textContent = { network: text.networkError, hevc: text.hevcError }[failure] ?? text.errorHint;
+      errorHint.textContent =
+        { network: text.networkError, hevc: text.hevcError, convert: text.convertError }[failure] ?? text.errorHint;
       storeLink.hidden = failure !== "hevc";
       storeLink.textContent = text.hevcStore;
+      paintConversion();
       vol.sync();
       paintTime();
       if (hovering) wake();
@@ -1144,17 +1207,109 @@
       sync();
     }
 
+    const currentSrc = () => video.currentSrc || video.src;
+
+    // Видео не играет: перекодировать (если есть чем), иначе — ошибка.
+    // Сеть тут не поможет; перекодированный файл второй раз не перекодируется.
+    async function cannotPlay(src) {
+      if (failure !== "network" && !original) {
+        const status = await transcode(src, false).catch(() => ({ state: "unavailable" }));
+        if (currentSrc() !== src) return;
+        if (status.state !== "unavailable") {
+          conversion = { src, state: "idle", progress: null };
+          return applyConversion(status);
+        }
+      }
+      showError();
+    }
+
+    function startConversion() {
+      if (!conversion || conversion.state !== "idle") return;
+      playWhenReady = true;
+      const { src } = conversion;
+      conversion.state = "queued";
+      sync();
+      void transcode(src, true)
+        .catch(() => ({ state: "failed", code: "io" }))
+        .then((status) => conversion?.src === src && applyConversion(status));
+    }
+
+    // ответ media_transcode
+    function applyConversion(status) {
+      clearTimeout(pollTimer);
+      if (status.state === "done") {
+        conversion = null;
+        useConverted(status.src);
+        return;
+      }
+      if (status.state === "failed") {
+        conversion = null;
+        overlay.classList.remove("ap-converting");
+        // HEVC без перекодирования (нет Media Foundation в Windows N и т. п.)
+        // — подсказка про расширение из Microsoft Store
+        if (failure !== "hevc") failure = "convert";
+        showError();
+        return;
+      }
+      conversion.state = status.state;
+      conversion.progress = status.progress ?? null;
+      hideSpinner();
+      overlay.classList.add("ap-failed");
+      sync();
+      if (status.state === "idle") return;
+      const { src } = conversion;
+      pollTimer = setTimeout(() => {
+        void transcode(src, false)
+          .catch(() => ({ state: "failed", code: "io" }))
+          .then((next) => conversion?.src === src && applyConversion(next));
+      }, CONVERT_POLL_MS);
+    }
+
+    function paintConversion() {
+      convertBox.hidden = !conversion;
+      overlay.classList.toggle("ap-converting", Boolean(conversion));
+      if (!conversion) return;
+      const waiting = conversion.state === "idle";
+      convertBox.classList.toggle("ap-busy", !waiting);
+      convertStart.hidden = !waiting;
+      convertStart.setAttribute("aria-label", text.play);
+      ring.hidden = waiting;
+      const progress = conversion.progress;
+      ring.classList.toggle("ap-ring-unknown", progress == null);
+      ringCircle.style.strokeDashoffset = String(100 - Math.round((progress ?? 0.25) * 100));
+      ringText.textContent = progress == null ? "" : percent(progress);
+      convertTitle.textContent = waiting
+        ? text.convertTitle
+        : conversion.state === "converting"
+          ? text.converting
+          : text.downloading;
+      convertHint.hidden = !waiting;
+      convertHint.textContent = text.convertHint;
+    }
+
+    // перекодированный файл вместо исходного
+    function useConverted(src) {
+      original ??= currentSrc();
+      failure = "format";
+      errorBox.hidden = true;
+      overlay.classList.remove("ap-failed", "ap-converting");
+      video.src = src;
+      sync();
+      if (playWhenReady) void video.play().catch(() => {});
+      playWhenReady = false;
+    }
+
     // Chromium, не умея декодировать дорожку видео, бывает, ошибки не даёт:
     // играет один звук без картинки. Если картинки нет из-за HEVC — это та
     // же ошибка.
     async function checkPicture() {
-      if (video.videoWidth > 0 || hevcPlayable()) return;
-      const src = video.currentSrc;
+      if (video.videoWidth > 0 || hevcPlayable() || original) return;
+      const src = currentSrc();
       const entries = await sampleEntries(src).catch(() => []);
-      if (video.currentSrc !== src || video.videoWidth > 0 || !entries.some((entry) => HEVC.has(entry))) return;
+      if (currentSrc() !== src || video.videoWidth > 0 || !entries.some((entry) => HEVC.has(entry))) return;
       video.pause();
       failure = "hevc";
-      showError();
+      await cannotPlay(src);
     }
 
     const listeners = [
@@ -1179,13 +1334,17 @@
         video,
         "error",
         () => {
-          showError();
+          // пока причина выясняется — без управления, со спиннером
+          overlay.classList.add("ap-failed");
+          spinner.hidden = false;
           const failed = video.error;
+          const src = currentSrc();
           void failureOf(video).then((reason) => {
             // пока выяснялось, адрес сменился
             if (video.error !== failed) return;
             failure = reason;
-            sync();
+            if (original) showError();
+            else void cannotPlay(src);
           });
         },
       ],
@@ -1217,7 +1376,8 @@
       [repeat, "click", () => ((video.loop = !video.loop), sync())],
       [full, "click", fullscreen],
       [pip, "click", togglePip],
-      [corner, "click", () => download(video.currentSrc || video.src)],
+      [convertBox, "click", startConversion],
+      [corner, "click", () => download(original ?? currentSrc())],
       [overlay, "contextmenu", forwardContextMenu(menuTarget)],
     ];
     for (const [target, type, handler] of listeners) target.addEventListener(type, handler);
@@ -1236,6 +1396,8 @@
         cancelAnimationFrame(frame);
         clearTimeout(hideTimer);
         clearTimeout(spinnerTimer);
+        clearTimeout(pollTimer);
+        conversion = null;
         menu.remove();
         overlay.remove();
         host.classList.remove("ap-host", "ap-idle");
@@ -2493,6 +2655,117 @@
     .ap-video.ap-failed .ap-big-play,
     .ap-video.ap-failed .ap-bottom {
       display: none;
+    }
+
+    /* перекодирование: ▶, затем кольцо хода */
+    .ap-convert {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 12px;
+      background: rgb(0 0 0 / 0.6);
+      text-align: center;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .ap-convert[hidden],
+    .ap-convert [hidden] {
+      display: none;
+    }
+
+    .ap-convert.ap-busy {
+      cursor: default;
+    }
+
+    .ap-convert-start {
+      display: grid;
+      place-items: center;
+      width: 60px;
+      height: 60px;
+      margin-bottom: 8px;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: rgb(0 0 0 / 0.6);
+      color: #fff;
+      cursor: pointer;
+      transition:
+        background 0.15s,
+        transform 0.15s;
+    }
+
+    .ap-convert-start svg {
+      width: 36px;
+      height: 36px;
+      fill: currentColor;
+    }
+
+    .ap-convert:hover .ap-convert-start,
+    .ap-convert-start:focus-visible {
+      background: var(--md-sys-color-primary);
+      color: var(--md-sys-color-on-primary);
+      transform: scale(1.06);
+    }
+
+    .ap-convert span {
+      color: rgb(255 255 255 / 0.8);
+    }
+
+    .ap-ring {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 60px;
+      height: 60px;
+      margin-bottom: 8px;
+    }
+
+    .ap-ring svg {
+      position: absolute;
+      inset: 0;
+      transform: rotate(-90deg);
+    }
+
+    .ap-ring circle {
+      fill: none;
+      stroke-width: 3;
+    }
+
+    .ap-ring-track {
+      stroke: rgb(255 255 255 / 0.25);
+    }
+
+    .ap-ring-value {
+      stroke: var(--md-sys-color-primary);
+      stroke-dasharray: 100;
+      stroke-linecap: round;
+      transition: stroke-dashoffset 0.25s linear;
+    }
+
+    /* доля неизвестна — четверть кольца крутится */
+    .ap-ring-unknown svg {
+      animation: ap-ring-spin 0.9s linear infinite;
+    }
+
+    @keyframes ap-ring-spin {
+      from {
+        transform: rotate(-90deg);
+      }
+      to {
+        transform: rotate(270deg);
+      }
+    }
+
+    .ap-convert .ap-ring span {
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
     }
 
     /* ───────────────────────────────── аудио ───────────────────────────────── */
