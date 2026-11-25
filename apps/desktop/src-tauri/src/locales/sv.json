@@ -30,6 +30,10 @@
           "label": "Pålitlig laddning av historik",
           "hint": "Upprepar förfrågningar om meddelandehistorik som hänger sig eller avvisas av servern."
         },
+        "media_player": {
+          "label": "Egen video- och ljudspelare",
+          "hint": "Hastighet, upprepning och ljudomslag i stället för webbläsarens vanliga knappar."
+        },
         "emoji_picker": {
           "label": "Förbättrad emojiväljare",
           "hint": "Praktiska avsnitt och andra förbättringar av emojiväljaren."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "den åtgärden finns inte",
     "hotkeyInvalid": "den kombinationen kan inte tilldelas",
     "hotkeysOff": "kortkommandon är avstängda eller åtgärden finns inte"
+  },
+  "player": {
+    "play": "Spela upp",
+    "listen": "Lyssna",
+    "pause": "Pausa",
+    "replay": "Spela igen",
+    "mute": "Stäng av ljudet",
+    "unmute": "Slå på ljudet",
+    "volume": "Volym",
+    "seek": "Spola",
+    "repeatOn": "Upprepa: på",
+    "repeatOff": "Upprepa: av",
+    "speed": "Uppspelningshastighet",
+    "normal": "Normal",
+    "pip": "Bild-i-bild",
+    "fullscreen": "Helskärm",
+    "exitFullscreen": "Avsluta helskärm",
+    "download": "Ladda ned",
+    "videoError": "Videon kan inte spelas upp",
+    "audioError": "Ljudet kan inte spelas upp",
+    "errorHint": "Formatet stöds inte, men filen kan laddas ned."
   }
 }

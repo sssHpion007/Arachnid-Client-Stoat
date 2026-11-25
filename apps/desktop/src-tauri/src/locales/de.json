@@ -30,6 +30,10 @@
           "label": "Zuverlässiges Laden des Verlaufs",
           "hint": "Wiederholt hängende oder vom Server abgelehnte Anfragen des Nachrichtenverlaufs."
         },
+        "media_player": {
+          "label": "Eigener Video- und Audioplayer",
+          "hint": "Geschwindigkeit, Wiederholen und Audio-Cover statt der Standard-Steuerelemente des Browsers."
+        },
         "emoji_picker": {
           "label": "Verbesserte Emoji-Auswahl",
           "hint": "Praktische Bereiche und weitere Verbesserungen der Emoji-Auswahl."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "diese Aktion gibt es nicht",
     "hotkeyInvalid": "diese Kombination lässt sich nicht zuweisen",
     "hotkeysOff": "Tastenkürzel sind ausgeschaltet oder diese Aktion gibt es nicht"
+  },
+  "player": {
+    "play": "Abspielen",
+    "listen": "Abspielen",
+    "pause": "Pause",
+    "replay": "Erneut abspielen",
+    "mute": "Stummschalten",
+    "unmute": "Ton an",
+    "volume": "Lautstärke",
+    "seek": "Spulen",
+    "repeatOn": "Wiederholen: an",
+    "repeatOff": "Wiederholen: aus",
+    "speed": "Wiedergabegeschwindigkeit",
+    "normal": "Normal",
+    "pip": "Bild im Bild",
+    "fullscreen": "Vollbild",
+    "exitFullscreen": "Vollbild beenden",
+    "download": "Herunterladen",
+    "videoError": "Video kann nicht abgespielt werden",
+    "audioError": "Audio kann nicht abgespielt werden",
+    "errorHint": "Dieses Format wird nicht unterstützt – die Datei kann heruntergeladen werden."
   }
 }

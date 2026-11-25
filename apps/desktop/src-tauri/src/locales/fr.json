@@ -30,6 +30,10 @@
           "label": "Chargement fiable de l’historique",
           "hint": "Relance les requêtes d’historique des messages bloquées ou refusées par le serveur."
         },
+        "media_player": {
+          "label": "Lecteur vidéo et audio intégré",
+          "hint": "Vitesse, lecture en boucle et pochettes audio à la place des commandes standard du navigateur."
+        },
         "emoji_picker": {
           "label": "Sélecteur d’emojis amélioré",
           "hint": "Des sections pratiques et d’autres améliorations du sélecteur d’emojis."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "cette action n’existe pas",
     "hotkeyInvalid": "cette combinaison ne peut pas être attribuée",
     "hotkeysOff": "les raccourcis sont désactivés ou cette action n’existe pas"
+  },
+  "player": {
+    "play": "Lire",
+    "listen": "Écouter",
+    "pause": "Pause",
+    "replay": "Revoir",
+    "mute": "Couper le son",
+    "unmute": "Activer le son",
+    "volume": "Volume",
+    "seek": "Avancer ou reculer",
+    "repeatOn": "Boucle : activée",
+    "repeatOff": "Boucle : désactivée",
+    "speed": "Vitesse de lecture",
+    "normal": "Normale",
+    "pip": "Picture-in-picture",
+    "fullscreen": "Plein écran",
+    "exitFullscreen": "Quitter le plein écran",
+    "download": "Télécharger",
+    "videoError": "Impossible de lire cette vidéo",
+    "audioError": "Impossible de lire cet audio",
+    "errorHint": "Ce format n’est pas pris en charge, mais le fichier peut être téléchargé."
   }
 }

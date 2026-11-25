@@ -34,10 +34,10 @@
 //    результатах Gifbox избранного нет, а их видео не играют сами; меню
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
-//    сразу (избранное в окне GIF, окно сразу на избранном, исправления
-//    интерфейса, в том числе подсветка md-ripple без перехода и меню
-//    браузера только в полях ввода и при выделенном тексте, пункт меню
-//    сообщения для эмодзи); вход
+//    сразу (свой видео- и аудиоплеер, избранное в окне GIF, окно сразу на
+//    избранном, исправления интерфейса, в том числе подсветка md-ripple
+//    без перехода и меню браузера только в полях ввода и при выделенном
+//    тексте, пункт меню сообщения для эмодзи); вход
 //    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
 //    остаётся).
 //
@@ -1596,9 +1596,9 @@ ${sidebarGroup("", [
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
         qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
-          "interface=true,history=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
+          "interface=true,history=true,media_player=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
-          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 6,
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 7,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
       );
 
@@ -1641,6 +1641,53 @@ ${sidebarGroup("", [
       qolInput("history")?.click();
       await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "1", 3000, 50);
       await sleep(500); // значение доходит до страницы вызовом из клиента
+
+      // свой плеер: у видео (сетка SizedContent) и аудио (карточка под
+      // FileInfo) вместо кнопок браузера — полоса плеера, у аудио обложка на
+      // месте значка; GIF (видео без controls) не трогается; выключенная
+      // настройка возвращает элементы for-web как были
+      const mediaMock = document.createElement("div");
+      const videoBox = document.createElement("div");
+      videoBox.style.cssText = "display:grid;width:320px;aspect-ratio:16/9";
+      const mockVideo = document.createElement("video");
+      mockVideo.controls = true;
+      videoBox.append(mockVideo);
+      const gifBox = document.createElement("div");
+      gifBox.style.cssText = "display:grid;width:160px;aspect-ratio:16/9";
+      const mockGif = document.createElement("video");
+      mockGif.loop = mockGif.muted = true;
+      gifBox.append(mockGif);
+      const audioCard = document.createElement("div");
+      const fileInfo = document.createElement("div");
+      fileInfo.append(document.createElementNS("http://www.w3.org/2000/svg", "svg"), document.createElement("div"));
+      const mockAudio = document.createElement("audio");
+      mockAudio.controls = true;
+      audioCard.append(fileInfo, mockAudio);
+      mediaMock.append(videoBox, gifBox, audioCard);
+      document.body.append(mediaMock);
+      const playerShown = () =>
+        !mockVideo.controls &&
+        !mockAudio.controls &&
+        videoBox.querySelector(".ap-video .ap-bottom .ap-progress") &&
+        videoBox.querySelector(".ap-corner") &&
+        audioCard.querySelector(".ap-audio .ap-speed-button") &&
+        fileInfo.firstElementChild?.classList.contains("ap-cover") &&
+        !gifBox.querySelector(".ap-video");
+      const playerOn = Boolean(await waitFor(playerShown, 3000, 50));
+      qolInput("media_player")?.click();
+      const playerOff = await waitFor(
+        () => mockVideo.controls && mockAudio.controls && !mediaMock.querySelector("[class*=ap-]") && !document.getElementById("arachnid-player-style"),
+        3000,
+        50,
+      );
+      qolInput("media_player")?.click();
+      const playerBack = Boolean(await waitFor(playerShown, 3000, 50));
+      mediaMock.remove();
+      await check("«Свой видео- и аудиоплеер»: встаёт вместо кнопок браузера, выключается и включается сразу", playerOn && playerOff && playerBack, {
+        playerOn,
+        playerOff,
+        playerBack,
+      });
 
       // настройки действуют сразу: избранное в открытом окне GIF
       qolInput("favorite_gifs")?.click();

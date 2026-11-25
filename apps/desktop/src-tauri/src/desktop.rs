@@ -94,6 +94,10 @@ const HOTKEYS_SCRIPT: &str = include_str!("hotkeys.js");
 /// повторы и ожидание ограничения частоты для запросов истории for-web.
 const HISTORY_SCRIPT: &str = include_str!("history.js");
 
+/// Свой видео- и аудиоплеер той же «Quality of Life» поверх элементов
+/// for-web: полоса в духе YouTube, скорость, повтор, обложки аудио.
+const PLAYER_SCRIPT: &str = include_str!("player.js");
+
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
 /// 0.16.3) для `emoji.js`.
 const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
@@ -427,12 +431,13 @@ fn emoji_script() -> String {
 
 /// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
 /// ролей (`emoji.js`), избранные GIF (`gifs.js`), горячие клавиши
-/// (`hotkeys.js`), загрузка истории чата (`history.js`). Выполняется телом
+/// (`hotkeys.js`), загрузка истории чата (`history.js`), видео- и аудиоплеер
+/// (`player.js`). Выполняется телом
 /// функции с объектом `plugin`, как плагин-папка: по `plugin.settings`
 /// включается каждая часть.
 pub(crate) fn qol_script() -> String {
     format!(
-        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}",
+        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}\n{PLAYER_SCRIPT}",
         emoji_script()
     )
 }
@@ -1055,6 +1060,7 @@ mod tests {
             GIFS_SCRIPT,
             HOTKEYS_SCRIPT,
             HISTORY_SCRIPT,
+            PLAYER_SCRIPT,
         ] {
             assert!(!script.contains("__ARACHNID_"));
         }

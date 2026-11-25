@@ -30,6 +30,10 @@
           "label": "Kargañ an istor en un doare fizius",
           "hint": "Adkas a ra ar goulennoù istor kemennadennoù a chom a-sav pe a vez nac’het gant ar servijer."
         },
+        "media_player": {
+          "label": "Lenner video ha son personel",
+          "hint": "Tizh, adlenn ha golo ar restroù son e-lec’h boulioù boas ar merdeer."
+        },
         "emoji_picker": {
           "label": "Dibaber fromlunioù gwellaet",
           "hint": "Rannoù talvoudus ha gwellaennoù all evit an dibaber fromlunioù."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "n’eus ket eus an ober-se",
     "hotkeyInvalid": "n’haller ket termeniñ ar c’hendoare-se",
     "hotkeysOff": "lazhet eo ar berradennoù pe n’eus ket eus an ober-se"
+  },
+  "player": {
+    "play": "Lenn",
+    "listen": "Selaou",
+    "pause": "Ehan",
+    "replay": "Adlenn",
+    "mute": "Mudañ",
+    "unmute": "Dimudañ",
+    "volume": "Ampled",
+    "seek": "Mont war-raok pe war-gil",
+    "repeatOn": "Adlenn: war",
+    "repeatOff": "Adlenn: lazhet",
+    "speed": "Tizh lenn",
+    "normal": "Normal",
+    "pip": "Skeudenn e-barzh ar skeudenn",
+    "fullscreen": "Skramm a-bezh",
+    "exitFullscreen": "Kuitaat ar skramm a-bezh",
+    "download": "Pellgargañ",
+    "videoError": "N’haller ket lenn ar video-mañ",
+    "audioError": "N’haller ket lenn ar restr son-mañ",
+    "errorHint": "N’eo ket skoret ar mentrezh-mañ, met gallout a rit pellgargañ ar restr."
   }
 }

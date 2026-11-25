@@ -30,6 +30,10 @@
           "label": "Ajaloo töökindel laadimine",
           "hint": "Kordab sõnumiajaloo päringuid, mis jäävad toppama või mille server tagasi lükkab."
         },
+        "media_player": {
+          "label": "Oma video- ja helipleier",
+          "hint": "Kiirus, kordus ja heli kaanepildid brauseri tavaliste nuppude asemel."
+        },
         "emoji_picker": {
           "label": "Täiustatud emojivalija",
           "hint": "Mugavad jaotised ja muud emojivalija täiustused."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "sellist toimingut pole",
     "hotkeyInvalid": "seda kombinatsiooni ei saa määrata",
     "hotkeysOff": "kiirklahvid on välja lülitatud või sellist toimingut pole"
+  },
+  "player": {
+    "play": "Esita",
+    "listen": "Kuula",
+    "pause": "Paus",
+    "replay": "Esita uuesti",
+    "mute": "Vaigista",
+    "unmute": "Lülita heli sisse",
+    "volume": "Helitugevus",
+    "seek": "Kerimine",
+    "repeatOn": "Kordus: sees",
+    "repeatOff": "Kordus: väljas",
+    "speed": "Taasesituskiirus",
+    "normal": "Tavaline",
+    "pip": "Pilt pildis",
+    "fullscreen": "Täisekraan",
+    "exitFullscreen": "Välju täisekraanist",
+    "download": "Laadi alla",
+    "videoError": "Seda videot ei saa esitada",
+    "audioError": "Seda heli ei saa esitada",
+    "errorHint": "Seda vormingut ei toetata, kuid faili saab alla laadida."
   }
 }

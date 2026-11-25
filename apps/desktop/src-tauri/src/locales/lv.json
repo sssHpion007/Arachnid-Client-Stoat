@@ -30,6 +30,10 @@
           "label": "Uzticama vēstures ielāde",
           "hint": "Atkārto ziņu vēstures pieprasījumus, kas iestrēgst vai kurus serveris noraida."
         },
+        "media_player": {
+          "label": "Savs video un audio atskaņotājs",
+          "hint": "Ātrums, atkārtošana un audio vāciņi pārlūka standarta pogu vietā."
+        },
         "emoji_picker": {
           "label": "Uzlabots emocijzīmju atlasītājs",
           "hint": "Ērtas sadaļas un citi emocijzīmju atlasītāja uzlabojumi."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "šādas darbības nav",
     "hotkeyInvalid": "šo kombināciju nevar piešķirt",
     "hotkeysOff": "īsinājumtaustiņi ir izslēgti vai šādas darbības nav"
+  },
+  "player": {
+    "play": "Atskaņot",
+    "listen": "Klausīties",
+    "pause": "Pauze",
+    "replay": "Atskaņot vēlreiz",
+    "mute": "Izslēgt skaņu",
+    "unmute": "Ieslēgt skaņu",
+    "volume": "Skaļums",
+    "seek": "Pārtīšana",
+    "repeatOn": "Atkārtot: ieslēgts",
+    "repeatOff": "Atkārtot: izslēgts",
+    "speed": "Atskaņošanas ātrums",
+    "normal": "Parasts",
+    "pip": "Attēls attēlā",
+    "fullscreen": "Pilnekrāns",
+    "exitFullscreen": "Iziet no pilnekrāna",
+    "download": "Lejupielādēt",
+    "videoError": "Šo video nevar atskaņot",
+    "audioError": "Šo audio nevar atskaņot",
+    "errorHint": "Šis formāts netiek atbalstīts, bet failu var lejupielādēt."
   }
 }

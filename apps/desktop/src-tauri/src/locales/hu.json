@@ -30,6 +30,10 @@
           "label": "Megbízható előzménybetöltés",
           "hint": "Újrapróbálja az elakadt vagy a szerver által elutasított üzenetelőzmény-kéréseket."
         },
+        "media_player": {
+          "label": "Saját video- és hanglejátszó",
+          "hint": "Sebesség, ismétlés és hangborítók a böngésző alapértelmezett gombjai helyett."
+        },
         "emoji_picker": {
           "label": "Továbbfejlesztett emojiválasztó",
           "hint": "Hasznos szakaszok és más fejlesztések az emojiválasztóban."
@@ -220,5 +224,26 @@
     "hotkeyUnknown": "nincs ilyen művelet",
     "hotkeyInvalid": "ez a kombináció nem rendelhető hozzá",
     "hotkeysOff": "a billentyűparancsok ki vannak kapcsolva, vagy nincs ilyen művelet"
+  },
+  "player": {
+    "play": "Lejátszás",
+    "listen": "Lejátszás",
+    "pause": "Szünet",
+    "replay": "Újrajátszás",
+    "mute": "Némítás",
+    "unmute": "Némítás feloldása",
+    "volume": "Hangerő",
+    "seek": "Tekerés",
+    "repeatOn": "Ismétlés: be",
+    "repeatOff": "Ismétlés: ki",
+    "speed": "Lejátszási sebesség",
+    "normal": "Normál",
+    "pip": "Kép a képben",
+    "fullscreen": "Teljes képernyő",
+    "exitFullscreen": "Kilépés a teljes képernyőből",
+    "download": "Letöltés",
+    "videoError": "A videó nem játszható le",
+    "audioError": "A hang nem játszható le",
+    "errorHint": "Ez a formátum nem támogatott, de a fájl letölthető."
   }
 }
