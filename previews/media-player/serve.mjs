@@ -20,19 +20,34 @@ const types = {
   ".json": "application/json; charset=utf-8",
 };
 
-/** Путь запроса → файл: /client/… — из клиента, /attachments/<файл>/<имя> —
- *  файл превью под другим именем (как адреса autumn), адреса каналов —
- *  страница с плашкой */
+/** Вложения, как в autumn: id → [файл превью, имя файла при загрузке] */
+const attachments = {
+  night: ["night-city.mp3", "night_city_final_v2.mp3"],
+  morning: ["morning.mp3", "Утро.mp3"],
+  remix: ["night-city.mp3", "Ночной город (ремикс).mp3"],
+  bunny: ["big-buck-bunny.mp4", "Big Buck Bunny.mp4"],
+};
+
+/** Путь запроса → файл: /client/… — из клиента, /attachments/<id>/<имя> —
+ *  файл превью, адреса каналов — страница с плашкой */
 function resolve(path) {
   if (/^client[/\\]/.test(path)) return join(client, path.slice("client/".length));
   const attachment = /^attachments[/\\]([^/\\]+)[/\\]/.exec(path);
-  if (attachment) return join(root, attachment[1]);
+  if (attachment) return attachments[attachment[1]] ? join(root, attachments[attachment[1]][0]) : "";
   if (/^(server|channel)[/\\]/.test(path)) return join(root, "now-playing.html");
   return join(root, path || "now-playing.html");
 }
 
 createServer((request, response) => {
   const path = normalize(decodeURIComponent(new URL(request.url, "http://x").pathname)).replace(/^([/\\])+/, "");
+  // как autumn: …/<id>/original → …/<id>/<имя файла>
+  const original = /^attachments[/\\]([^/\\]+)[/\\]original$/.exec(path);
+  if (original && attachments[original[1]]) {
+    const location = `/attachments/${original[1]}/${encodeURIComponent(attachments[original[1]][1])}`;
+    console.log(`${request.method} ${request.url} → ${location}`);
+    response.writeHead(301, { Location: location, "Cache-Control": "no-store" }).end();
+    return;
+  }
   const file = resolve(path);
   let size;
   try {

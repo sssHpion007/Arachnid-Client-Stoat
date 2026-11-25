@@ -209,6 +209,7 @@
       let i = 0;
       if (flags & 0x40) i = version === 4 ? syncsafe(tag, 0) : u32(tag, 0) + 4;
       const pictures = [];
+      let title = null;
       const idLength = version === 2 ? 3 : 4;
       const headerLength = version === 2 ? 6 : 10;
       while (i + headerLength <= tag.length && tag[i] !== 0) {
@@ -222,10 +223,14 @@
         const formatFlags = version === 4 ? tag[i + 9] : 0;
         let body = tag.subarray(i + headerLength, i + headerLength + size);
         i += headerLength + size;
-        if (id !== "APIC" && id !== "PIC") continue;
+        if (id !== "APIC" && id !== "PIC" && id !== "TIT2" && id !== "TT2") continue;
         if (formatFlags & 0x01) body = body.subarray(4); // длина данных
         if (formatFlags & 0x02) body = resync(body);
         const encoding = body[0];
+        if (id === "TIT2" || id === "TT2") {
+          title ??= id3Text(body.subarray(1), encoding);
+          continue;
+        }
         let at;
         let mime;
         if (id === "PIC") {
@@ -240,7 +245,16 @@
         at = skipString(body, at + 1, encoding);
         pictures.push({ type, mime, data: body.subarray(at) });
       }
-      return pick(pictures);
+      return { picture: pick(pictures), title };
+    }
+
+    /** Текст кадра ID3: 0 — Latin-1, 1 — UTF-16 с BOM, 2 — UTF-16BE, 3 — UTF-8 */
+    function id3Text(data, encoding) {
+      const label = ["latin1", "utf-16", "utf-16be", "utf-8"][encoding] ?? "latin1";
+      let text = new TextDecoder(label).decode(data);
+      // несколько значений через \0 — берётся первое
+      text = text.split("\0")[0].trim();
+      return text || null;
     }
 
     // ────────────────────── FLAC и OGG (картинка FLAC) ──────────────────────
@@ -260,6 +274,7 @@
     async function flac(reader, offset) {
       let at = offset + 4;
       const pictures = [];
+      let title = null;
       for (;;) {
         const header = await reader.bytes(at, 4);
         if (header.length < 4) break;
@@ -267,10 +282,11 @@
         const type = header[0] & 0x7f;
         const length = (header[1] << 16) | (header[2] << 8) | header[3];
         if (type === 6) pictures.push(flacPicture(await reader.bytes(at + 4, length)));
+        if (type === 4) title ??= comments(await reader.bytes(at + 4, length), 0).title;
         at += 4 + length;
         if (last) break;
       }
-      return pick(pictures);
+      return { picture: pick(pictures), title };
     }
 
     /** Второй пакет первого потока OGG — комментарии Vorbis или OpusTags */
@@ -313,8 +329,12 @@
     }
 
     function vorbisComments(packet) {
-      let i = ascii(packet, 0, 7) === "\x03vorbis" ? 7 : ascii(packet, 0, 8) === "OpusTags" ? 8 : -1;
-      if (i < 0) return null;
+      const i = ascii(packet, 0, 7) === "\x03vorbis" ? 7 : ascii(packet, 0, 8) === "OpusTags" ? 8 : -1;
+      return i < 0 ? null : comments(packet, i);
+    }
+
+    /** Комментарии Vorbis (OGG, блок FLAC): картинка и TITLE */
+    function comments(packet, i) {
       i += 4 + u32le(packet, i); // поставщик
       const count = u32le(packet, i);
       i += 4;
@@ -322,6 +342,7 @@
       const pictures = [];
       let legacy = null;
       let legacyMime = null;
+      let title = null;
       for (let n = 0; n < count && i < packet.length; n++) {
         const length = u32le(packet, i);
         const comment = packet.subarray(i + 4, i + 4 + length);
@@ -331,8 +352,10 @@
         if (key === "METADATA_BLOCK_PICTURE") pictures.push(flacPicture(base64(decoder.decode(comment.subarray(equals + 1)))));
         else if (key === "COVERART") legacy = base64(decoder.decode(comment.subarray(equals + 1)));
         else if (key === "COVERARTMIME") legacyMime = decoder.decode(comment.subarray(equals + 1));
+        else if (key === "TITLE") title ??= decoder.decode(comment.subarray(equals + 1)).trim() || null;
       }
-      return pick(pictures) ?? (legacy ? { type: 3, mime: legacyMime, data: legacy } : null);
+      const picture = pick(pictures) ?? (legacy ? { type: 3, mime: legacyMime, data: legacy } : null);
+      return { picture, title };
     }
 
     // ───────────────────────────── MP4 / M4A ─────────────────────────────
@@ -358,28 +381,57 @@
     async function mp4(reader) {
       // размер файла узнаётся из первого ответа
       await reader.bytes(0, 8);
-      let box = { start: 0, end: reader.size };
-      for (const type of ["moov", "udta", "meta", "ilst", "covr", "data"]) {
-        box = await atom(reader, box.start, box.end, type);
-        if (!box) return null;
-        if (type === "meta") box.start += 4; // версия и флаги
+      let list = { start: 0, end: reader.size };
+      for (const type of ["moov", "udta", "meta", "ilst"]) {
+        list = await atom(reader, list.start, list.end, type);
+        if (!list) return null;
+        if (type === "meta") list.start += 4; // версия и флаги
       }
-      const data = await reader.bytes(box.start, box.end - box.start);
-      const kind = u32(data, 0);
-      return { type: 3, mime: { 13: "image/jpeg", 14: "image/png", 27: "image/bmp" }[kind], data: data.subarray(8) };
+      /** Содержимое атома data у элемента списка: тип и байты */
+      const item = async (type) => {
+        const entry = await atom(reader, list.start, list.end, type);
+        const box = entry && (await atom(reader, entry.start, entry.end, "data"));
+        if (!box) return null;
+        const data = await reader.bytes(box.start, box.end - box.start);
+        return { kind: u32(data, 0), data: data.subarray(8) };
+      };
+      const cover = await item("covr");
+      const name = await item("\xa9nam");
+      return {
+        picture: cover && { type: 3, mime: { 13: "image/jpeg", 14: "image/png", 27: "image/bmp" }[cover.kind], data: cover.data },
+        title: (name && new TextDecoder().decode(name.data).trim()) || null,
+      };
     }
 
     // ───────────────────────────── WAV ─────────────────────────────
 
     async function wav(reader) {
+      let title = null;
       for (let at = 12; ; ) {
         const head = await reader.bytes(at, 8);
-        if (head.length < 8) return null;
+        if (head.length < 8) return title ? { picture: null, title } : null;
         const id = ascii(head, 0, 4);
         const size = u32le(head, 4);
-        if (id === "id3 " || id === "ID3 ") return id3(reader, at + 8);
+        if (id === "id3 " || id === "ID3 ") {
+          const tags = await id3(reader, at + 8);
+          return tags && { picture: tags.picture, title: tags.title ?? title };
+        }
+        if (id === "LIST" && size <= BLOCK) title ??= infoTitle(await reader.bytes(at + 8, size));
         at += 8 + size + (size & 1);
       }
+    }
+
+    /** Название из LIST INFO (INAM) */
+    function infoTitle(list) {
+      if (ascii(list, 0, 4) !== "INFO") return null;
+      for (let i = 4; i + 8 <= list.length; ) {
+        const size = u32le(list, i + 4);
+        if (ascii(list, i, 4) === "INAM") {
+          return new TextDecoder().decode(list.subarray(i + 8, i + 8 + size)).split("\0")[0].trim() || null;
+        }
+        i += 8 + size + (size & 1);
+      }
+      return null;
     }
 
     // ───────────────────────────── вход ─────────────────────────────
@@ -387,42 +439,77 @@
     async function extract(url, signal) {
       const reader = new RangeReader(url, signal);
       const start = await reader.bytes(0, 12);
-      let picture = null;
-      if (ascii(start, 0, 3) === "ID3") picture = await id3(reader, 0);
-      else if (ascii(start, 0, 4) === "fLaC") picture = await flac(reader, 0);
-      else if (ascii(start, 0, 4) === "OggS") picture = await ogg(reader);
-      else if (ascii(start, 4, 4) === "ftyp") picture = await mp4(reader);
-      else if (ascii(start, 0, 4) === "RIFF" && ascii(start, 8, 4) === "WAVE") picture = await wav(reader);
-      if (!picture || picture.data.length === 0) return null;
-      const type = sniff(picture.data, picture.mime);
-      if (!type) return null;
-      return URL.createObjectURL(new Blob([picture.data], { type }));
+      let tags = null;
+      if (ascii(start, 0, 3) === "ID3") tags = await id3(reader, 0);
+      else if (ascii(start, 0, 4) === "fLaC") tags = await flac(reader, 0);
+      else if (ascii(start, 0, 4) === "OggS") tags = await ogg(reader);
+      else if (ascii(start, 4, 4) === "ftyp") tags = await mp4(reader);
+      else if (ascii(start, 0, 4) === "RIFF" && ascii(start, 8, 4) === "WAVE") tags = await wav(reader);
+      const picture = tags?.picture;
+      const type = picture?.data.length ? sniff(picture.data, picture.mime) : null;
+      return {
+        cover: type ? URL.createObjectURL(new Blob([picture.data], { type })) : null,
+        title: tags?.title ?? null,
+      };
     }
 
-    /** Адрес файла → Promise адреса картинки (blob:) или null */
+    /** Самые старые записи — вон, когда их больше KEEP */
+    function remember(map, key, value, dispose) {
+      map.set(key, value);
+      while (map.size > KEEP) {
+        const [oldest, old] = map.entries().next().value;
+        map.delete(oldest);
+        dispose?.(old);
+      }
+      return value;
+    }
+
+    function recall(map, key) {
+      if (!map.has(key)) return undefined;
+      const found = map.get(key);
+      map.delete(key);
+      map.set(key, found);
+      return found;
+    }
+
+    /** Адрес файла → Promise { cover: адрес картинки (blob:) или null, title } */
     const cache = new Map();
 
-    function cover(url) {
-      if (cache.has(url)) {
-        const found = cache.get(url);
-        cache.delete(url);
-        cache.set(url, found);
-        return found;
-      }
+    function info(url) {
+      const found = recall(cache, url);
+      if (found) return found;
       const promise = extract(url).catch((error) => {
         if (!(error instanceof NoCover)) console.warn("[Arachnid] обложка", url, error);
-        return null;
+        return { cover: null, title: null };
       });
-      cache.set(url, promise);
-      while (cache.size > KEEP) {
-        const [oldest, value] = cache.entries().next().value;
-        cache.delete(oldest);
-        value.then((blob) => blob && URL.revokeObjectURL(blob));
-      }
-      return promise;
+      return remember(cache, url, promise, (old) => old.then((tags) => tags.cover && URL.revokeObjectURL(tags.cover)));
     }
 
-    return { cover };
+    /**
+     * Имя файла. for-web берёт адреса autumn вида …/<id>/original, а autumn
+     * перенаправляет их на …/<id>/<имя файла>: хватает запроса одного байта,
+     * имя — в адресе ответа. У видео по ссылке (прокси january,
+     * …/proxy?url=…) имя — в исходном адресе.
+     */
+    const names = new Map();
+
+    function name(url) {
+      const found = recall(names, url);
+      if (found) return found;
+      return remember(names, url, realName(url).catch(() => fileName(url)));
+    }
+
+    async function realName(url) {
+      const parsed = new URL(url, location.href);
+      const proxied = parsed.searchParams.get("url");
+      if (proxied) return fileName(proxied);
+      if (!/\/original$/.test(parsed.pathname)) return fileName(url);
+      const response = await fetch(url, { headers: { Range: "bytes=0-0" } });
+      void response.body?.cancel();
+      return response.redirected ? fileName(response.url) : fileName(url);
+    }
+
+    return { info, name };
   })();
 
   // ─────────────────────────────── элементы ───────────────────────────────
@@ -1142,7 +1229,7 @@
       ([entry]) => {
         if (!entry?.isIntersecting) return;
         watcher.disconnect();
-        Covers.cover(audio.currentSrc || audio.src).then((url) => {
+        Covers.info(audio.currentSrc || audio.src).then(({ cover: url }) => {
           if (!alive || !url) return;
           const image = h("img", { src: url, alt: "", draggable: "false" });
           image.addEventListener("load", () => {
@@ -1190,8 +1277,8 @@
 
   // ─────────────────────── плашка «сейчас играет» ───────────────────────
   // Как в Telegram: пока играет аудио (или видео ушло в «картинку в
-  // картинке»), под заголовком страницы — плашка: ⏮ ▶ ⏭, обложка, имя файла
-  // (щелчок — к сообщению), время, скорость, громкость, ✕. Играет всегда один
+  // картинке»), вверху ленты чата — плашка: ⏮ ▶ ⏭, обложка, название трека
+  // или имя файла (щелчок — к сообщению), время, скорость, громкость, ✕. Играет всегда один
   // файл: новый ставит прошлый на паузу.
   //
   // Сменили канал — for-web убирает сообщения вместе с <audio>/<video>, а
@@ -1226,13 +1313,26 @@
     const channel = CHANNEL_PATH.exec(location.pathname)?.[0] ?? null;
     track = {
       src,
-      name: fileName(src),
+      /** Подпись: название трека, иначе имя файла; узнаётся из сети */
+      label: labels.get(src) ?? null,
       video: media instanceof HTMLVideoElement,
       message,
       link: channel && message ? `${channel}/${message}` : null,
     };
     if (message) tracks.set(media, track);
     return track;
+  }
+
+  /** Подписи по адресу: у элементов без сообщения запись трека не хранится */
+  const labels = new Map();
+
+  /** Подпись файла: у аудио — название из тегов, иначе (и у видео) — имя */
+  async function describe(track) {
+    if (track.label) return track.label;
+    const [tags, name] = await Promise.all([track.video ? null : Covers.info(track.src), Covers.name(track.src)]);
+    track.label = tags?.title || name;
+    labels.set(track.src, track.label);
+    return track.label;
   }
 
   const sameTrack = (a, b) => Boolean(a && b && a.src === b.src && a.message === b.message);
@@ -1344,18 +1444,22 @@
     placeBar();
   }
 
-  /** Плашка видна, пока играет аудио или видео вне чата; место — сразу под
-   *  заголовком страницы for-web (первый ребёнок страницы в .app_body) */
+  /**
+   * Плашка видна, пока играет аудио или видео вне чата. Место — в ленте
+   * чата (main for-web, без списка участников), поверх первых сообщений,
+   * как плашка «Новые сообщения» for-web: держатель нулевой высоты первым
+   * ребёнком, сама плашка — над ним, поэтому чат не сдвигается.
+   */
   function placeBar() {
     if (!bar) return;
     const media = now.media;
     const visible = active && media && !now.closed && (media instanceof HTMLAudioElement || keep.contains(media));
-    const header = visible ? document.querySelector(".app_body > *")?.firstElementChild : null;
-    if (!header || header === bar.root) {
-      bar.root.remove();
+    const chat = visible ? document.querySelector(".app_body main") : null;
+    if (!chat) {
+      bar.anchor.remove();
       return;
     }
-    if (header.nextElementSibling !== bar.root) header.after(bar.root);
+    if (chat.firstElementChild !== bar.anchor) chat.prepend(bar.anchor);
   }
 
   /** Плашка: есть, пока настройка включена */
@@ -1386,6 +1490,7 @@
       close,
       seekSlot,
     );
+    const anchor = h("div", { class: "ap-now-anchor" }, root);
     const menu = speedMenu(speedButton, root, { onOpen: () => {}, floating: true });
     /** Привязка к играющему элементу: его громкость, перемотка, события */
     let bound = null;
@@ -1418,12 +1523,12 @@
       close.setTip(text.close);
       speedButton.dataset.tip = text.speed;
       speedButton.setAttribute("aria-label", text.speed);
-      title.textContent = track.name;
+      title.textContent = track.label ?? "";
       if (track.link) title.setAttribute("href", track.link);
       else title.removeAttribute("href");
       title.title = track.link ? text.goToMessage : "";
       art.dataset.tip = track.video ? text.pip : "";
-      art.setAttribute("aria-label", track.video ? text.pip : track.name);
+      art.setAttribute("aria-label", track.video ? text.pip : (track.label ?? ""));
       art.tabIndex = track.video ? 0 : -1;
       root.classList.toggle("ap-now-video", track.video);
       bound.volume.sync();
@@ -1438,12 +1543,13 @@
       volumeSlot.replaceChildren(volumeControl.root);
       seekSlot.replaceChildren(seek.root);
       const track = trackOf(media);
+      void describe(track).then(() => bound?.media === media && sync());
       art.replaceChildren();
       art.classList.remove("ap-has-cover");
       if (track.video) setIcon(art, "pip");
       else {
         delete art.dataset.icon;
-        Covers.cover(track.src).then((url) => {
+        Covers.info(track.src).then(({ cover: url }) => {
           if (!url || bound?.media !== media) return;
           art.replaceChildren(h("img", { src: url, alt: "", draggable: "false" }));
           art.classList.add("ap-has-cover");
@@ -1510,10 +1616,10 @@
     function destroy() {
       unbind();
       menu.remove();
-      root.remove();
+      anchor.remove();
     }
 
-    return { root, bind, unbind, sync, applySpeed, destroy };
+    return { root, anchor, bind, unbind, sync, applySpeed, destroy };
   }
 
   /** Перейти к сообщению: обычная ссылка приложения, её ведёт роутер for-web */
@@ -2335,18 +2441,28 @@
       pointer-events: none;
     }
 
-    /* под заголовком страницы, с его отступами */
-    .ap-now {
+    /* держатель нулевой высоты в ленте чата: чат под плашкой не сдвигается */
+    .ap-now-anchor {
       position: relative;
+      z-index: 10;
+      flex-shrink: 0;
+      height: 0;
+    }
+
+    /* поверх первых сообщений, по ширине ленты — как «Новые сообщения» */
+    .ap-now {
+      position: absolute;
+      top: var(--gap-md, 8px);
+      left: 0;
+      right: 0;
       display: flex;
       align-items: center;
       gap: 2px;
-      flex-shrink: 0;
       height: 48px;
-      margin: 0 var(--gap-md, 8px) var(--gap-md, 8px) 0;
       padding: 0 6px;
       border-radius: var(--borderRadius-lg, 16px);
       background: var(--md-sys-color-surface-container-high);
+      box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
       color: var(--md-sys-color-on-surface);
       font-size: 14px;
       font-weight: 400;
@@ -2466,7 +2582,7 @@
       width: 72px;
     }
 
-    /* подсказки плашки — под кнопками: над ней заголовок страницы */
+    /* подсказки плашки — под кнопками: над ней край ленты */
     .ap-now .ap-button[data-tip]:hover::after {
       bottom: auto;
       top: calc(100% + 6px);

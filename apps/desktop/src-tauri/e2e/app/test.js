@@ -1689,19 +1689,20 @@ ${sidebarGroup("", [
         playerBack,
       });
 
-      // плашка «сейчас играет»: играющее аудио — плашка сразу под заголовком
-      // страницы (.app_body > страница > заголовок); for-web убрал сообщение
+      // плашка «сейчас играет»: играющее аудио — плашка поверх ленты чата
+      // (main for-web), не над списком участников и не сдвигая сообщения, с
+      // названием трека из тегов (LIST INFO у WAV); for-web убрал сообщение
       // (сменили канал) — элемент играет дальше вне чата; сообщение вернулось
       // — на место нового элемента for-web встаёт играющий; ✕ останавливает
       // воспроизведение и убирает плашку
       const silence = (() => {
         const rate = 8000;
         const length = rate * 4;
-        const buffer = new ArrayBuffer(44 + length);
+        const buffer = new ArrayBuffer(68 + length);
         const view = new DataView(buffer);
         const ascii = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
         ascii(0, "RIFF");
-        view.setUint32(4, 36 + length, true);
+        view.setUint32(4, 60 + length, true);
         ascii(8, "WAVEfmt ");
         view.setUint32(16, 16, true);
         view.setUint16(20, 1, true);
@@ -1710,9 +1711,14 @@ ${sidebarGroup("", [
         view.setUint32(28, rate, true);
         view.setUint16(32, 1, true);
         view.setUint16(34, 8, true);
-        ascii(36, "data");
-        view.setUint32(40, length, true);
-        new Uint8Array(buffer, 44).fill(128);
+        ascii(36, "LIST");
+        view.setUint32(40, 16, true);
+        ascii(44, "INFOINAM");
+        view.setUint32(52, 4, true);
+        ascii(56, "e2e\0");
+        ascii(60, "data");
+        view.setUint32(64, length, true);
+        new Uint8Array(buffer, 68).fill(128);
         return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
       })();
       const appBody = document.createElement("div");
@@ -1720,8 +1726,18 @@ ${sidebarGroup("", [
       const barPage = document.createElement("div");
       const barHeader = document.createElement("div");
       barHeader.textContent = "# e2e";
+      // как TextChannel for-web: Content > main (лента) + список участников
+      const barContent = document.createElement("div");
+      barContent.style.display = "flex";
+      const barMain = document.createElement("main");
+      barMain.style.cssText = "flex-grow:1;display:flex;flex-direction:column";
       const chatList = document.createElement("div");
-      barPage.append(barHeader, chatList);
+      chatList.style.minHeight = "200px";
+      barMain.append(chatList);
+      const barMembers = document.createElement("div");
+      barMembers.style.cssText = "flex-shrink:0;width:200px";
+      barContent.append(barMain, barMembers);
+      barPage.append(barHeader, barContent);
       appBody.append(barPage);
       document.body.append(appBody);
       const audioMessage = () => {
@@ -1738,13 +1754,18 @@ ${sidebarGroup("", [
         chatList.append(message);
         return { message, audio };
       };
-      const nowBar = () => barHeader.nextElementSibling?.classList.contains("ap-now") ? barHeader.nextElementSibling : null;
+      const nowBar = () => barMain.querySelector(".ap-now");
       const firstTrack = audioMessage();
+      const listTop = chatList.getBoundingClientRect().top;
       (await waitFor(() => firstTrack.message.querySelector(".ap-cover"), 3000, 50))?.click();
       const barState = {
         shown: Boolean(await waitFor(() => nowBar() && !firstTrack.audio.paused, 5000, 50)),
-        title: nowBar()?.querySelector(".ap-now-title")?.textContent ?? null,
+        title: await waitFor(() => (nowBar()?.querySelector(".ap-now-title")?.textContent === "e2e" ? "e2e" : null), 3000, 50),
       };
+      const barBox = nowBar()?.getBoundingClientRect();
+      const mainBox = barMain.getBoundingClientRect();
+      barState.inChat = Boolean(barBox && barBox.left >= mainBox.left - 0.5 && barBox.right <= mainBox.right + 0.5 && barBox.width > 0);
+      barState.notShifted = Math.abs(chatList.getBoundingClientRect().top - listTop) < 0.5;
       chatList.replaceChildren();
       barState.kept = Boolean(
         await waitFor(() => firstTrack.audio.parentElement?.classList.contains("ap-keep") && !firstTrack.audio.paused && nowBar(), 3000, 50),
@@ -1758,8 +1779,14 @@ ${sidebarGroup("", [
       appBody.remove();
       URL.revokeObjectURL(silence);
       await check(
-        "плашка «сейчас играет»: под заголовком, звук не прерывается при смене канала, элемент возвращается в сообщение, ✕ закрывает",
-        barState.shown && barState.kept && barState.returned && barState.closed,
+        "плашка «сейчас играет»: поверх ленты чата, название трека, звук не прерывается при смене канала, элемент возвращается в сообщение, ✕ закрывает",
+        barState.shown &&
+          barState.title === "e2e" &&
+          barState.inChat &&
+          barState.notShifted &&
+          barState.kept &&
+          barState.returned &&
+          barState.closed,
         barState,
       );
 
