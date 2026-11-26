@@ -1716,10 +1716,13 @@ ${sidebarGroup("", [
       const feedUrl = `/api/channels/E2EPAGE${runId}/messages?limit=50`;
       await sleep(300);
       const idlePage = await timedFetch(`${feedUrl}&before=01J0000000000000000000AAAA`);
+      // ответ сервера приходит за миллисекунды: запрос — когда лента уже едет
       scrollFeed(1000);
+      await sleep(150);
       const scrolledPage = await timedFetch(`${feedUrl}&after=01J0000000000000000000AAAA&sort=Oldest`);
       await sleep(300);
       scrollFeed(1000);
+      await sleep(150);
       const scrolledFirst = await timedFetch(feedUrl);
       await sleep(1000);
       feedBody.remove();
@@ -1728,7 +1731,7 @@ ${sidebarGroup("", [
         idlePage.status === 200 &&
           idlePage.ms < 900 &&
           scrolledPage.status === 200 &&
-          scrolledPage.ms >= 1000 &&
+          scrolledPage.ms >= 800 &&
           scrolledPage.ms < 4000 &&
           scrolledFirst.status === 200 &&
           scrolledFirst.ms < 900,
