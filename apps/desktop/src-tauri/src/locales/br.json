@@ -42,6 +42,14 @@
           "label": "Lañser furmadiñ",
           "hint": "Tev, stouet, spoiler, liv an destenn ha muioc’h a-us d’an destenn diuzet."
         },
+        "live_formatting": {
+          "label": "Furmadiñ war-eeun er maez skrivañ",
+          "hint": "An destenn er maez a hañval ouzh ar gemennadenn, arouezioù ar merkañ a vez gwelet nemet e-kichen ar reti."
+        },
+        "colored_text_font": {
+          "label": "Testenn liv gant ar font boas",
+          "hint": "An destenn liv er c’hemennadennoù a implij font ar gaozeadenn e-lec’h font ar formulennoù."
+        },
         "favorite_gifs": {
           "label": "GIFoù muiañ-karet",
           "hint": "Enrollit ho GIFoù muiañ-karet ha kavit anezho buan."

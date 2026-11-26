@@ -1,6 +1,7 @@
 // Меню форматирования: часть встроенного плагина «Quality of Life»
 // (выполняется вместе с emoji.js, gifs.js, hotkeys.js, history.js и
-// player.js), настройка `format_menu`.
+// player.js), настройки `format_menu`, `live_formatting` и
+// `colored_text_font`.
 //
 // * Над выделенным текстом в поле сообщения (и в поле правки сообщения)
 //   появляется меню: жирный, курсив, зачёркнутый, спойлер, код, цитата и
@@ -23,6 +24,10 @@
 //   на тексте. Редактор находится так же, как EditorView.findFromDOM: по
 //   ссылке, которую CodeMirror оставляет на элементе .cm-content (cmView до
 //   версии 6.39, cmTile после).
+// * Настройка `live_formatting` — форматирование прямо в поле ввода: символы
+//   разметки спрятаны, цветной текст виден цветом (см. раздел ниже).
+// * Настройка `colored_text_font` — цветной текст в сообщениях шрифтом и
+//   размером чата (см. раздел ниже).
 (() => {
   "use strict";
 
@@ -385,13 +390,14 @@
 
   // ─────────────────────────────── редактор ───────────────────────────────
 
-  /** EditorView поля ввода, в котором стоит фокус; null — фокус не в редакторе */
-  function focusedEditor() {
-    const content = document.activeElement?.closest?.(".cm-content");
-    if (!content) return null;
-    const view = content.cmView?.rootView?.view ?? content.cmTile?.root?.view ?? null;
+  /** EditorView редактора с элементом .cm-content (как EditorView.findFromDOM) */
+  function editorOf(content) {
+    const view = content?.cmView?.rootView?.view ?? content?.cmTile?.root?.view ?? null;
     return view?.state && typeof view.dispatch === "function" ? view : null;
   }
+
+  /** EditorView поля ввода, в котором стоит фокус; null — фокус не в редакторе */
+  const focusedEditor = () => editorOf(document.activeElement?.closest?.(".cm-content"));
 
   /** Выделение редактора: { view, from, to, doc } или null, если выделения нет */
   function selection() {
@@ -417,6 +423,419 @@
     });
     current.view.focus();
     schedule();
+  }
+
+  // ─────────────────────── форматирование в поле ввода ───────────────────────
+  // Настройка `live_formatting`: текст в поле выглядит как в сообщении.
+  // for-web уже рисует жирный, курсив, зачёркнутый, код и спойлер в поле
+  // (подсветка разметки CodeMirror), но оставляет символы разметки. Эта часть
+  // прячет их декорациями редактора (Decoration.replace — текст поля не
+  // меняется), а цветной текст показывает цветом вместо формулы. Символы
+  // видны снова, пока курсор стоит в размеченном куске или рядом с ним, —
+  // чтобы их можно было править; поле без фокуса показывает всё готовым.
+  //
+  // Расширение добавляется в редактор for-web (StateEffect.appendConfig) и
+  // должно быть из того же экземпляра CodeMirror, что и редактор: класс
+  // EditorView — конструктор самого редактора, StateEffect — класс эффекта,
+  // который он создаёт (EditorView.scrollIntoView), а Decoration — класс
+  // декораций, которые редактор for-web уже показывает (подсказка в пустом
+  // поле, эмодзи, упоминания).
+
+  const LIVE_STYLE_ID = "arachnid-live-format-style";
+  const LIVE_CSS = `
+.cm-content .arachnid-live-color,
+.cm-content .arachnid-live-color .md-code,
+.cm-content .md-code:has(.arachnid-live-color) {
+  font-family: inherit;
+  padding: 0;
+  background: none;
+}
+.cm-content .md-code:has(.arachnid-live-color) { color: inherit; }
+/* команда KaTeX вроде \\textasciitilde{} видна символом: свой текст скрыт
+   нулевым размером, символ — размером шрифта поля */
+@property --arachnid-live-size {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+.cm-content { --arachnid-live-size: 1em; }
+.cm-content .arachnid-live-symbol { font-size: 0; }
+.cm-content .arachnid-live-symbol::before {
+  content: attr(data-symbol);
+  font-size: var(--arachnid-live-size);
+}
+`;
+
+  let liveOn = plugin.settings.live_formatting !== false;
+  /** Классы CodeMirror страницы — после первой встречи с редактором */
+  let cm = null;
+  /** Редакторы, в которые уже добавлено расширение */
+  const extended = new WeakSet();
+  /** Декорации цвета по стилю (и символу): { "color:#e5534b;font-weight:bold": Decoration } */
+  const colorMarks = new Map();
+
+  const isDecorationClass = (value) =>
+    typeof value === "function" &&
+    ["mark", "replace", "widget", "set"].every((name) => typeof value[name] === "function");
+
+  /** Класс Decoration из декорации value (у неё класс-наследник) */
+  function decorationClass(value) {
+    for (let type = value?.constructor; type && type !== Object; type = Object.getPrototypeOf(type)) {
+      if (isDecorationClass(type)) return type;
+    }
+    return null;
+  }
+
+  /** Первая декорация в наборе (RangeSet) */
+  function firstDecoration(set) {
+    try {
+      return typeof set?.iter === "function" ? set.iter().value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Класс Decoration — из декораций, которые редактор показывает или хранит
+   * в своих дополнениях (у подсказки пустого поля набор есть всегда).
+   */
+  function findDecoration(view) {
+    const EditorView = view.constructor;
+    const instances = [];
+    // дополнения (ViewPlugin) отдают декорации функцией от редактора:
+    // view.plugin(дополнение) — их экземпляры тоже просматриваются
+    const probe = new Proxy(view, {
+      get(target, key) {
+        if (key === "plugin") {
+          return (spec) => {
+            const instance = target.plugin(spec);
+            if (instance) instances.push(instance);
+            return instance;
+          };
+        }
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    for (const facet of [EditorView.decorations, EditorView.outerDecorations].filter(Boolean)) {
+      for (const source of view.state.facet(facet)) {
+        let set = source;
+        try {
+          if (typeof source === "function") set = source(probe);
+        } catch {
+          continue;
+        }
+        const type = decorationClass(firstDecoration(set));
+        if (type) return type;
+      }
+    }
+    for (const instance of instances) {
+      for (const value of Object.values(instance)) {
+        const type = decorationClass(firstDecoration(value));
+        if (type) return type;
+      }
+    }
+    return null;
+  }
+
+  function codemirror(view) {
+    if (cm) return cm;
+    const EditorView = view.constructor;
+    const StateEffect = EditorView.scrollIntoView?.(0)?.constructor;
+    const Decoration = findDecoration(view);
+    if (!Decoration || typeof StateEffect?.appendConfig?.of !== "function") return null;
+    cm = { EditorView, StateEffect, Decoration, hidden: Decoration.replace({}) };
+    return cm;
+  }
+
+  /** Добавить расширение в редактор; false — классы CodeMirror ещё не найдены */
+  function extend(view) {
+    if (!view || extended.has(view)) return true;
+    const classes = codemirror(view);
+    if (!classes) return false;
+    view.dispatch({
+      effects: classes.StateEffect.appendConfig.of(classes.EditorView.decorations.of(liveDecorations)),
+    });
+    extended.add(view);
+    return true;
+  }
+
+  /** Добавить расширение во все редакторы на странице */
+  function extendAll() {
+    for (const content of document.querySelectorAll(".cm-content")) extend(editorOf(content));
+  }
+
+  /** То же на следующем кадре: не посреди обновления редактора, раз за кадр */
+  let extendFrame = 0;
+  function scheduleExtend() {
+    if (extendFrame) return;
+    extendFrame = requestAnimationFrame(() => {
+      extendFrame = 0;
+      if (liveOn) extendAll();
+    });
+  }
+
+  /** Перерисовать декорации во всех редакторах (настройку переключили) */
+  function refreshEditors() {
+    for (const content of document.querySelectorAll(".cm-content")) {
+      const view = editorOf(content);
+      if (view && extended.has(view)) view.dispatch({});
+    }
+  }
+
+  const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+  /** Разметка в одну строку: маркер, затем не пробел … не пробел, маркер */
+  const DELIMITERS = ["***", "**", "~~", "||", "*"].map((mark) => {
+    const m = escapeRegExp(mark);
+    return new RegExp(`(?<!\\\\)${m}(?=[^\\s*])([^\\n]*?[^\\s\\\\])${m}`, "g");
+  });
+  // _курсив_ — только не внутри слова (snake_case)
+  DELIMITERS.push(/(?<![\\\p{L}\p{N}_])_(?=\S)([^\n]*?[^\s\\])_(?![\p{L}\p{N}_])/gu);
+
+  /**
+   * Размеченные куски поля: [{ from, to, hide: [[from, to]…], marks: [[from, to, style]…] }].
+   * Найденные маркеры закрываются в копии текста, чтобы не попасть в
+   * следующие правила; код и формулы закрываются целиком.
+   */
+  function parseLive(doc) {
+    const pieces = [];
+    let masked = doc;
+    const mask = (from, to) => {
+      masked = masked.slice(0, from) + "\0".repeat(to - from) + masked.slice(to);
+    };
+    // ссылки, упоминания, каналы и время — без разметки (https://a.b/_c_)
+    for (const match of doc.matchAll(/https?:\/\/\S+|<[@#%:a-zA-Z][^\s>]*>/g)) {
+      mask(match.index, match.index + match[0].length);
+    }
+    for (const match of masked.matchAll(/(?<!\\)`([^`\n]+)`/g)) {
+      const from = match.index;
+      const to = from + match[0].length;
+      pieces.push({ from, to, hide: [[from, from + 1], [to - 1, to]], marks: [] });
+      mask(from, to);
+    }
+    for (const span of colorSpans(masked)) {
+      pieces.push(colorPiece(doc, span));
+      mask(span.from, span.to);
+    }
+    // прочие формулы KaTeX — как есть
+    for (const match of masked.matchAll(/\$\$[^\n]+?\$\$/g)) mask(match.index, match.index + match[0].length);
+    for (const pattern of DELIMITERS) {
+      pattern.lastIndex = 0;
+      for (const match of masked.matchAll(pattern)) {
+        const from = match.index;
+        const to = from + match[0].length;
+        const size = (match[0].length - match[1].length) / 2;
+        pieces.push({ from, to, hide: [[from, from + size], [to - size, to]], marks: [] });
+        mask(from, from + size);
+        mask(to - size, to);
+      }
+    }
+    // цитата: «> » в начале строки
+    for (const match of masked.matchAll(/^> ?/gm)) {
+      const end = lineEnd(doc, match.index);
+      pieces.push({ from: match.index, to: end, hide: [[match.index, match.index + match[0].length]], marks: [] });
+    }
+    return pieces;
+  }
+
+  /** Цвет KaTeX → безопасный для CSS (имя или #hex) */
+  const cssColor = (color) => (/^(#[0-9a-f]{3,8}|[a-z]+)$/i.test(color) ? color : "inherit");
+  const LIVE_STYLES = {
+    bold: "font-weight:bold",
+    italic: "font-style:italic",
+    strike: "text-decoration:line-through",
+    code: "font-family:var(--fonts-monospace,monospace)",
+  };
+
+  /** Цветной кусок: команды KaTeX прячутся, текст красится */
+  function colorPiece(doc, span) {
+    const hide = [[span.from, span.contentFrom], [span.contentTo, span.to]];
+    const marks = [];
+    const stack = [];
+    const base = `color:${cssColor(span.color)}`;
+    const style = () => [base, ...[...new Set(stack.filter(Boolean))].map((name) => LIVE_STYLES[name])].join(";");
+    const visible = (from, to) => {
+      const current = style();
+      const last = marks.at(-1);
+      if (last && last[1] === from && last[2] === current && !last[3]) last[1] = to;
+      else marks.push([from, to, current]);
+    };
+    for (let index = span.contentFrom; index < span.contentTo; ) {
+      const char = doc[index];
+      if (char === "\\") {
+        const command = /^\\([a-zA-Z]+)\s*/.exec(doc.slice(index, span.contentTo));
+        if (!command) {
+          // \{ \} \$ \% … — виден сам символ
+          hide.push([index, index + 1]);
+          if (index + 1 < span.contentTo) visible(index + 1, index + 2);
+          index += 2;
+          continue;
+        }
+        const end = index + command[0].length;
+        if (command[1] in TEX_SYMBOLS) {
+          // \textbackslash{} и подобные — видны своим символом (через CSS)
+          const close = doc.startsWith("{}", end) ? end + 2 : end;
+          marks.push([index, close, style(), TEX_SYMBOLS[command[1]]]);
+          index = close;
+          continue;
+        }
+        if (doc[end] === "{") {
+          hide.push([index, end + 1]);
+          stack.push(TEX_STYLE[command[1]] ?? null);
+          index = end + 1;
+          continue;
+        }
+        hide.push([index, end]);
+        index = end;
+        continue;
+      }
+      if (char === "{" || char === "}") {
+        hide.push([index, index + 1]);
+        if (char === "{") stack.push(null);
+        else stack.pop();
+        index += 1;
+        continue;
+      }
+      visible(index, index + 1);
+      index += 1;
+    }
+    return { from: span.from, to: span.to, hide, marks };
+  }
+
+  /** Декорации поля: функция от редактора, CodeMirror зовёт её при каждом обновлении */
+  function liveDecorations(view) {
+    const { Decoration, hidden } = cm;
+    if (!liveOn) return Decoration.none;
+    // курсор в куске или рядом — кусок как есть (выделение текста не мешает)
+    const carets = view.hasFocus
+      ? view.state.selection.ranges.filter((range) => range.empty).map((range) => range.head)
+      : [];
+    const ranges = [];
+    for (const piece of parseLive(view.state.doc.toString())) {
+      if (carets.some((caret) => caret >= piece.from && caret <= piece.to)) continue;
+      for (const [from, to] of piece.hide) if (to > from) ranges.push(hidden.range(from, to));
+      for (const [from, to, style, symbol] of piece.marks) {
+        const key = symbol ? `${style}|${symbol}` : style;
+        if (!colorMarks.has(key)) {
+          const attributes = symbol ? { style, "data-symbol": symbol } : { style };
+          const className = symbol ? "arachnid-live-color arachnid-live-symbol" : "arachnid-live-color";
+          colorMarks.set(key, Decoration.mark({ class: className, attributes }));
+        }
+        ranges.push(colorMarks.get(key).range(from, to));
+      }
+    }
+    return Decoration.set(ranges, true);
+  }
+
+  /** Новые редакторы (поле правки, другой канал) — сразу с расширением */
+  const editorWatcher = new MutationObserver((records) => {
+    const added = (node) => node.nodeType === 1 && (node.matches(".cm-content") || node.querySelector(".cm-content"));
+    if (records.some((record) => [...record.addedNodes].some(added))) scheduleExtend();
+  });
+
+  // классы CodeMirror ищутся заново, пока не найдены (поле было не пустым)
+  function onEditorFocus(event) {
+    if (event.target.closest?.(".cm-content")) scheduleExtend();
+  }
+
+  function startLive() {
+    if (!document.getElementById(LIVE_STYLE_ID)) {
+      const style = document.createElement("style");
+      style.id = LIVE_STYLE_ID;
+      style.textContent = LIVE_CSS;
+      document.head.append(style);
+    }
+    document.addEventListener("focusin", onEditorFocus, true);
+    document.addEventListener("input", onEditorFocus, true);
+    editorWatcher.observe(document.body, { childList: true, subtree: true });
+    scheduleExtend();
+    refreshEditors();
+  }
+
+  function stopLive() {
+    document.removeEventListener("focusin", onEditorFocus, true);
+    document.removeEventListener("input", onEditorFocus, true);
+    editorWatcher.disconnect();
+    // расширение остаётся в редакторах, но без декораций
+    refreshEditors();
+    document.getElementById(LIVE_STYLE_ID)?.remove();
+  }
+
+  // ─────────────────── цветной текст обычным шрифтом ───────────────────
+  // Настройка `colored_text_font`: формула KaTeX, в которой только текст
+  // (цветной текст: \color + \textsf, \text…), в сообщениях рисуется
+  // шрифтом и размером чата, а не шрифтом KaTeX. Только в этом клиенте —
+  // у остальных она как была.
+
+  const PLAIN_STYLE_ID = "arachnid-plain-katex-style";
+  const PLAIN_CLASS = "arachnid-plain-katex";
+  const PLAIN_CSS = `
+.katex.${PLAIN_CLASS} {
+  font: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+}
+.katex.${PLAIN_CLASS} .katex-html * {
+  font-family: inherit !important;
+  font-size: inherit !important;
+}
+/* подпорки высоты формулы раздвигают строки, а тексту они не нужны */
+.katex.${PLAIN_CLASS} .strut { display: none; }
+/* \\sout — строка текста вместо столбика KaTeX с чертой поверх */
+.katex.${PLAIN_CLASS} :is(.vlist-t, .vlist-r, .vlist, .vlist > span, .vlist > span > span) {
+  display: inline !important;
+  position: static !important;
+  height: auto !important;
+  margin: 0 !important;
+  vertical-align: baseline !important;
+}
+.katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s) { display: none !important; }
+.katex.${PLAIN_CLASS} .vlist:has(> span > .sout) { text-decoration: line-through; }
+.katex.${PLAIN_CLASS} .katex-html .texttt { font-family: var(--fonts-monospace, monospace) !important; }
+.katex.${PLAIN_CLASS} .textbf { font-weight: 600; }
+.katex.${PLAIN_CLASS} .textit { font-style: italic; }
+`;
+
+  let plainOn = plugin.settings.colored_text_font !== false;
+
+  /** В формуле только текст: части строки — текст, пробелы и подпорки KaTeX */
+  function textOnly(formula) {
+    const bases = formula.querySelectorAll(":scope > .katex-html > .base");
+    return (
+      bases.length > 0 &&
+      [...bases].every((base) =>
+        [...base.children].every(
+          (part) => part.classList.contains("strut") || part.classList.contains("mspace") || part.matches(".mord.text"),
+        ),
+      )
+    );
+  }
+
+  function markFormulas(root) {
+    const formulas = root.matches?.(".katex") ? [root] : root.querySelectorAll?.(".katex") ?? [];
+    for (const formula of formulas) if (textOnly(formula)) formula.classList.add(PLAIN_CLASS);
+  }
+
+  const formulaWatcher = new MutationObserver((records) => {
+    for (const record of records) for (const node of record.addedNodes) if (node.nodeType === 1) markFormulas(node);
+  });
+
+  function startPlain() {
+    if (!document.getElementById(PLAIN_STYLE_ID)) {
+      const style = document.createElement("style");
+      style.id = PLAIN_STYLE_ID;
+      style.textContent = PLAIN_CSS;
+      document.head.append(style);
+    }
+    formulaWatcher.observe(document.body, { childList: true, subtree: true });
+    markFormulas(document.body);
+  }
+
+  function stopPlain() {
+    formulaWatcher.disconnect();
+    for (const formula of document.querySelectorAll(`.${PLAIN_CLASS}`)) formula.classList.remove(PLAIN_CLASS);
+    document.getElementById(PLAIN_STYLE_ID)?.remove();
   }
 
   // ──────────────────────────────── меню ────────────────────────────────
@@ -820,11 +1239,24 @@
   }
 
   plugin.onSettingsChange((values) => {
-    const next = values.format_menu !== false;
-    if (next === active) return;
-    active = next;
-    if (active) start();
-    else stop();
+    const menuNext = values.format_menu !== false;
+    if (menuNext !== active) {
+      active = menuNext;
+      if (active) start();
+      else stop();
+    }
+    const liveNext = values.live_formatting !== false;
+    if (liveNext !== liveOn) {
+      liveOn = liveNext;
+      if (liveOn) startLive();
+      else stopLive();
+    }
+    const plainNext = values.colored_text_font !== false;
+    if (plainNext !== plainOn) {
+      plainOn = plainNext;
+      if (plainOn) startPlain();
+      else stopPlain();
+    }
   });
 
   // подписи меню берутся при каждом показе; открытое меню — переподписать
@@ -832,6 +1264,8 @@
 
   function boot() {
     if (active) start();
+    if (liveOn) startLive();
+    if (plainOn) startPlain();
   }
   if (document.body) boot();
   else document.addEventListener("DOMContentLoaded", boot, { once: true });

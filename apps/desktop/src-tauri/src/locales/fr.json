@@ -42,6 +42,14 @@
           "label": "Menu de mise en forme",
           "hint": "Gras, italique, spoiler, couleur du texte et plus au-dessus du texte sélectionné."
         },
+        "live_formatting": {
+          "label": "Mise en forme en direct dans la saisie",
+          "hint": "Le texte de la saisie ressemble au message, les symboles de balisage n’apparaissent qu’au curseur."
+        },
+        "colored_text_font": {
+          "label": "Texte coloré en police normale",
+          "hint": "Le texte coloré des messages utilise la police du chat au lieu de celle des formules."
+        },
         "favorite_gifs": {
           "label": "GIF favoris",
           "hint": "Enregistrez vos GIF préférés et retrouvez-les rapidement."

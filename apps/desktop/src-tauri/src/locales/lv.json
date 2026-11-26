@@ -42,6 +42,14 @@
           "label": "Formatēšanas izvēlne",
           "hint": "Treknraksts, slīpraksts, spoileris, teksta krāsa un cits virs atlasītā teksta."
         },
+        "live_formatting": {
+          "label": "Formatēšana ievades laukā",
+          "hint": "Teksts laukā uzreiz izskatās kā ziņojumā, marķējuma simboli redzami tikai pie kursora."
+        },
+        "colored_text_font": {
+          "label": "Krāsains teksts parastā fontā",
+          "hint": "Krāsains teksts ziņojumos izmanto tērzēšanas fontu, nevis formulu fontu."
+        },
         "favorite_gifs": {
           "label": "Izlases GIF",
           "hint": "Saglabā iecienītākos GIF un ātri tos atrodi."

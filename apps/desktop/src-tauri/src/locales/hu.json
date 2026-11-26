@@ -42,6 +42,14 @@
           "label": "Formázási menü",
           "hint": "Félkövér, dőlt, spoiler, szövegszín és más a kijelölt szöveg fölött."
         },
+        "live_formatting": {
+          "label": "Élő formázás a beviteli mezőben",
+          "hint": "A mező szövege azonnal úgy néz ki, mint az üzenetben, a jelölőkarakterek csak a kurzornál látszanak."
+        },
+        "colored_text_font": {
+          "label": "Színes szöveg normál betűtípussal",
+          "hint": "Az üzenetek színes szövege a csevegés betűtípusát használja a képletek betűtípusa helyett."
+        },
         "favorite_gifs": {
           "label": "Kedvenc GIF-ek",
           "hint": "Mentsd el a kedvenc GIF-jeidet, és érd el őket gyorsan."

@@ -301,6 +301,8 @@ fn qol_settings() -> Vec<usercss::Setting> {
         checkbox("media_player", "Свой видео- и аудиоплеер", true),
         checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
         checkbox("format_menu", "Меню форматирования", true),
+        checkbox("live_formatting", "Форматирование в поле ввода", true),
+        checkbox("colored_text_font", "Цветной текст обычным шрифтом", true),
         checkbox("favorite_gifs", "Меню избранного для GIF", true),
         checkbox(
             "gifs_open_favorites",
@@ -2488,13 +2490,15 @@ mod tests {
         let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names.join(","),
-            "interface,history,media_player,emoji_picker,format_menu,favorite_gifs,\
-             gifs_open_favorites,gif_previews,hotkeys"
+            "interface,history,media_player,emoji_picker,format_menu,live_formatting,\
+             colored_text_font,favorite_gifs,gifs_open_favorites,gif_previews,hotkeys"
         );
         assert_eq!(qol.values["gif_previews"], "remote");
         assert_eq!(qol.values["history"], "1");
         assert_eq!(qol.values["media_player"], "1");
         assert_eq!(qol.values["format_menu"], "1");
+        assert_eq!(qol.values["live_formatting"], "1");
+        assert_eq!(qol.values["colored_text_font"], "1");
         assert_eq!(qol.values["favorite_gifs"], "1");
         assert_eq!(qol.values["gifs_open_favorites"], "0");
         assert_eq!(qol.values["hotkeys"], "0");

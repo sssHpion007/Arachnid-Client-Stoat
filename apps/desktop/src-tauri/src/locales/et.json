@@ -42,6 +42,14 @@
           "label": "Vormindusmenüü",
           "hint": "Paks, kaldkiri, spoiler, teksti värv ja muu valitud teksti kohal."
         },
+        "live_formatting": {
+          "label": "Vormindus sisestusväljas",
+          "hint": "Väljal olev tekst näeb kohe välja nagu sõnumis, märgistussümbolid on näha ainult kursori juures."
+        },
+        "colored_text_font": {
+          "label": "Värviline tekst tavalise fondiga",
+          "hint": "Värviline tekst sõnumites kasutab vestluse fonti, mitte valemite fonti."
+        },
         "favorite_gifs": {
           "label": "Lemmik-GIF-id",
           "hint": "Salvesta oma lemmik-GIF-id ja leia need kiiresti üles."

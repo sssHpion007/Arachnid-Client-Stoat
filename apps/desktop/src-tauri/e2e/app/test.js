@@ -1604,9 +1604,9 @@ ${sidebarGroup("", [
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
         qolBoxes.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
-          "interface=true,history=true,media_player=true,emoji_picker=true,format_menu=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
+          "interface=true,history=true,media_player=true,emoji_picker=true,format_menu=true,live_formatting=true,colored_text_font=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
-          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 8,
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 10,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
       );
 

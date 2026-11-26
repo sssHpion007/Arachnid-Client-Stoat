@@ -42,6 +42,14 @@
           "label": "Formatting Menu",
           "hint": "Bold, italic, spoiler, text color and more above selected text."
         },
+        "live_formatting": {
+          "label": "Live Formatting in Input",
+          "hint": "Text in the input looks like the sent message, markup symbols show only near the cursor."
+        },
+        "colored_text_font": {
+          "label": "Colored Text in Normal Font",
+          "hint": "Colored text in messages uses the chat font instead of the formula font."
+        },
         "favorite_gifs": {
           "label": "Favorite GIFs",
           "hint": "Save your favorite GIFs and get to them quickly."

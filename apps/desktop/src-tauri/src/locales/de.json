@@ -42,6 +42,14 @@
           "label": "Formatierungsmenü",
           "hint": "Fett, kursiv, Spoiler, Textfarbe und mehr über markiertem Text."
         },
+        "live_formatting": {
+          "label": "Live-Formatierung im Eingabefeld",
+          "hint": "Text im Eingabefeld sieht aus wie in der Nachricht, Markup-Zeichen erscheinen nur am Cursor."
+        },
+        "colored_text_font": {
+          "label": "Farbiger Text in normaler Schrift",
+          "hint": "Farbiger Text in Nachrichten nutzt die Chat-Schrift statt der Formelschrift."
+        },
         "favorite_gifs": {
           "label": "Favorisierte GIFs",
           "hint": "Speichere deine Lieblings-GIFs und finde sie schnell wieder."

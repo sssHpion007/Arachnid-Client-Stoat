@@ -42,6 +42,14 @@
           "label": "Formateringsmeny",
           "hint": "Fetstil, kursiv, spoiler, textfärg och mer ovanför markerad text."
         },
+        "live_formatting": {
+          "label": "Direktformatering i inmatningen",
+          "hint": "Texten i inmatningen ser ut som i meddelandet, markeringstecken syns bara vid markören."
+        },
+        "colored_text_font": {
+          "label": "Färgad text med vanligt typsnitt",
+          "hint": "Färgad text i meddelanden använder chattens typsnitt i stället för formeltypsnittet."
+        },
         "favorite_gifs": {
           "label": "Favorit-GIF:ar",
           "hint": "Spara dina favorit-GIF:ar och hitta dem snabbt."
