@@ -1608,16 +1608,20 @@ ${sidebarGroup("", [
       const clearPreviews = previewsSelect?.closest(".arachnid-column")?.nextElementSibling?.querySelector(".arachnid-button");
       const usageBefore = await invoke("favorite_gifs_previews");
       await waitFor(() => clearPreviews && !clearPreviews.disabled, 3000, 50);
+      const statusBefore = clearPreviews?.nextElementSibling?.textContent;
       clearPreviews?.click();
-      const cleared = await waitFor(async () => {
-        const usage = await invoke("favorite_gifs_previews");
-        const list = (await invoke("favorite_gifs_list")).favorites;
-        return usage.files === 0 && list.every((item) => item.preview === 0) ? { usage, count: list.length } : null;
-      }, 3000);
+      // ответ очистки: папка пуста — кнопка недоступна, подпись другая (превью
+      // делаются заново сразу, поэтому пустую папку саму не поймать)
+      const cleared = await waitFor(
+        () => (clearPreviews.disabled && clearPreviews.nextElementSibling.textContent !== statusBefore ? true : null),
+        3000,
+        50,
+      );
       // хранятся на компьютере — пропавшие превью делаются заново
       const remade = await waitFor(async () => {
+        const usage = await invoke("favorite_gifs_previews");
         const list = (await invoke("favorite_gifs_list")).favorites;
-        return list.length > 0 && list.every((item) => item.preview > 0) ? list.length : null;
+        return usage.files > 0 && list.length > 0 && list.every((item) => item.preview > 0) ? list.length : null;
       }, 15000);
       await check(
         "превью избранных GIF: «Очистить папку превью» удаляет их, затем они делаются заново",
