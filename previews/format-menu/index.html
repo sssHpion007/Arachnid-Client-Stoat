@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Превью: меню форматирования</title>
+    <link rel="stylesheet" href="node_modules/@fontsource/inter/400.css" />
+    <link rel="stylesheet" href="node_modules/@fontsource/inter/500.css" />
+    <link rel="stylesheet" href="node_modules/@fontsource/inter/600.css" />
+    <link rel="stylesheet" href="node_modules/material-symbols/outlined.css" />
+    <link rel="stylesheet" href="node_modules/katex/dist/katex.min.css" />
+    <link rel="stylesheet" href="preview.css" />
+  </head>
+  <body>
+    <header class="options">
+      <div class="option">
+        <span>Меню</span>
+        <div class="segmented" data-option="menu">
+          <button data-value="1" aria-pressed="true">1 · компактное</button>
+          <button data-value="2">2 · круглые кнопки</button>
+        </div>
+      </div>
+      <div class="option">
+        <span>Палитра</span>
+        <div class="segmented" data-option="palette">
+          <button data-value="a" aria-pressed="true">А · образцы</button>
+          <button data-value="b">Б · образцы + свой цвет</button>
+        </div>
+      </div>
+      <div class="option">
+        <span>Цветной текст в Arachnid</span>
+        <div class="segmented" data-option="render">
+          <button data-value="katex" aria-pressed="true">как у всех (KaTeX)</button>
+          <button data-value="native">как обычный текст</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="chat">
+      <div class="channel-header">
+        <span class="material-symbols-outlined">tag</span>
+        <span>основной</span>
+      </div>
+      <div class="messages" id="messages"></div>
+      <div class="hint">
+        Выделите текст в поле ниже — появится меню. Enter — отправить, Shift+Enter — новая строка.
+      </div>
+      <div class="composer">
+        <span class="material-symbols-outlined composer-icon">add_circle</span>
+        <div class="field">
+          <textarea id="input" rows="1" spellcheck="false"></textarea>
+          <div class="mirror" id="mirror" aria-hidden="true"></div>
+        </div>
+        <span class="material-symbols-outlined composer-icon">sentiment_satisfied</span>
+        <span class="material-symbols-outlined composer-icon">gif_box</span>
+      </div>
+    </main>
+
+    <div class="toolbar" id="toolbar" hidden></div>
+    <div class="palette" id="palette" hidden></div>
+
+    <script type="module" src="preview.js"></script>
+  </body>
+</html>
