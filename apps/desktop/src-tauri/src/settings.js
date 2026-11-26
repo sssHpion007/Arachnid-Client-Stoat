@@ -280,7 +280,9 @@ img.arachnid-plugin-icon { object-fit: contain; }
 .arachnid-slider-value { min-width: 4em; text-align: right; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 .arachnid-scrim {
   position: fixed; inset: 0; z-index: 999; box-sizing: border-box; padding: 80px;
-  display: grid; place-items: center;
+  /* ячейка сетки — ровно область подложки: иначе строка растёт по окну,
+     max-height: 100% у окна ничего не ограничивает и длинное окно не прокручивается */
+  display: grid; place-items: center; grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   background: rgba(0, 0, 0, 0.32); background: rgba(from var(--md-sys-color-scrim) r g b / 0.32);
   /* клиент за окном размыт; появляется и исчезает вместе с подложкой */
   backdrop-filter: blur(8px);
