@@ -1,5 +1,5 @@
 name = "External Emoji"
-version = "1.0.0"
+version = "1.0.1"
 author = "_sssHpion007"
 description = "Shows links like [:name:](image link) as emoji in the text instead of a link and a large picture"
 icon = "icon.svg"

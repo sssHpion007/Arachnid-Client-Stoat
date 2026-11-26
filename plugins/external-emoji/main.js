@@ -7,8 +7,9 @@
 // эмодзи в строке текста, а встраивание прячет.
 //
 // Что считается эмодзи: текст ссылки — только «:имя:», ссылка — картинка
-// (.png, .gif, .webp, .jpg, .avif) с любого сайта или эмодзи Discord
-// (`/emojis/<число>`). Сообщение только из эмодзи, как и у for-web,
+// (.png, .gif, .webp, .jpg, .avif) с любого сайта; у эмодзи Discord
+// (`cdn.discordapp.com/emojis/<число>`) имя может быть и без двоеточий —
+// так вставляет Discord: [Slastjena](…/emojis/….webp?size=48&name=Slastjena). Сообщение только из эмодзи, как и у for-web,
 // показывает их крупно: одно — 96 px, несколько — 48 px (`--emoji-size-large`
 // и `--emoji-size-medium` темы Stoat).
 //
@@ -38,6 +39,8 @@ const PROXY_KEY = `${OWN}:proxy`;
 
 const ULID = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 const NAME = /^:([\p{L}\p{N}_~-]{1,64}):$/u;
+/** Имя без двоеточий — только у эмодзи Discord */
+const BARE_NAME = /^([\p{L}\p{N}_~-]{1,64})$/u;
 const IMAGE_PATH = /\.(?:png|apng|gif|webp|jpe?g|avif)$/i;
 const DISCORD_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
 const DISCORD_EMOJI = /^\/emojis\/\d+(?:\.[a-z]+)?$/i;
@@ -87,11 +90,13 @@ function rememberProxy(base) {
 function emojiOf(anchor) {
   if (anchor.hasAttribute(MARK) || anchor.childElementCount) return null;
   if (anchor.closest("[contenteditable]")) return null;
-  const name = NAME.exec(anchor.textContent.trim())?.[1];
-  const url = name ? parseUrl(anchor.getAttribute("href") ?? "") : null;
+  const text = anchor.textContent.trim();
+  const url = parseUrl(anchor.getAttribute("href") ?? "");
   if (!url || (url.protocol !== "https:" && url.protocol !== "http:")) return null;
   const discord = DISCORD_HOSTS.has(url.hostname) && DISCORD_EMOJI.test(url.pathname);
   if (!discord && !IMAGE_PATH.test(url.pathname)) return null;
+  const name = NAME.exec(text)?.[1] ?? (discord ? BARE_NAME.exec(text)?.[1] : null);
+  if (!name) return null;
   const image = new URL(url.href);
   if (discord) image.searchParams.set("size", DISCORD_SIZE);
   return { name, href: url.href, image: image.href };
