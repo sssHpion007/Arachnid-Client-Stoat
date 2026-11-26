@@ -1682,6 +1682,53 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   // её битой, пока сообщение не пересоздастся. Она незаметно загружается
   // заново, через IMAGE_RETRIES_MS, а когда сеть возвращается — сразу и снова
   // с первого повтора; пока она грузится, её не видно, как и в первый раз.
+  //
+  // GIF так не ждёт: её load приходит, только когда скачан весь файл, а кадры
+  // видны и раньше. GIF видна сразу — это GIF с сайтов GIF (их for-web
+  // показывает по прямой ссылке) и ссылки на .gif. Вложение Stoat по адресу
+  // не узнать: картинки autumn отдаёт уменьшенными — они загружаются быстро,
+  // а GIF — целиком, поэтому вложение, которое грузится дольше
+  // ATTACHMENT_PATIENCE_MS, показывается по мере загрузки.
+
+  /** Сайты GIF: for-web берёт их картинки по прямой ссылке (lib/gifs.ts) */
+  const GIF_HOSTS = /(^|\.)(tenor\.com|giphy\.com|gifbox\.me)$/i;
+  /** Столько вложение Stoat ждёт полной загрузки, мс */
+  const ATTACHMENT_PATIENCE_MS = 700;
+  /** Ожидание вложения: картинка → таймер */
+  const patience = new WeakMap();
+
+  /** Адрес картинки; у встраивания через прокси January — исходный (`?url=`) */
+  function imageTarget(img) {
+    try {
+      const url = new URL(img.getAttribute("src") ?? "", location.href);
+      const proxied = url.pathname.endsWith("/proxy") ? url.searchParams.get("url") : null;
+      return proxied ? new URL(proxied) : url;
+    } catch {
+      return null;
+    }
+  }
+
+  /** GIF: видна сразу, по мере загрузки */
+  function isGif(img) {
+    const url = imageTarget(img);
+    return Boolean(url && (GIF_HOSTS.test(url.hostname) || /\.gif$/i.test(url.pathname)));
+  }
+
+  /** Вложение Stoat (autumn): /attachments/<id> */
+  const isAttachment = (img) => /\/attachments\/[^/]+$/.test(imageTarget(img)?.pathname ?? "");
+
+  /** Картинка появилась и ещё грузится: GIF — сразу, вложение — если грузится долго */
+  function onLoading(img) {
+    if (isGif(img)) return img.setAttribute(IMAGE_SHOWN, "");
+    if (!isAttachment(img) || patience.has(img)) return;
+    patience.set(
+      img,
+      setTimeout(() => {
+        patience.delete(img);
+        if (img.isConnected && !img.complete) img.setAttribute(IMAGE_SHOWN, "");
+      }, ATTACHMENT_PATIENCE_MS),
+    );
+  }
 
   /** Картинка → сколько раз она уже загружалась заново */
   const imageRetries = new WeakMap();
@@ -1694,7 +1741,12 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
   function onSizedImage(event) {
     const img = event.target;
     if (!(img instanceof HTMLImageElement) || !img.matches(SIZED_IMAGE)) return;
-    if (event.type === "animationstart" && (event.animationName !== IMAGE_APPEARED || !img.complete)) return;
+    if (event.type === "animationstart") {
+      if (event.animationName !== IMAGE_APPEARED) return;
+      if (!img.complete) return onLoading(img);
+    }
+    clearTimeout(patience.get(img));
+    patience.delete(img);
     if ((event.type === "error" || broken(img)) && retryImage(img)) return;
     img.setAttribute(IMAGE_SHOWN, "");
   }
@@ -1739,7 +1791,8 @@ ${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
     window.addEventListener("online", onOnline);
     // уже загруженные до запуска плагина или до включения настройки
     for (const img of document.querySelectorAll(`${SIZED_IMAGE}:not([${IMAGE_SHOWN}])`)) {
-      if (img.complete && !(broken(img) && retryImage(img))) img.setAttribute(IMAGE_SHOWN, "");
+      if (!img.complete) onLoading(img);
+      else if (!(broken(img) && retryImage(img))) img.setAttribute(IMAGE_SHOWN, "");
     }
   }
 

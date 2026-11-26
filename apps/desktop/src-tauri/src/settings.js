@@ -40,7 +40,7 @@
   const i18n = window.__arachnidI18n;
   const text = i18n.text("settings");
   /** От какого флажка встроенного плагина зависит его настройка */
-  const BUILTIN_REQUIRES = { "builtin:qol": { gifs_open_favorites: "favorite_gifs" } };
+  const BUILTIN_REQUIRES = { "builtin:qol": { gifs_open_favorites: "favorite_gifs", gif_previews: "favorite_gifs" } };
 
   const BRAND = "Arachnid Client";
   /** Подпись for-web под версией, когда есть window.native */
@@ -219,6 +219,8 @@ img.arachnid-plugin-icon { object-fit: contain; }
 .arachnid-button:hover {
   background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
 }
+.arachnid-button:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
+.arachnid-select:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
 .arachnid-button[data-variant="filled"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
 .arachnid-button[data-variant="text"] { background: transparent; color: var(--md-sys-color-primary); padding: 0 12px; }
 .arachnid-button[data-variant="text"]:hover { background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent); }
@@ -438,12 +440,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * подписью и шторка под ним. Шторка живёт в <body> с position: fixed —
    * в окне настроек есть трансформации, внутри них fixed не работает.
    */
-  function select({ label, value, options, onChange }) {
+  function select({ label, value, options, onChange, disabled = false }) {
     let current = options.find((option) => option.value === value) ?? options[0];
     const shown = h("span", { class: "arachnid-select-value" }, current?.label ?? "");
     const trigger = h(
       "button",
-      { type: "button", class: "arachnid-select", "aria-haspopup": "listbox" },
+      { type: "button", class: "arachnid-select", "aria-haspopup": "listbox", disabled },
       h("span", { class: "arachnid-select-label" }, label),
       shown,
     );
@@ -705,6 +707,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           ...setting,
           label: own[setting.name]?.label ?? setting.label,
           hint: own[setting.name]?.hint ?? setting.hint,
+          options: setting.options?.map((option) => ({ ...option, label: own[setting.name]?.options?.[option.name] ?? option.label })),
           requires: requires[setting.name],
         })),
       };
@@ -1601,13 +1604,17 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
           h("span", { class: "arachnid-label arachnid-setting-hint" }, setting.hint),
         );
       }
-      case "select":
-        return select({
+      case "select": {
+        const control = select({
           label: setting.label,
           value,
           options: setting.options.map((option) => ({ value: option.name, label: option.label })),
           onChange: (next) => set(setting.name, next),
+          disabled: Boolean(setting.disabled),
         });
+        control.dataset.arachnidSetting = setting.name;
+        return control;
+      }
       case "range":
         return h(
           "div",
@@ -1762,7 +1769,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       const settings = shown.settings.map((setting) =>
         setting.requires === undefined ? setting : { ...setting, disabled: shown.values[setting.requires] !== "1" },
       );
-      body.replaceChildren(...settingControls(settings, shown.values, set));
+      const controls = settingControls(settings, shown.values, set);
+      // у встроенного — свои кнопки под настройкой
+      const extras = (shown.builtin && BUILTIN_EXTRAS[file]) || {};
+      body.replaceChildren(...controls.flatMap((control, index) => [control, extras[settings[index].name]?.() ?? []]));
     };
     const dialog = openDialog({
       title: text.pluginSettings(plugin.name ?? file),
@@ -1776,6 +1786,41 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     });
     fill();
   }
+
+  // ───── папка превью избранных GIF (favorite_gifs.rs)
+  function formatSize(bytes) {
+    const units = i18n.text("packs");
+    const number = new Intl.NumberFormat(i18n.intl(), { maximumFractionDigits: 1 });
+    if (bytes >= 1024 * 1024) return `${number.format(bytes / (1024 * 1024))} ${units.mb}`;
+    return `${number.format(Math.max(1, Math.round(bytes / 1024)))} ${units.kb}`;
+  }
+
+  /** «Очистить папку превью» и сколько она занимает */
+  function gifPreviewsFolder() {
+    const status = h("span", { class: "arachnid-label" });
+    const clear = button(text.clearGifPreviews, () => void run(), undefined, "delete");
+    clear.disabled = true;
+    const paint = (usage) => {
+      status.textContent = usage.files ? text.gifPreviewsSize(formatSize(usage.bytes)) : text.gifPreviewsEmpty;
+      clear.disabled = !usage.files;
+    };
+    async function run() {
+      clear.disabled = true;
+      try {
+        paint(await invoke("favorite_gifs_clear_previews"));
+        // избранное (gifs.js) перечитывает список
+        dispatchEvent(new CustomEvent("arachnid:gif-previews-cleared"));
+      } catch (error) {
+        status.textContent = i18n.errorText(error);
+        clear.disabled = false;
+      }
+    }
+    invoke("favorite_gifs_previews").then(paint, (error) => (status.textContent = i18n.errorText(error)));
+    return h("div", { class: "arachnid-buttons", style: { alignItems: "center" } }, clear, status);
+  }
+
+  /** Кнопки под настройками встроенного плагина: имя настройки → элемент */
+  const BUILTIN_EXTRAS = { "builtin:qol": { gif_previews: gifPreviewsFolder } };
 
   /** Спросить разрешение на сеть и включить плагин */
   function askPermissions(plugin) {

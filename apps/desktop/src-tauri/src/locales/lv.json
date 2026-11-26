@@ -46,12 +46,23 @@
           "label": "Atvērt GIF atlasītāju ar izlasi",
           "hint": "Bultiņa Atpakaļ atver Gifbox."
         },
+        "gif_previews": {
+          "label": "Izlases GIF priekšskatījumi",
+          "hint": "Datorā ir ātrāk, no vietnes — diskā nekas netiek glabāts.",
+          "options": {
+            "local": "Glabāt šajā datorā",
+            "remote": "Ielādēt no vietnes"
+          }
+        },
         "hotkeys": {
           "label": "Īsinājumtaustiņi",
           "hint": "Vadi zvanus un klienta logu ar tastatūru un peli, pat ja tas ir minimizēts."
         }
       }
     },
+    "clearGifPreviews": "Iztīrīt priekšskatījumu mapi",
+    "gifPreviewsSize": "Aizņemts: {0}",
+    "gifPreviewsEmpty": "Priekšskatījumu mape ir tukša",
     "hotkeys": "Īsinājumtaustiņi",
     "hotkeysIntro": "Tie darbojas visur, pat ja klients ir minimizēts vai paslēpts paziņojumu apgabalā. Klienta logā īsinājumtaustiņš veic tikai savu darbību; arī citas programmas to saņem. Zvana darbības strādā kā zvana kartītes pogas.",
     "hotkeysInactive": "Īsinājumtaustiņi sāks darboties, kad “Quality of Life” atkal būs palaists – pēc klienta pārlādes.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "priekšskatījums ir lielāks par 512 KB",
     "previewNotWebp": "priekšskatījums nav WebP",
     "previewNotSaved": "priekšskatījums netika saglabāts: {0}",
+    "previewsNotCleared": "priekšskatījumi netika izdzēsti: {0}",
     "longUrl": "saite ir pārāk gara",
     "notUrl": "tā nav saite",
     "notHttp": "vajadzīga http:// vai https:// saite",

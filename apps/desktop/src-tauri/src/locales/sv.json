@@ -46,12 +46,23 @@
           "label": "Öppna GIF-väljaren på favoriter",
           "hint": "Bakåtpilen öppnar Gifbox."
         },
+        "gif_previews": {
+          "label": "Förhandsvisningar av favorit-GIF:ar",
+          "hint": "Lokalt går snabbare, från webbplatsen sparas inget på disken.",
+          "options": {
+            "local": "Spara på den här datorn",
+            "remote": "Hämta från webbplatsen"
+          }
+        },
         "hotkeys": {
           "label": "Kortkommandon",
           "hint": "Styr samtal och klientfönstret med tangentbord och mus, även när det är minimerat."
         }
       }
     },
+    "clearGifPreviews": "Töm mappen för förhandsvisningar",
+    "gifPreviewsSize": "Använt: {0}",
+    "gifPreviewsEmpty": "Mappen för förhandsvisningar är tom",
     "hotkeys": "Kortkommandon",
     "hotkeysIntro": "De fungerar överallt, även när klienten är minimerad eller dold i meddelandefältet. I klientfönstret utför ett kortkommando bara sin åtgärd; andra program tar också emot det. Samtalsåtgärder fungerar som knapparna på samtalskortet.",
     "hotkeysInactive": "Kortkommandon börjar fungera när ”Quality of Life” körs igen – efter att klienten laddats om.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "förhandsvisningen är större än 512 kB",
     "previewNotWebp": "förhandsvisningen är inte WebP",
     "previewNotSaved": "förhandsvisningen sparades inte: {0}",
+    "previewsNotCleared": "förhandsvisningarna togs inte bort: {0}",
     "longUrl": "länken är för lång",
     "notUrl": "det här är inte en länk",
     "notHttp": "en http://- eller https://-länk krävs",

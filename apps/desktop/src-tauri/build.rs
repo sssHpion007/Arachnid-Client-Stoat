@@ -40,6 +40,8 @@ const COMMANDS: &[&str] = &[
     "favorite_gifs_set_preview",
     "favorite_gifs_resolve",
     "favorite_gifs_download",
+    "favorite_gifs_previews",
+    "favorite_gifs_clear_previews",
     "image_save",
     "hotkeys_overview",
     "hotkeys_activate",

@@ -267,6 +267,29 @@ fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
     }
 }
 
+/// Выбор встроенного плагина: варианты — (имя, подпись), первый — по умолчанию.
+fn choice(name: &str, label: &str, options: &[(&str, &str)]) -> usercss::Setting {
+    usercss::Setting {
+        name: name.to_owned(),
+        label: label.to_owned(),
+        kind: usercss::Kind::Select,
+        default: options.first().map_or("", |(name, _)| *name).to_owned(),
+        options: options
+            .iter()
+            .map(|(name, label)| usercss::SelectOption {
+                name: (*name).to_owned(),
+                label: (*label).to_owned(),
+                value: (*name).to_owned(),
+            })
+            .collect(),
+        min: None,
+        max: None,
+        step: None,
+        unit: None,
+        hint: None,
+    }
+}
+
 /// Настройки «Quality of Life»: каждая часть включается отдельно
 /// (`emoji.js`, `gifs.js`, `hotkeys.js`, `history.js`, `player.js`). Подписи
 /// на странице переводит `settings.js`.
@@ -281,6 +304,14 @@ fn qol_settings() -> Vec<usercss::Setting> {
             "gifs_open_favorites",
             "Открывать окно GIF сразу на избранном",
             false,
+        ),
+        choice(
+            "gif_previews",
+            "Превью избранных GIF",
+            &[
+                ("local", "Хранить на компьютере"),
+                ("remote", "Загружать с сайта"),
+            ],
         ),
         checkbox("hotkeys", "Горячие клавиши", false),
     ]
@@ -2455,8 +2486,10 @@ mod tests {
         let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names.join(","),
-            "interface,history,media_player,emoji_picker,favorite_gifs,gifs_open_favorites,hotkeys"
+            "interface,history,media_player,emoji_picker,favorite_gifs,gifs_open_favorites,\
+             gif_previews,hotkeys"
         );
+        assert_eq!(qol.values["gif_previews"], "local");
         assert_eq!(qol.values["history"], "1");
         assert_eq!(qol.values["media_player"], "1");
         assert_eq!(qol.values["favorite_gifs"], "1");
@@ -2470,8 +2503,11 @@ mod tests {
 
         assert!(extensions.set_plugin_value("builtin:qol", "gifs_open_favorites", Some("1")));
         assert!(!extensions.set_plugin_value("builtin:qol", "nothing", Some("1")));
+        assert!(extensions.set_plugin_value("builtin:qol", "gif_previews", Some("remote")));
+        assert!(!extensions.set_plugin_value("builtin:qol", "gif_previews", Some("cloud")));
         let values = extensions.plugin_values("builtin:qol").unwrap();
         assert_eq!(values["gifs_open_favorites"], true);
+        assert_eq!(values["gif_previews"], "remote");
         assert_eq!(values["interface"], true);
         let script = extensions.plugins().remove(0).1;
         assert!(script.contains("\"gifs_open_favorites\":true"));

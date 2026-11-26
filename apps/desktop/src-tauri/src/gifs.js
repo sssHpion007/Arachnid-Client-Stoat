@@ -13,11 +13,16 @@
 //   «Изменить описание», «Копировать ссылку»). Звёздочек на плитках нет.
 // * Избранное ищется только в избранном: результаты Gifbox оно не трогает.
 // * GIF в избранном и в Gifbox воспроизводятся, только пока на них наведён
-//   указатель; до того видно превью — один кадр. Превью делает эта
-//   страница (WebView2 умеет разбирать всё, что показывает), а файлы для
-//   него скачивает и хранит клиент (favorite_gifs.rs): список и превью в
-//   несколько килобайт — в каталоге данных, на этом компьютере. Сами GIF не
-//   сохраняются — только ссылки.
+//   указатель; до того видно превью — один кадр. Где оно берётся — по
+//   настройке `gif_previews`:
+//   - «local»: превью делает эта страница (WebView2 умеет разбирать всё, что
+//     показывает), а файлы для него скачивает и хранит клиент
+//     (favorite_gifs.rs) — превью в несколько килобайт в каталоге данных;
+//   - «remote»: на диск ничего не пишется — плитка загружает готовое
+//     маленькое превью сайта (Tenor, Giphy), а у других сайтов — сам файл,
+//     от которого остаётся первый кадр.
+//   Список — в каталоге данных, на этом компьютере. Сами GIF не сохраняются —
+//   только ссылки.
 // * Отправка — как у Gifbox for-web: ссылка уходит сообщением в открытый
 //   канал через API Stoat с сессией страницы, набранный текст не меняется.
 //   Окно, открытое с панели сообщения, отвечает на это сообщение (как for-web).
@@ -46,6 +51,8 @@
   const GIFBOX_URL = "https://api.gifbox.me";
   /** Ширина превью */
   const PREVIEW_WIDTH = 240;
+  /** Событие settings.js: папка превью очищена */
+  const PREVIEWS_CLEARED = "arachnid:gif-previews-cleared";
   /** Самое высокое превью — во столько раз выше ширины */
   const PREVIEW_MAX_RATIO = 4;
   /** Плитка не ниже и не выше стольких ширин колонки */
@@ -171,7 +178,8 @@
   box-shadow: var(--md-sys-elevation-3, 0 4px 12px rgba(0, 0, 0, 0.4));
 }
 .arachnid-gifs-tile > img,
-.arachnid-gifs-tile > video {
+.arachnid-gifs-tile > video,
+.arachnid-gifs-tile > canvas {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -505,7 +513,48 @@
   }
 
   const findFavorite = (url) => (url ? (store.list.find((known) => known.url === url || known.media === url) ?? null) : null);
-  const previewUrl = (favorite) => (favorite.preview ? `${store.base}${favorite.id}.webp?v=${favorite.preview}` : null);
+
+  /** Превью хранятся на компьютере (иначе — загружаются с сайта) */
+  let storing = plugin.settings.gif_previews !== "remote";
+
+  /** Превью, сохранённое клиентом */
+  const localPreview = (favorite) => (favorite.preview ? `${store.base}${favorite.id}.webp?v=${favorite.preview}` : null);
+
+  /**
+   * Готовое маленькое превью сайта — первый кадр, по адресу файла:
+   * у Tenor формат зашит в конец идентификатора (`…AAA` + два знака,
+   * tinywebppreview — «A3»), у Giphy — имя файла (200w_s — шириной 200).
+   */
+  function sitePreview(media) {
+    let url;
+    try {
+      url = new URL(media);
+    } catch {
+      return null;
+    }
+    if (/(^|\.)tenor\.com$/.test(url.hostname)) {
+      const tenor = /^\/(?:m\/)?([A-Za-z0-9_-]{11})AAA[A-Za-z0-9]{2}\/[^/]+$/.exec(url.pathname);
+      return tenor ? `https://media.tenor.com/${tenor[1]}AAAA3/tenor.webp` : null;
+    }
+    if (/(^|\.)giphy\.com$/.test(url.hostname)) {
+      const giphy =
+        /\/media\/(?:v1\.[^/]+\/)?([A-Za-z0-9]+)\/[^/]+$/.exec(url.pathname) ?? /^\/([A-Za-z0-9]+)\.(?:gif|webp|mp4)$/.exec(url.pathname);
+      return giphy ? `https://media.giphy.com/media/${giphy[1]}/200w_s.gif` : null;
+    }
+    return null;
+  }
+
+  /**
+   * Откуда превью плитки: адрес картинки, `frame:<адрес файла>` — первый
+   * кадр самого файла, null — превью нет (ещё делается или не получилось)
+   */
+  function stillKey(favorite) {
+    if (storing) return localPreview(favorite);
+    return sitePreview(favorite.media) ?? `frame:${favorite.media}`;
+  }
+
+  /** Картинка-превью для обложки «Избранного»: только готовая, без кадра из файла */
+  const coverUrl = (favorite) => (storing ? localPreview(favorite) : sitePreview(favorite.media));
 
   /** Слова поиска: всё, что не буквы и не цифры, разделяет слова */
   const words = (value) => value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
@@ -547,7 +596,7 @@
       favorite: { ...entry, kind, width: Math.round(width), height: Math.round(height) },
     });
     put(favorite, { top: true });
-    if (shot && !favorite.preview) {
+    if (storing && shot && !favorite.preview) {
       busy.add(favorite.id);
       try {
         put(await invoke("favorite_gifs_set_preview", { id: favorite.id, preview: Array.from(shot.webp) }));
@@ -672,12 +721,12 @@
    */
   let making = false;
   async function makePreviews() {
-    if (making) return;
+    if (making || !storing) return;
     making = true;
     try {
       for (;;) {
         const favorite = store.list.find((known) => !known.preview && !busy.has(known.id) && !broken.has(known.id));
-        if (!favorite) break;
+        if (!favorite || !storing) break;
         busy.add(favorite.id);
         try {
           const shot = await capture(favorite.media, favorite.kind);
@@ -1046,7 +1095,7 @@
 
     if (adding) showStatus(text.linkHint);
     else {
-      const src = previewUrl(favorite);
+      const src = coverUrl(favorite);
       if (favorite.media) showMedia(favorite.media, favorite.kind);
       else if (src) showMedia(src, "image");
     }
@@ -1077,21 +1126,83 @@
   function fillTile(tile, favorite) {
     tile.favorite = favorite;
     tile.title = favorite.description || favorite.url;
-    const src = previewUrl(favorite);
+    const key = stillKey(favorite);
     const still = tile.querySelector(":scope > .arachnid-gifs-still");
-    if (src) {
-      if (still?.getAttribute("src") === src) return;
-      const image = h("img", { class: "arachnid-gifs-still", alt: "", draggable: "false", decoding: "async", src });
+    if (key && tile.stillKey === key) return;
+    tile.stillKey = key;
+    if (key) {
       tile.querySelector(":scope > .material-symbols-outlined")?.remove();
-      if (still) still.replaceWith(image);
-      else tile.prepend(image);
+      const next = key.startsWith("frame:") ? frameStill(tile, favorite) : imageStill(tile, favorite, key);
+      if (still) still.replaceWith(next);
+      else tile.prepend(next);
     } else {
       still?.remove();
-      const name = broken.has(favorite.id) ? "broken_image" : "gif";
-      const placeholder = tile.querySelector(":scope > .material-symbols-outlined");
-      if (placeholder) placeholder.textContent = name;
-      else tile.prepend(icon(name));
+      placeholder(tile, broken.has(favorite.id) ? "broken_image" : "gif");
     }
+  }
+
+  /** Значок вместо превью */
+  function placeholder(tile, name) {
+    const shown = tile.querySelector(":scope > .material-symbols-outlined");
+    if (shown) shown.textContent = name;
+    else tile.prepend(icon(name));
+  }
+
+  /** Превью не загрузилось: у сайта — кадр из самого файла, иначе — значок */
+  function stillFailed(tile, favorite, still) {
+    if (!still.isConnected) return;
+    if (!storing && !still.matches("canvas")) return still.replaceWith(frameStill(tile, favorite));
+    still.remove();
+    placeholder(tile, "broken_image");
+  }
+
+  function imageStill(tile, favorite, src) {
+    const image = h("img", { class: "arachnid-gifs-still", alt: "", draggable: "false", decoding: "async", src });
+    image.addEventListener("error", () => stillFailed(tile, favorite, image), { once: true });
+    return image;
+  }
+
+  /**
+   * Первый кадр самого файла — на холсте: рисовать чужую картинку или видео
+   * на холсте можно (нельзя только читать его пиксели). Файл загружается
+   * обычным запросом страницы, видео сразу после кадра отпускается.
+   */
+  function frameStill(tile, favorite) {
+    const canvas = h("canvas", { class: "arachnid-gifs-still" });
+    const draw = (source, width, height) => {
+      if (!(width > 0 && height > 0)) return stillFailed(tile, favorite, canvas);
+      const side = Math.min(width, Math.round(PREVIEW_WIDTH * Math.min(2, devicePixelRatio || 1)));
+      canvas.width = side;
+      canvas.height = Math.max(1, Math.round((side * height) / width));
+      canvas.getContext("2d").drawImage(source, 0, 0, canvas.width, canvas.height);
+    };
+    if (favorite.kind === "video") {
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = "auto";
+      const release = () => {
+        video.removeAttribute("src");
+        video.load();
+      };
+      video.addEventListener(
+        "loadeddata",
+        () => {
+          draw(video, video.videoWidth, video.videoHeight);
+          release();
+        },
+        { once: true },
+      );
+      video.addEventListener("error", () => (release(), stillFailed(tile, favorite, canvas)), { once: true });
+      video.src = favorite.media;
+    } else {
+      const image = new Image();
+      image.decoding = "async";
+      image.addEventListener("load", () => draw(image, image.naturalWidth, image.naturalHeight), { once: true });
+      image.addEventListener("error", () => stillFailed(tile, favorite, canvas), { once: true });
+      image.src = favorite.media;
+    }
+    return canvas;
   }
 
   function startLive(tile) {
@@ -1204,7 +1315,7 @@
           tile = createTile(favorite);
           tiles.set(favorite.id, tile);
           grid.append(tile);
-        } else if (tile.favorite !== favorite) {
+        } else if (tile.favorite !== favorite || tile.stillKey !== stillKey(favorite)) {
           fillTile(tile, favorite);
         }
         tile.style.width = `${place.width}px`;
@@ -1524,8 +1635,8 @@
 
     function paintCategory() {
       if (!picker.category) return;
-      const cover = store.list.find((favorite) => favorite.preview);
-      picker.category.style.backgroundImage = cover ? `url("${previewUrl(cover)}")` : "";
+      const cover = store.list.map(coverUrl).find(Boolean);
+      picker.category.style.backgroundImage = cover ? `url("${cover}")` : "";
     }
 
     // ───── плитки Gifbox: только под указателем, до того — первый кадр
@@ -1873,6 +1984,12 @@
   let favoritesOn = plugin.settings.favorite_gifs !== false;
 
   function onSettingsChange(values) {
+    const local = values.gif_previews !== "remote";
+    if (local !== storing) {
+      storing = local;
+      changed();
+      if (storing && favoritesOn) void makePreviews();
+    }
     const next = values.favorite_gifs !== false;
     if (next === favoritesOn) return;
     favoritesOn = next;
@@ -1896,6 +2013,11 @@
     floating = document.getElementById("floating") ?? document.body;
     new MutationObserver(observe).observe(floating, { childList: true, subtree: true });
     plugin.onSettingsChange(onSettingsChange);
+    // папку превью очистили в настройках плагина (settings.js)
+    addEventListener(PREVIEWS_CLEARED, () => {
+      store.loading = null;
+      if (favoritesOn) void load();
+    });
     added.push(floating);
     scan();
     if (favoritesOn) void load();

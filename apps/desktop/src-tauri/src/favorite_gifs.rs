@@ -9,7 +9,9 @@
 //!
 //! Сами GIF на диск не скачиваются: окно воспроизводит их по ссылке и только
 //! пока на плитку наведён указатель, а до того показывает превью в несколько
-//! килобайт. Кадр для превью снимает страница (WebView2 разбирает все
+//! килобайт. Хранить превью можно и не на компьютере (настройка плагина
+//! `gif_previews`): тогда окно загружает готовые превью сайтов, а папку
+//! превью можно очистить ([`FavoriteGifs::clear_previews`]). Кадр для превью снимает страница (WebView2 разбирает все
 //! форматы, которые умеет показывать), а файл для неё скачивает клиент:
 //! чужие сайты не дают странице рисовать свои файлы на холсте (CORS). Превью
 //! страница получает по адресам `http://arachnid.localhost/favorite-gifs/
@@ -122,6 +124,13 @@ pub struct NewFavorite {
     pub description: String,
     #[serde(default)]
     pub query: String,
+}
+
+/// Папка превью: сколько файлов и сколько они занимают.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct PreviewsUsage {
+    pub files: u64,
+    pub bytes: u64,
 }
 
 /// Список для страницы.
@@ -320,6 +329,41 @@ impl FavoriteGifs {
         })
     }
 
+    /// Сколько занимает папка превью.
+    pub fn previews_usage(&self) -> PreviewsUsage {
+        let mut usage = PreviewsUsage::default();
+        let Ok(entries) = std::fs::read_dir(self.dir.join(PREVIEWS_DIR)) else {
+            return usage;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_file() {
+                usage.files += 1;
+                usage.bytes += meta.len();
+            }
+        }
+        usage
+    }
+
+    /// Удалить все превью. Под замком списка: превью, которое сохраняется
+    /// в это время, либо удалится, либо запишется уже после очистки.
+    pub fn clear_previews(&self) -> Result<PreviewsUsage, GifError> {
+        let dir = self.dir.join(PREVIEWS_DIR);
+        self.change(|list| {
+            for favorite in list.iter_mut() {
+                favorite.preview = 0;
+            }
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(GifError::PreviewsNotCleared(error.to_string())),
+            }
+        })?;
+        Ok(self.previews_usage())
+    }
+
     /// Файл превью по пути адреса после [`ASSET_PREFIX`] (`<id>.webp`).
     pub fn preview(&self, path: &str) -> Option<Vec<u8>> {
         let id = path.strip_suffix(".webp")?;
@@ -343,6 +387,8 @@ pub enum GifError {
     PreviewTooLarge,
     PreviewNotWebp,
     PreviewNotSaved(String),
+    /// Папка превью не удалена
+    PreviewsNotCleared(String),
     LongUrl,
     NotUrl,
     NotHttp,
@@ -384,6 +430,7 @@ impl GifError {
             Self::PreviewTooLarge => "previewTooLarge",
             Self::PreviewNotWebp => "previewNotWebp",
             Self::PreviewNotSaved(_) => "previewNotSaved",
+            Self::PreviewsNotCleared(_) => "previewsNotCleared",
             Self::LongUrl => "longUrl",
             Self::NotUrl => "notUrl",
             Self::NotHttp => "notHttp",
@@ -405,6 +452,7 @@ impl GifError {
         match self {
             Self::ListNotSaved(detail)
             | Self::PreviewNotSaved(detail)
+            | Self::PreviewsNotCleared(detail)
             | Self::NotGifOrPage(detail)
             | Self::NotMedia(detail) => vec![detail.clone()],
             Self::Full => vec![MAX_FAVORITES.to_string()],
@@ -424,6 +472,7 @@ impl std::fmt::Display for GifError {
             Self::PreviewTooLarge => f.write_str("превью больше 512 КБ"),
             Self::PreviewNotWebp => f.write_str("превью — не WebP"),
             Self::PreviewNotSaved(error) => write!(f, "превью не сохранено: {error}"),
+            Self::PreviewsNotCleared(error) => write!(f, "превью не удалены: {error}"),
             Self::LongUrl => f.write_str("слишком длинная ссылка"),
             Self::NotUrl => f.write_str("это не ссылка"),
             Self::NotHttp => f.write_str("нужна ссылка http:// или https://"),
@@ -862,6 +911,18 @@ pub fn favorite_gifs_set_preview(
 }
 
 #[tauri::command]
+pub fn favorite_gifs_previews(gifs: State<'_, Arc<FavoriteGifs>>) -> PreviewsUsage {
+    gifs.previews_usage()
+}
+
+#[tauri::command]
+pub fn favorite_gifs_clear_previews(
+    gifs: State<'_, Arc<FavoriteGifs>>,
+) -> CmdResult<PreviewsUsage> {
+    gifs.clear_previews().map_err(error)
+}
+
+#[tauri::command]
 pub async fn favorite_gifs_resolve(url: String) -> CmdResult<Resolved> {
     tauri::async_runtime::spawn_blocking(move || resolve(&url))
         .await?
@@ -935,6 +996,25 @@ mod tests {
         let saved = restarted.list().pop().unwrap();
         assert_eq!((saved.description.as_str(), saved.sent), ("танец", 1));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn previews_are_cleared() {
+        let dir = temp_dir("clear");
+        let gifs = FavoriteGifs::new(dir.clone());
+        let gif = gifs.add(new_gif("https://example.com/a")).unwrap();
+        gifs.set_preview(&gif.id, WEBP).unwrap();
+        let usage = gifs.previews_usage();
+        assert_eq!(usage.files, 1);
+        assert_eq!(usage.bytes, WEBP.len() as u64);
+        assert_eq!(gifs.clear_previews().unwrap(), PreviewsUsage::default());
+        assert_eq!(gifs.list()[0].preview, 0);
+        assert!(!gifs.preview_file(&gif.id).exists());
+        // без папки — тоже не ошибка
+        assert_eq!(gifs.clear_previews().unwrap(), PreviewsUsage::default());
+        // после перезапуска превью нет и в списке
+        assert_eq!(FavoriteGifs::new(dir.clone()).list()[0].preview, 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -46,12 +46,23 @@
           "label": "A GIF-választó a kedvencekkel nyíljon meg",
           "hint": "A Vissza nyíl a Gifboxot nyitja meg."
         },
+        "gif_previews": {
+          "label": "Kedvenc GIF-ek előnézetei",
+          "hint": "Helyben gyorsabb, a webhelyről betöltve semmi sem marad a lemezen.",
+          "options": {
+            "local": "Tárolás ezen a számítógépen",
+            "remote": "Betöltés a webhelyről"
+          }
+        },
         "hotkeys": {
           "label": "Billentyűparancsok",
           "hint": "Irányítsd a hívásokat és a kliens ablakát billentyűzetről és egérrel, akár kis méretre állítva is."
         }
       }
     },
+    "clearGifPreviews": "Előnézeti mappa ürítése",
+    "gifPreviewsSize": "Foglalt: {0}",
+    "gifPreviewsEmpty": "Az előnézeti mappa üres",
     "hotkeys": "Billentyűparancsok",
     "hotkeysIntro": "Mindenhol működnek, akkor is, ha a kliens kis méretre van állítva vagy a tálcaikonok közé van rejtve. A kliens ablakában a billentyűparancs csak a saját műveletét hajtja végre; más programok is megkapják. A hívásműveletek úgy működnek, mint a híváskártya gombjai.",
     "hotkeysInactive": "A billentyűparancsok akkor kezdenek működni, amikor a „Quality of Life” újra fut – a kliens újratöltése után.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "az előnézet nagyobb 512 KB-nál",
     "previewNotWebp": "az előnézet nem WebP",
     "previewNotSaved": "az előnézet nem lett mentve: {0}",
+    "previewsNotCleared": "az előnézetek nem törlődtek: {0}",
     "longUrl": "a hivatkozás túl hosszú",
     "notUrl": "ez nem hivatkozás",
     "notHttp": "http:// vagy https:// hivatkozás szükséges",

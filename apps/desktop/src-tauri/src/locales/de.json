@@ -46,12 +46,23 @@
           "label": "GIF-Auswahl mit Favoriten öffnen",
           "hint": "Der Zurück-Pfeil öffnet Gifbox."
         },
+        "gif_previews": {
+          "label": "Vorschauen der Lieblings-GIFs",
+          "hint": "Lokal ist schneller, von der Website bleibt nichts auf der Festplatte.",
+          "options": {
+            "local": "Auf diesem Computer speichern",
+            "remote": "Von der Website laden"
+          }
+        },
         "hotkeys": {
           "label": "Tastenkürzel",
           "hint": "Steuere Anrufe und das Client-Fenster mit Tastatur und Maus, auch wenn es minimiert ist."
         }
       }
     },
+    "clearGifPreviews": "Vorschau-Ordner leeren",
+    "gifPreviewsSize": "Belegt: {0}",
+    "gifPreviewsEmpty": "Der Vorschau-Ordner ist leer",
     "hotkeys": "Tastenkürzel",
     "hotkeysIntro": "Sie funktionieren überall, auch wenn der Client minimiert oder im Infobereich ausgeblendet ist. Im Client-Fenster führt ein Tastenkürzel nur seine Aktion aus; andere Programme erhalten es ebenfalls. Anrufaktionen wirken wie die Schaltflächen auf der Anrufkarte.",
     "hotkeysInactive": "Tastenkürzel funktionieren, sobald „Quality of Life“ wieder läuft – nach dem Neuladen des Clients.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "die Vorschau ist größer als 512 KB",
     "previewNotWebp": "die Vorschau ist kein WebP",
     "previewNotSaved": "die Vorschau wurde nicht gespeichert: {0}",
+    "previewsNotCleared": "die Vorschauen wurden nicht gelöscht: {0}",
     "longUrl": "der Link ist zu lang",
     "notUrl": "das ist kein Link",
     "notHttp": "ein http://- oder https://-Link ist erforderlich",

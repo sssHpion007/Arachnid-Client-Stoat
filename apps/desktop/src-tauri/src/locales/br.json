@@ -46,12 +46,23 @@
           "label": "Digeriñ an dibaber GIF war ar re muiañ-karet",
           "hint": "Ar bir Distreiñ a zigor Gifbox."
         },
+        "gif_previews": {
+          "label": "Rakweloù ar GIFoù muiañ-karet",
+          "hint": "War an urzhiataer eo buanoc’h; eus al lec’hienn ne vez miret netra war ar bladenn.",
+          "options": {
+            "local": "Mirout war an urzhiataer-mañ",
+            "remote": "Kargañ eus al lec’hienn"
+          }
+        },
         "hotkeys": {
           "label": "Berradennoù",
           "hint": "Merañ ar galvoù ha prenestr an arval gant ar c’hlavier hag al logodenn, zoken pa vez bihanaet."
         }
       }
     },
+    "clearGifPreviews": "Goullonderiñ teuliad ar rakweloù",
+    "gifPreviewsSize": "Implijet: {0}",
+    "gifPreviewsEmpty": "Goullo eo teuliad ar rakweloù",
     "hotkeys": "Berradennoù",
     "hotkeysIntro": "Mont a reont e pep lec’h, zoken pa vez bihanaet an arval pe kuzhet en takad ar c’hemennoù. E prenestr an arval ne ra ur verradenn nemet he ober; ar goulevioù all a resev anezhi ivez. Oberoù ar galv a ya en-dro evel boutonoù kartenn ar galv.",
     "hotkeysInactive": "Mont a raio en-dro ar berradennoù pa vo lañset adarre “Quality of Life” — goude adkargañ an arval.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "brasoc’h eget 512 Ke eo ar rakwel",
     "previewNotWebp": "n’eo ket WebP ar rakwel",
     "previewNotSaved": "n’eo ket bet enrollet ar rakwel: {0}",
+    "previewsNotCleared": "n’eo ket bet dilamet ar rakweloù: {0}",
     "longUrl": "re hir eo an ere",
     "notUrl": "n’eo ket un ere",
     "notHttp": "un ere http:// pe https:// a zo ezhomm",

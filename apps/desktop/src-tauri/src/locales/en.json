@@ -46,12 +46,23 @@
           "label": "Open the GIF Picker on Favorites",
           "hint": "The Back arrow opens Gifbox."
         },
+        "gif_previews": {
+          "label": "Favorite GIF previews",
+          "hint": "Stored locally they load faster; from the site nothing is kept on disk.",
+          "options": {
+            "local": "Store on this computer",
+            "remote": "Load from the site"
+          }
+        },
         "hotkeys": {
           "label": "Keybinds",
           "hint": "Control calls and the client window from the keyboard and mouse, even when minimized."
         }
       }
     },
+    "clearGifPreviews": "Clear preview folder",
+    "gifPreviewsSize": "Used: {0}",
+    "gifPreviewsEmpty": "The preview folder is empty",
     "hotkeys": "Keybinds",
     "hotkeysIntro": "They work everywhere, even while the client is minimized or hidden in the tray. In the client window a keybind only does its action; other programs receive it as well. Call actions work like the buttons on the call card.",
     "hotkeysInactive": "Keybinds start working when “Quality of Life” runs again — after the client reloads.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "the preview is larger than 512 KB",
     "previewNotWebp": "the preview is not WebP",
     "previewNotSaved": "the preview was not saved: {0}",
+    "previewsNotCleared": "previews were not deleted: {0}",
     "longUrl": "the link is too long",
     "notUrl": "this is not a link",
     "notHttp": "an http:// or https:// link is required",

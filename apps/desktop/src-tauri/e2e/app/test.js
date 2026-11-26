@@ -1593,13 +1593,40 @@ ${sidebarGroup("", [
       const qolDialog = await waitFor(() => document.querySelector('[data-arachnid-plugin-settings="builtin:qol"]'), 3000, 50);
       const qolInputs = qolDialog ? [...qolDialog.querySelectorAll("[data-arachnid-setting]")] : [];
       const qolInput = (name) => qolInputs.find((input) => input.dataset.arachnidSetting === name);
+      const qolBoxes = qolInputs.filter((input) => !input.classList.contains("arachnid-select"));
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
-        qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
+        qolBoxes.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
           "interface=true,history=true,media_player=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
           qolDialog.querySelectorAll(".arachnid-setting-hint").length === 7,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
+      );
+
+      // превью избранных GIF: выбор и очистка папки (превью сделаны в шаге с избранным)
+      const previewsSelect = qolInput("gif_previews");
+      const clearPreviews = previewsSelect?.closest(".arachnid-column")?.nextElementSibling?.querySelector(".arachnid-button");
+      const usageBefore = await invoke("favorite_gifs_previews");
+      await waitFor(() => clearPreviews && !clearPreviews.disabled, 3000, 50);
+      clearPreviews?.click();
+      const cleared = await waitFor(async () => {
+        const usage = await invoke("favorite_gifs_previews");
+        const list = (await invoke("favorite_gifs_list")).favorites;
+        return usage.files === 0 && list.every((item) => item.preview === 0) ? { usage, count: list.length } : null;
+      }, 3000);
+      // хранятся на компьютере — пропавшие превью делаются заново
+      const remade = await waitFor(async () => {
+        const list = (await invoke("favorite_gifs_list")).favorites;
+        return list.length > 0 && list.every((item) => item.preview > 0) ? list.length : null;
+      }, 15000);
+      await check(
+        "превью избранных GIF: «Очистить папку превью» удаляет их, затем они делаются заново",
+        Boolean(previewsSelect) &&
+          previewsSelect.querySelector(".arachnid-select-value")?.textContent !== "" &&
+          usageBefore.files > 0 &&
+          Boolean(cleared) &&
+          remade > 0,
+        { usageBefore, cleared, remade },
       );
 
       // надёжная загрузка истории: повисший запрос и ответ 429 for-web не

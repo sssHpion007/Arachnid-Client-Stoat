@@ -46,12 +46,23 @@
           "label": "Ava GIF-ivalija lemmikutega",
           "hint": "Tagasi-nool avab Gifboxi."
         },
+        "gif_previews": {
+          "label": "Lemmik-GIF-ide eelvaated",
+          "hint": "Arvutis on kiirem, saidilt laadides ei jää kettale midagi.",
+          "options": {
+            "local": "Salvesta selles arvutis",
+            "remote": "Laadi saidilt"
+          }
+        },
         "hotkeys": {
           "label": "Kiirklahvid",
           "hint": "Juhi kõnesid ja kliendi akent klaviatuuri ja hiirega, ka siis, kui see on minimeeritud."
         }
       }
     },
+    "clearGifPreviews": "Tühjenda eelvaadete kaust",
+    "gifPreviewsSize": "Kasutusel: {0}",
+    "gifPreviewsEmpty": "Eelvaadete kaust on tühi",
     "hotkeys": "Kiirklahvid",
     "hotkeysIntro": "Need töötavad kõikjal, ka siis, kui klient on minimeeritud või süsteemisalve peidetud. Kliendi aknas teeb kiirklahv ainult oma toimingu; teised programmid saavad selle samuti. Kõnetoimingud töötavad nagu kõnekaardi nupud.",
     "hotkeysInactive": "Kiirklahvid hakkavad tööle, kui „Quality of Life” uuesti käivitub – pärast kliendi uuesti laadimist.",
@@ -199,6 +210,7 @@
     "previewTooLarge": "eelvaade on suurem kui 512 KB",
     "previewNotWebp": "eelvaade pole WebP",
     "previewNotSaved": "eelvaadet ei salvestatud: {0}",
+    "previewsNotCleared": "eelvaateid ei kustutatud: {0}",
     "longUrl": "link on liiga pikk",
     "notUrl": "see pole link",
     "notHttp": "vaja on http:// või https:// linki",
