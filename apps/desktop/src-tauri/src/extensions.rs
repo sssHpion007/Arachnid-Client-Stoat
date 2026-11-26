@@ -309,7 +309,7 @@ fn qol_settings() -> Vec<usercss::Setting> {
             "gif_previews",
             "Превью избранных GIF",
             &[
-                ("remote", "Загружать с интернета"),
+                ("remote", "Загружать из интернета"),
                 ("local", "Хранить на компьютере"),
             ],
         ),

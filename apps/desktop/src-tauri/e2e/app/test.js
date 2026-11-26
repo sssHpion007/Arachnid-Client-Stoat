@@ -1209,10 +1209,10 @@
       const favorites = async () => (await invoke("favorite_gifs_list")).favorites;
       const failed = (error) => ({ failed: error });
 
-      // по умолчанию превью загружаются с интернета; здесь проверяются
+      // по умолчанию превью загружаются из интернета; здесь проверяются
       // превью на компьютере
       const previewsDefault = (await pluginInfo("builtin:qol"))?.values.gif_previews;
-      await check("превью избранных GIF по умолчанию — с интернета", previewsDefault === "remote", previewsDefault);
+      await check("превью избранных GIF по умолчанию — из интернета", previewsDefault === "remote", previewsDefault);
       await invoke("extensions_set_plugin_value", { file: "builtin:qol", name: "gif_previews", value: "local" });
       await sleep(500); // значение доходит до страницы вызовом из клиента
 
