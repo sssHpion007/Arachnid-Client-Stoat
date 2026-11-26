@@ -36,6 +36,22 @@
 //   за край ленты (transform — без перестройки страницы) и возвращается:
 //   наблюдатель видит её появление, и for-web подгружает как обычно.
 //
+// * лента не прыгает при подгрузке. Получив сообщения, for-web добавляет их
+//   и, если их в ленте больше 150, убирает лишние с другого конца, а потом
+//   возвращает прокрутку на место (scrollTo по сообщению-якорю). Лента for-web
+//   отсчитывает прокрутку от низа (column-reverse), поэтому, когда при
+//   подгрузке вверх убираются новые сообщения снизу, место прокрутки в
+//   пикселях меняется на всю их высоту. Если в этот момент лента ещё едет
+//   (плавная прокрутка колесом, инерция тачпада, перетаскивание полосы
+//   прокрутки), поправка теряется: лента перелетает вверх на высоту убранного,
+//   видит заглушку, подгружает ещё и улетает дальше. for-web ждёт остановки
+//   только у прокрутки касанием (ListView2, для iOS); здесь ответ на
+//   подгрузку (запрос с before или after) отдаётся for-web, когда лента
+//   SCROLL_SETTLE_MS не прокручивалась и кнопка мыши в ней не нажата (не
+//   дольше SCROLL_HOLD_MAX_MS). Пока лента стоит, ответ не ждёт. Если лента
+//   всё же прыгнула после подгрузки, это записывается в журнал клиента
+//   (watchJump).
+//
 // Остальные запросы проходят как есть; запрос со своим AbortSignal — тоже:
 // его отменяет тот, кто отправил. Выключенная настройка действует на
 // следующие запросы.
@@ -71,12 +87,22 @@
   const TICK_MS = 250;
   /** Сколько заглушка должна быть видна без запроса, чтобы её показать заново */
   const STUCK_MS = 1000;
+  /** Сколько мс лента должна не прокручиваться, чтобы отдать подгрузку */
+  const SCROLL_SETTLE_MS = 200;
+  /** Дольше этого подгрузка остановки ленты не ждёт */
+  const SCROLL_HOLD_MAX_MS = 15000;
+  /** Как часто проверять, отпущена ли кнопка мыши */
+  const PRESS_POLL_MS = 50;
+  /** Сколько мс после отдачи подгрузки следить, не прыгнула ли лента */
+  const JUMP_WATCH_MS = 1000;
 
   let active = plugin.settings.history !== false;
   /** Канал → когда (Date.now) его корзина освободится */
   const blockedUntil = new Map();
   /** Запросы истории, которые ждут ответа: { channel, opened, since, retryAt } */
   const pending = new Set();
+  /** Каналы, чья подгрузка пришла и ждёт остановки ленты: канал → сколько */
+  const holding = new Map();
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const openChannel = () => CHANNEL_PATH.exec(location.pathname)?.[1] ?? null;
@@ -215,15 +241,149 @@
     }
   }
 
+  // ───────────────────────── подгрузка без прыжков ─────────────────────────
+
+  /** Когда (performance.now) лента чата прокручивалась последний раз */
+  let lastScroll = -Infinity;
+  /** Нажата ли кнопка мыши в ленте: тянут полосу прокрутки или выделяют */
+  let pressed = false;
+
+  const inChat = (target) => target instanceof Element && target.closest(".app_body main") !== null;
+
+  addEventListener(
+    "scroll",
+    (event) => {
+      if (inChat(event.target)) lastScroll = performance.now();
+    },
+    { capture: true, passive: true },
+  );
+  addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.button === 0 && inChat(event.target)) pressed = true;
+    },
+    { capture: true, passive: true },
+  );
+  for (const type of ["pointerup", "pointercancel"]) {
+    addEventListener(type, () => (pressed = false), { capture: true, passive: true });
+  }
+  /** Когда пользователь последний раз крутил колесо, нажимал клавишу или кнопку мыши */
+  let lastInput = -Infinity;
+  for (const type of ["wheel", "keydown", "pointerdown"]) {
+    addEventListener(type, () => (lastInput = performance.now()), { capture: true, passive: true });
+  }
+  // отпустили кнопку за окном — pointerup мог не прийти
+  addEventListener("pointermove", (event) => event.buttons === 0 && (pressed = false), { capture: true, passive: true });
+  addEventListener("blur", () => (pressed = false));
+
+  /** Подгрузка к уже показанным сообщениям: запрос с before или after */
+  function isPaging(input) {
+    try {
+      const { searchParams } = new URL(String(input), location.href);
+      return searchParams.has("before") || searchParams.has("after");
+    } catch {
+      return false;
+    }
+  }
+
+  /** Дождаться, пока лента остановится (см. начало файла) */
+  async function untilSettled(job) {
+    const started = performance.now();
+    for (;;) {
+      const now = performance.now();
+      if (!active || abandoned(job) || now - started >= SCROLL_HOLD_MAX_MS) return;
+      const quiet = now - lastScroll;
+      if (!pressed && quiet >= SCROLL_SETTLE_MS) return;
+      await sleep(pressed ? PRESS_POLL_MS : Math.max(PRESS_POLL_MS, SCROLL_SETTLE_MS - quiet));
+    }
+  }
+
+  /** Сообщение ленты ближе всех к её середине или null */
+  function middleMessage(scroller) {
+    const view = scroller.getBoundingClientRect();
+    const middle = view.top + view.height / 2;
+    let found = null;
+    let best = Infinity;
+    for (const element of scroller.querySelectorAll("[id]")) {
+      if (!MESSAGE_ID.test(element.id)) continue;
+      const box = element.getBoundingClientRect();
+      if (box.bottom < view.top || box.top > view.bottom) continue;
+      const distance = Math.abs((box.top + box.bottom) / 2 - middle);
+      if (distance < best) {
+        best = distance;
+        found = element;
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Проверка: подгрузка не сдвинула ленту. for-web добавляет сообщения сразу
+   * после ответа и возвращает прокрутку на место — сообщение посередине
+   * ленты остаётся где было. Если без колеса, клавиш и щелчков оно за
+   * JUMP_WATCH_MS уехало дальше высоты ленты, это прыжок: он попадает в
+   * журнал клиента (scroll_report), чтобы было видно, при каких условиях.
+   */
+  function watchJump(heldMs) {
+    const scroller = chatScroller();
+    const reference = scroller && middleMessage(scroller);
+    if (!reference) return;
+    const offset = () => scroller.getBoundingClientRect().top;
+    const start = {
+      at: performance.now(),
+      top: reference.getBoundingClientRect().top - offset(),
+      scrollTop: scroller.scrollTop,
+      height: scroller.scrollHeight,
+    };
+    const step = () => {
+      const now = performance.now();
+      if (now - start.at > JUMP_WATCH_MS || lastInput > start.at || !scroller.isConnected) return;
+      // for-web создаёт элементы сообщений заново — искать по id
+      const element = document.getElementById(reference.id);
+      const shift = element ? element.getBoundingClientRect().top - offset() - start.top : 0;
+      if (Math.abs(shift) <= scroller.clientHeight) {
+        requestAnimationFrame(step);
+        return;
+      }
+      const detail = JSON.stringify({
+        shift: Math.round(shift),
+        view: scroller.clientHeight,
+        scrollTop: [Math.round(start.scrollTop), Math.round(scroller.scrollTop)],
+        scrollHeight: [start.height, scroller.scrollHeight],
+        afterMs: Math.round(now - start.at),
+        heldMs,
+      });
+      console.warn("[Arachnid] история чата: лента прыгнула после подгрузки", detail);
+      if (window.__arachnidDesktop) {
+        void window.__TAURI_INTERNALS__?.invoke("scroll_report", { detail }).catch(() => {});
+      }
+    };
+    requestAnimationFrame(step);
+  }
+
   async function reliableFetch(channel, input, init) {
     const job = { channel, opened: openChannel(), since: Date.now(), retryAt: 0 };
     pending.add(job);
+    let response;
     try {
-      return await settle(job, input, init);
+      response = await settle(job, input, init);
     } finally {
       pending.delete(job);
       notice.update();
     }
+    if (!isPaging(input)) return response;
+    // ответ уже пришёл: «Подождите…» не нужна, а заглушку не показывать заново
+    holding.set(channel, (holding.get(channel) ?? 0) + 1);
+    const held = performance.now();
+    try {
+      await untilSettled(job);
+    } finally {
+      const left = holding.get(channel) - 1;
+      if (left > 0) holding.set(channel, left);
+      else holding.delete(channel);
+    }
+    if (!abandoned(job) && job.opened === channel) watchJump(Math.round(performance.now() - held));
+    return response;
   }
 
   window.fetch = function fetch(input, init) {
@@ -416,7 +576,7 @@ main:has(> .ap-now-anchor) > .arachnid-wait-anchor > .arachnid-wait {
     function tick() {
       notice.update();
       const channel = openChannel();
-      const loading = [...pending].some((job) => job.channel === channel);
+      const loading = holding.has(channel) || [...pending].some((job) => job.channel === channel);
       const scroller = channel && !loading && document.visibilityState === "visible" ? chatScroller() : null;
       const skeleton = scroller ? visibleSkeleton(scroller) : null;
       if (!skeleton) {

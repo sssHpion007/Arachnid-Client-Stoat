@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Reliable History Loading",
-          "hint": "Retries message history requests that hang or are rejected by the server."
+          "hint": "Retries message history requests that hang or are rejected by the server, and keeps the chat from jumping while older messages load."
         },
         "media_player": {
           "label": "Enhanced Media Player",

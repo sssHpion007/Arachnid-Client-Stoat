@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Zuverlässiges Laden des Verlaufs",
-          "hint": "Wiederholt hängende oder vom Server abgelehnte Anfragen des Nachrichtenverlaufs."
+          "hint": "Wiederholt hängende oder vom Server abgelehnte Anfragen des Nachrichtenverlaufs und verhindert, dass der Chat beim Nachladen älterer Nachrichten springt."
         },
         "media_player": {
           "label": "Verbesserter Mediaplayer",

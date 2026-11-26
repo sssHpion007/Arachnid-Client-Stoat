@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Chargement fiable de l’historique",
-          "hint": "Relance les requêtes d’historique des messages bloquées ou refusées par le serveur."
+          "hint": "Relance les requêtes d’historique des messages bloquées ou refusées par le serveur et empêche le chat de sauter pendant le chargement des anciens messages."
         },
         "media_player": {
           "label": "Lecteur multimédia amélioré",

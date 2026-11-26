@@ -933,6 +933,17 @@ pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Ar
     refresh_tray(&app);
 }
 
+/// Сколько символов отчёта о прыжке ленты сохранять в журнал.
+const SCROLL_REPORT_LIMIT: usize = 600;
+
+/// Отчёт `history.js` о прыжке ленты чата после подгрузки истории — в журнал
+/// клиента: по нему видно, на сколько и при каких условиях лента прыгнула.
+#[tauri::command]
+pub fn scroll_report(detail: String) {
+    let detail = detail.chars().take(SCROLL_REPORT_LIMIT).collect::<String>();
+    tracing::warn!(%detail, "лента чата: прыжок после подгрузки");
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;

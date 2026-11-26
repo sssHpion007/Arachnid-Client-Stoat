@@ -138,6 +138,7 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-hotkeys-record",
     "allow-media-transcode",
     "allow-media-report",
+    "allow-scroll-report",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -428,6 +429,7 @@ pub fn run() {
             hotkeys::hotkeys_record,
             transcode::media_transcode,
             transcode::media_report,
+            desktop::scroll_report,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

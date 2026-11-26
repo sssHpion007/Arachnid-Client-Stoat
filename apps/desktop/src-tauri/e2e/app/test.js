@@ -1685,6 +1685,56 @@ ${sidebarGroup("", [
       await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "1", 3000, 50);
       await sleep(500); // значение доходит до страницы вызовом из клиента
 
+      // подгрузка без прыжков: ответ на подгрузку (запрос с before или after)
+      // for-web получает, когда лента чата перестала прокручиваться; в покое и
+      // первая загрузка канала (без before/after) — сразу
+      const feedBody = document.createElement("div");
+      feedBody.className = "app_body";
+      const feedMain = document.createElement("main");
+      const feed = document.createElement("div");
+      feed.style.cssText = "height:200px;overflow-y:auto";
+      const feedContent = document.createElement("div");
+      feedContent.style.height = "5000px";
+      feed.append(feedContent);
+      feedMain.append(feed);
+      feedBody.append(feedMain);
+      document.body.append(feedBody);
+      const scrollFeed = (ms) => {
+        const timer = setInterval(() => (feed.scrollTop += 10), 30);
+        setTimeout(() => clearInterval(timer), ms);
+      };
+      const timedFetch = async (url) => {
+        const started = performance.now();
+        try {
+          const response = await fetch(url, { method: "GET", headers: {} });
+          await response.json();
+          return { status: response.status, ms: Math.round(performance.now() - started) };
+        } catch (error) {
+          return { error: String(error), ms: Math.round(performance.now() - started) };
+        }
+      };
+      const feedUrl = `/api/channels/E2EPAGE${runId}/messages?limit=50`;
+      await sleep(300);
+      const idlePage = await timedFetch(`${feedUrl}&before=01J0000000000000000000AAAA`);
+      scrollFeed(1000);
+      const scrolledPage = await timedFetch(`${feedUrl}&after=01J0000000000000000000AAAA&sort=Oldest`);
+      await sleep(300);
+      scrollFeed(1000);
+      const scrolledFirst = await timedFetch(feedUrl);
+      await sleep(1000);
+      feedBody.remove();
+      await check(
+        "история чата: подгрузка ждёт остановки прокрутки ленты, в покое и первая загрузка — нет",
+        idlePage.status === 200 &&
+          idlePage.ms < 900 &&
+          scrolledPage.status === 200 &&
+          scrolledPage.ms >= 1000 &&
+          scrolledPage.ms < 4000 &&
+          scrolledFirst.status === 200 &&
+          scrolledFirst.ms < 900,
+        { idlePage, scrolledPage, scrolledFirst },
+      );
+
       // свой плеер: у видео (сетка SizedContent) и аудио (карточка под
       // FileInfo) вместо кнопок браузера — полоса плеера, у аудио обложка на
       // месте значка; GIF (видео без controls) не трогается; выключенная

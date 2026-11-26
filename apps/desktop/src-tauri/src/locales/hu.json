@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Megbízható előzménybetöltés",
-          "hint": "Újrapróbálja az elakadt vagy a szerver által elutasított üzenetelőzmény-kéréseket."
+          "hint": "Újrapróbálja az elakadt vagy a szerver által elutasított üzenetelőzmény-kéréseket, és megakadályozza, hogy a csevegés ugorjon a régebbi üzenetek betöltésekor."
         },
         "media_player": {
           "label": "Továbbfejlesztett médialejátszó",

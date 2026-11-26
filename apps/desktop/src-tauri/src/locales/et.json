@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Ajaloo töökindel laadimine",
-          "hint": "Kordab sõnumiajaloo päringuid, mis jäävad toppama või mille server tagasi lükkab."
+          "hint": "Kordab sõnumiajaloo päringuid, mis jäävad toppama või mille server tagasi lükkab, ega lase vestlusel vanemate sõnumite laadimisel hüpata."
         },
         "media_player": {
           "label": "Täiustatud meediapleier",

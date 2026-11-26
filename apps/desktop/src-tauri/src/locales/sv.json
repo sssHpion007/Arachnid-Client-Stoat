@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Pålitlig laddning av historik",
-          "hint": "Upprepar förfrågningar om meddelandehistorik som hänger sig eller avvisas av servern."
+          "hint": "Upprepar förfrågningar om meddelandehistorik som hänger sig eller avvisas av servern och hindrar chatten från att hoppa medan äldre meddelanden laddas."
         },
         "media_player": {
           "label": "Förbättrad mediaspelare",

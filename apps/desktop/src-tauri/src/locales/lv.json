@@ -28,7 +28,7 @@
         },
         "history": {
           "label": "Uzticama vēstures ielāde",
-          "hint": "Atkārto ziņu vēstures pieprasījumus, kas iestrēgst vai kurus serveris noraida."
+          "hint": "Atkārto ziņu vēstures pieprasījumus, kas iestrēgst vai kurus serveris noraida, un neļauj tērzēšanai lēkāt, kamēr ielādējas vecākas ziņas."
         },
         "media_player": {
           "label": "Uzlabots multivides atskaņotājs",
