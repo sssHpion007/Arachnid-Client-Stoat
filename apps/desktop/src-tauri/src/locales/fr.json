@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Menu de mise en forme",
-          "hint": "Gras, italique, spoiler, couleur du texte et plus au-dessus du texte sélectionné."
+          "hint": "Sélectionner du texte affiche une fenêtre pratique pour une mise en forme rapide, et le champ de saisie a un menu contextuel pour insérer liens, heures et tableaux."
         },
         "live_formatting": {
           "label": "Mise en forme en direct dans la saisie",

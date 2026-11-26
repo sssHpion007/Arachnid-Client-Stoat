@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Formateringsmeny",
-          "hint": "Fetstil, kursiv, spoiler, textfärg och mer ovanför markerad text."
+          "hint": "När du markerar text visas ett smidigt popupfönster för snabb formatering, och inmatningsfältet får en snabbmeny för att infoga länkar, tider och tabeller."
         },
         "live_formatting": {
           "label": "Direktformatering i inmatningen",

@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Formatēšanas izvēlne",
-          "hint": "Treknraksts, slīpraksts, spoileris, teksta krāsa un cits virs atlasītā teksta."
+          "hint": "Atlasot tekstu, parādās ērts uznirstošais logs ātrai formatēšanai, bet ievades laukā — konteksta izvēlne saites, laika un tabulas ievietošanai."
         },
         "live_formatting": {
           "label": "Formatēšana ievades laukā",

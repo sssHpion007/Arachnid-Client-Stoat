@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Vormindusmenüü",
-          "hint": "Paks, kaldkiri, spoiler, teksti värv ja muu valitud teksti kohal."
+          "hint": "Teksti valimisel ilmub mugav hüpikaken kiireks vormindamiseks, sisestusväljas aga kontekstimenüü lingi, aja ja tabeli lisamiseks."
         },
         "live_formatting": {
           "label": "Vormindus sisestusväljas",

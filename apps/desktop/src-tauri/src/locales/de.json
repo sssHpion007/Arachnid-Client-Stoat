@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Formatierungsmenü",
-          "hint": "Fett, kursiv, Spoiler, Textfarbe und mehr über markiertem Text."
+          "hint": "Beim Markieren von Text erscheint ein praktisches Popup zum schnellen Formatieren, im Eingabefeld ein Kontextmenü zum Einfügen von Links, Zeiten und Tabellen."
         },
         "live_formatting": {
           "label": "Live-Formatierung im Eingabefeld",

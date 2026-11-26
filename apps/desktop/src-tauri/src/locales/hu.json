@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Formázási menü",
-          "hint": "Félkövér, dőlt, spoiler, szövegszín és más a kijelölt szöveg fölött."
+          "hint": "Szöveg kijelölésekor kényelmes felugró ablak jelenik meg a gyors formázáshoz, a beviteli mezőben pedig helyi menü hivatkozás, időpont és táblázat beszúrásához."
         },
         "live_formatting": {
           "label": "Élő formázás a beviteli mezőben",

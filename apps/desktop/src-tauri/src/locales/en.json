@@ -40,7 +40,7 @@
         },
         "format_menu": {
           "label": "Formatting Menu",
-          "hint": "Bold, italic, spoiler, text color and more above selected text."
+          "hint": "Selecting text shows a handy popup for quick formatting, and the message box gets a context menu for inserting links, times and tables."
         },
         "live_formatting": {
           "label": "Live Formatting in Input",
