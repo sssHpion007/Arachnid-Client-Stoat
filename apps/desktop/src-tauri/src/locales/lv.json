@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Uzlabots multivides atskaņotājs",
-          "hint": "Funkcionāls video/audio pielikumu atskaņotājs Stoat stilā: ātrums, atkārtošana, vāciņi un josla „Tagad skan”, ieraksts turpina skanēt, pārejot uz citu tērzēšanu."
+          "hint": "Funkcionāls video/audio pielikumu atskaņotājs ar atskaņošanas joslu: atskaņotais fails netiek pārtraukts, pārejot uz citu tērzēšanu."
         },
         "emoji_picker": {
           "label": "Uzlabots emocijzīmju atlasītājs",
@@ -272,7 +272,7 @@
     "networkError": "Fails netika ielādēts — pārbaudiet savienojumu.",
     "hevcError": "Šis video ir HEVC (H.265) formātā: lai to atskaņotu, instalējiet „HEVC video paplašinājumi” no Microsoft Store.",
     "hevcStore": "Atvērt Microsoft Store",
-    "nowPlaying": "Pašlaik skan",
+    "nowPlaying": "Atskaņošanas josla",
     "previous": "Iepriekšējais",
     "next": "Nākamais",
     "close": "Aizvērt",

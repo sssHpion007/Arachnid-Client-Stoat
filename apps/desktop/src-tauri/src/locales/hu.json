@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Továbbfejlesztett médialejátszó",
-          "hint": "Sokoldalú lejátszó videó/hang mellékletekhez Stoat stílusban: sebesség, ismétlés, borítók és „Most szól” sáv, a szám más csevegésre váltáskor is szól tovább."
+          "hint": "Sokoldalú lejátszó videó/hang mellékletekhez lejátszósávval: a lejátszott fájl nem szakad meg, ha másik csevegésre váltasz."
         },
         "emoji_picker": {
           "label": "Továbbfejlesztett emojiválasztó",
@@ -272,7 +272,7 @@
     "networkError": "A fájl nem töltődött be – ellenőrizd a kapcsolatot.",
     "hevcError": "Ez a videó HEVC (H.265) formátumú: a lejátszásához telepítsd a Microsoft Store-ból a „HEVC-videobővítmények” csomagot.",
     "hevcStore": "Microsoft Store megnyitása",
-    "nowPlaying": "Most szól",
+    "nowPlaying": "Lejátszósáv",
     "previous": "Előző",
     "next": "Következő",
     "close": "Bezárás",

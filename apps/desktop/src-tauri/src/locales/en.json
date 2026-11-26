@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Enhanced Media Player",
-          "hint": "A feature-rich video/audio attachment player styled like Stoat: speed, looping, covers and a “Now playing” bar, and tracks keep playing when you switch chats."
+          "hint": "A feature-rich video/audio attachment player with a playback bar: the playing file keeps going when you switch chats."
         },
         "emoji_picker": {
           "label": "Enhanced Emoji Picker",
@@ -272,7 +272,7 @@
     "networkError": "The file didn't load — check your connection.",
     "hevcError": "This video is HEVC (H.265): to play it, install HEVC Video Extensions from the Microsoft Store.",
     "hevcStore": "Open Microsoft Store",
-    "nowPlaying": "Now playing",
+    "nowPlaying": "Playback bar",
     "previous": "Previous",
     "next": "Next",
     "close": "Close",

@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Täiustatud meediapleier",
-          "hint": "Funktsionaalne video/heli manuste pleier Stoati stiilis: kiirus, kordus, kaanepildid ja riba „Praegu mängib“, lugu jätkub ka teise vestlusesse minnes."
+          "hint": "Funktsionaalne video/heli manuste pleier taasesitusribaga: mängiv fail ei katke teise vestlusesse minnes."
         },
         "emoji_picker": {
           "label": "Täiustatud emojivalija",
@@ -272,7 +272,7 @@
     "networkError": "Faili ei laaditud — kontrolli ühendust.",
     "hevcError": "See video on HEVC-vormingus (H.265): selle esitamiseks installi Microsoft Store’ist „HEVC-videolaiendid“.",
     "hevcStore": "Ava Microsoft Store",
-    "nowPlaying": "Praegu mängib",
+    "nowPlaying": "Taasesitusriba",
     "previous": "Eelmine",
     "next": "Järgmine",
     "close": "Sulge",

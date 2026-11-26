@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Verbesserter Mediaplayer",
-          "hint": "Funktionsreicher Player für Video-/Audioanhänge im Stil von Stoat: Geschwindigkeit, Wiederholen, Cover und eine „Läuft gerade“-Leiste – der Titel spielt beim Chatwechsel weiter."
+          "hint": "Funktionsreicher Player für Video-/Audioanhänge mit Wiedergabeleiste: Die laufende Datei wird beim Chatwechsel nicht unterbrochen."
         },
         "emoji_picker": {
           "label": "Verbesserte Emoji-Auswahl",
@@ -272,7 +272,7 @@
     "networkError": "Die Datei wurde nicht geladen – prüfe die Verbindung.",
     "hevcError": "Dieses Video ist im HEVC-Format (H.265): Zum Abspielen „HEVC-Videoerweiterungen“ aus dem Microsoft Store installieren.",
     "hevcStore": "Microsoft Store öffnen",
-    "nowPlaying": "Wird gerade abgespielt",
+    "nowPlaying": "Wiedergabeleiste",
     "previous": "Zurück",
     "next": "Weiter",
     "close": "Schließen",

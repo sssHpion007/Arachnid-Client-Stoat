@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Lecteur multimédia amélioré",
-          "hint": "Lecteur complet pour les pièces jointes vidéo/audio, au style de Stoat : vitesse, boucle, pochettes et bandeau « En cours de lecture » ; la piste continue quand vous changez de discussion."
+          "hint": "Lecteur complet pour les pièces jointes vidéo/audio avec barre de lecture : le fichier en cours n’est pas interrompu quand vous changez de discussion."
         },
         "emoji_picker": {
           "label": "Sélecteur d’emojis amélioré",
@@ -272,7 +272,7 @@
     "networkError": "Le fichier ne s’est pas chargé — vérifiez la connexion.",
     "hevcError": "Cette vidéo est au format HEVC (H.265) : pour la lire, installez « Extensions vidéo HEVC » depuis le Microsoft Store.",
     "hevcStore": "Ouvrir le Microsoft Store",
-    "nowPlaying": "En cours de lecture",
+    "nowPlaying": "Barre de lecture",
     "previous": "Précédent",
     "next": "Suivant",
     "close": "Fermer",

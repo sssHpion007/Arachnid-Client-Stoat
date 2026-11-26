@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Förbättrad mediaspelare",
-          "hint": "Funktionsrik spelare för video-/ljudbilagor i Stoats stil: hastighet, upprepning, omslag och en ”Spelas nu”-list, och spåret fortsätter när du byter chatt."
+          "hint": "Funktionsrik spelare för video-/ljudbilagor med uppspelningsfält: filen som spelas avbryts inte när du byter chatt."
         },
         "emoji_picker": {
           "label": "Förbättrad emojiväljare",
@@ -272,7 +272,7 @@
     "networkError": "Filen lästes inte in – kontrollera anslutningen.",
     "hevcError": "Videon är i HEVC-format (H.265): installera ”HEVC-videotillägg” från Microsoft Store för att spela upp den.",
     "hevcStore": "Öppna Microsoft Store",
-    "nowPlaying": "Spelas nu",
+    "nowPlaying": "Uppspelningsfält",
     "previous": "Föregående",
     "next": "Nästa",
     "close": "Stäng",
