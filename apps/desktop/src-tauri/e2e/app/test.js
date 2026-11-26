@@ -1722,7 +1722,7 @@ ${sidebarGroup("", [
       qolInput("media_player")?.click();
       const playerBack = Boolean(await waitFor(playerShown, 3000, 50));
       mediaMock.remove();
-      await check("«Свой видео- и аудиоплеер»: встаёт вместо кнопок браузера, выключается и включается сразу", playerOn && playerOff && playerBack, {
+      await check("«Улучшенный медиаплеер»: встаёт вместо кнопок браузера, выключается и включается сразу", playerOn && playerOff && playerBack, {
         playerOn,
         playerOff,
         playerBack,

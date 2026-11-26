@@ -31,8 +31,8 @@
           "hint": "Wiederholt hängende oder vom Server abgelehnte Anfragen des Nachrichtenverlaufs."
         },
         "media_player": {
-          "label": "Eigener Video- und Audioplayer",
-          "hint": "Geschwindigkeit, Wiederholen und Audio-Cover statt der Standard-Steuerelemente des Browsers."
+          "label": "Verbesserter Mediaplayer",
+          "hint": "Funktionsreicher Player für Video- und Audioanhänge im Stil von Stoat: Geschwindigkeit, Wiederholen, Track-Cover."
         },
         "emoji_picker": {
           "label": "Verbesserte Emoji-Auswahl",
@@ -47,7 +47,7 @@
           "hint": "Text im Eingabefeld sieht aus wie in der Nachricht, Markup-Zeichen erscheinen nur am Cursor."
         },
         "colored_text_font": {
-          "label": "Farbiger Text in normaler Schrift",
+          "label": "Schriftkorrektur für farbigen Text",
           "hint": "Farbiger Text in Nachrichten nutzt die Chat-Schrift statt der Formelschrift."
         },
         "favorite_gifs": {

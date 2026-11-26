@@ -31,8 +31,8 @@
           "hint": "Relance les requêtes d’historique des messages bloquées ou refusées par le serveur."
         },
         "media_player": {
-          "label": "Lecteur vidéo et audio intégré",
-          "hint": "Vitesse, lecture en boucle et pochettes audio à la place des commandes standard du navigateur."
+          "label": "Lecteur multimédia amélioré",
+          "hint": "Lecteur complet pour les pièces jointes vidéo et audio, au style de Stoat : vitesse, boucle, pochettes."
         },
         "emoji_picker": {
           "label": "Sélecteur d’emojis amélioré",
@@ -47,7 +47,7 @@
           "hint": "Le texte de la saisie ressemble au message, les symboles de balisage n’apparaissent qu’au curseur."
         },
         "colored_text_font": {
-          "label": "Texte coloré en police normale",
+          "label": "Correction de la police du texte coloré",
           "hint": "Le texte coloré des messages utilise la police du chat au lieu de celle des formules."
         },
         "favorite_gifs": {

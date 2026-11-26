@@ -31,8 +31,8 @@
           "hint": "Retries message history requests that hang or are rejected by the server."
         },
         "media_player": {
-          "label": "Custom video and audio player",
-          "hint": "Playback speed, looping and audio covers instead of the standard browser controls."
+          "label": "Enhanced Media Player",
+          "hint": "A feature-rich player for video and audio attachments, styled like Stoat: speed, looping, track covers."
         },
         "emoji_picker": {
           "label": "Enhanced Emoji Picker",
@@ -47,7 +47,7 @@
           "hint": "Text in the input looks like the sent message, markup symbols show only near the cursor."
         },
         "colored_text_font": {
-          "label": "Colored Text in Normal Font",
+          "label": "Colored Text Font Fix",
           "hint": "Colored text in messages uses the chat font instead of the formula font."
         },
         "favorite_gifs": {

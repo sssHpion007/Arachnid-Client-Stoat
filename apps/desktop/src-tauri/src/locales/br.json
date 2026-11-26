@@ -31,8 +31,8 @@
           "hint": "Adkas a ra ar goulennoù istor kemennadennoù a chom a-sav pe a vez nac’het gant ar servijer."
         },
         "media_player": {
-          "label": "Lenner video ha son personel",
-          "hint": "Tizh, adlenn ha golo ar restroù son e-lec’h boulioù boas ar merdeer."
+          "label": "Lenner media gwellaet",
+          "hint": "Lenner klok evit ar restroù video ha son stag, e stil Stoat: tizh, adlenn, golo ar roudennoù."
         },
         "emoji_picker": {
           "label": "Dibaber fromlunioù gwellaet",
@@ -47,7 +47,7 @@
           "hint": "An destenn er maez a hañval ouzh ar gemennadenn, arouezioù ar merkañ a vez gwelet nemet e-kichen ar reti."
         },
         "colored_text_font": {
-          "label": "Testenn liv gant ar font boas",
+          "label": "Reizhañ font an destenn liv",
           "hint": "An destenn liv er c’hemennadennoù a implij font ar gaozeadenn e-lec’h font ar formulennoù."
         },
         "favorite_gifs": {

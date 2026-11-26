@@ -31,8 +31,8 @@
           "hint": "Upprepar förfrågningar om meddelandehistorik som hänger sig eller avvisas av servern."
         },
         "media_player": {
-          "label": "Egen video- och ljudspelare",
-          "hint": "Hastighet, upprepning och ljudomslag i stället för webbläsarens vanliga knappar."
+          "label": "Förbättrad mediaspelare",
+          "hint": "Funktionsrik spelare för video- och ljudbilagor i Stoats stil: hastighet, upprepning, omslag."
         },
         "emoji_picker": {
           "label": "Förbättrad emojiväljare",
@@ -47,7 +47,7 @@
           "hint": "Texten i inmatningen ser ut som i meddelandet, markeringstecken syns bara vid markören."
         },
         "colored_text_font": {
-          "label": "Färgad text med vanligt typsnitt",
+          "label": "Typsnittsfix för färgad text",
           "hint": "Färgad text i meddelanden använder chattens typsnitt i stället för formeltypsnittet."
         },
         "favorite_gifs": {

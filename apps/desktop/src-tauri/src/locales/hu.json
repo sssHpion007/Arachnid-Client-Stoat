@@ -31,8 +31,8 @@
           "hint": "Újrapróbálja az elakadt vagy a szerver által elutasított üzenetelőzmény-kéréseket."
         },
         "media_player": {
-          "label": "Saját video- és hanglejátszó",
-          "hint": "Sebesség, ismétlés és hangborítók a böngésző alapértelmezett gombjai helyett."
+          "label": "Továbbfejlesztett médialejátszó",
+          "hint": "Sokoldalú lejátszó videó- és hangmellékletekhez Stoat stílusban: sebesség, ismétlés, borítóképek."
         },
         "emoji_picker": {
           "label": "Továbbfejlesztett emojiválasztó",
@@ -47,7 +47,7 @@
           "hint": "A mező szövege azonnal úgy néz ki, mint az üzenetben, a jelölőkarakterek csak a kurzornál látszanak."
         },
         "colored_text_font": {
-          "label": "Színes szöveg normál betűtípussal",
+          "label": "Színes szöveg betűtípusának javítása",
           "hint": "Az üzenetek színes szövege a csevegés betűtípusát használja a képletek betűtípusa helyett."
         },
         "favorite_gifs": {

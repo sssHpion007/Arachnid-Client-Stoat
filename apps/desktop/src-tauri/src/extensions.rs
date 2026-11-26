@@ -298,11 +298,15 @@ fn qol_settings() -> Vec<usercss::Setting> {
     vec![
         checkbox("interface", "Исправление деталей интерфейса", true),
         checkbox("history", "Надёжная загрузка истории чата", true),
-        checkbox("media_player", "Свой видео- и аудиоплеер", true),
+        checkbox("media_player", "Улучшенный медиаплеер", true),
         checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
         checkbox("format_menu", "Меню форматирования", true),
         checkbox("live_formatting", "Форматирование в поле ввода", true),
-        checkbox("colored_text_font", "Цветной текст обычным шрифтом", true),
+        checkbox(
+            "colored_text_font",
+            "Исправление шрифтов цветного текста",
+            true,
+        ),
         checkbox("favorite_gifs", "Меню избранного для GIF", true),
         checkbox(
             "gifs_open_favorites",

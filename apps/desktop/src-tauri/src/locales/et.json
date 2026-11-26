@@ -31,8 +31,8 @@
           "hint": "Kordab sõnumiajaloo päringuid, mis jäävad toppama või mille server tagasi lükkab."
         },
         "media_player": {
-          "label": "Oma video- ja helipleier",
-          "hint": "Kiirus, kordus ja heli kaanepildid brauseri tavaliste nuppude asemel."
+          "label": "Täiustatud meediapleier",
+          "hint": "Funktsionaalne pleier video- ja helimanustele Stoati stiilis: kiirus, kordus, lugude kaanepildid."
         },
         "emoji_picker": {
           "label": "Täiustatud emojivalija",
@@ -47,7 +47,7 @@
           "hint": "Väljal olev tekst näeb kohe välja nagu sõnumis, märgistussümbolid on näha ainult kursori juures."
         },
         "colored_text_font": {
-          "label": "Värviline tekst tavalise fondiga",
+          "label": "Värvilise teksti fondiparandus",
           "hint": "Värviline tekst sõnumites kasutab vestluse fonti, mitte valemite fonti."
         },
         "favorite_gifs": {

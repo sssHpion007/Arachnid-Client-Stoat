@@ -31,8 +31,8 @@
           "hint": "Atkārto ziņu vēstures pieprasījumus, kas iestrēgst vai kurus serveris noraida."
         },
         "media_player": {
-          "label": "Savs video un audio atskaņotājs",
-          "hint": "Ātrums, atkārtošana un audio vāciņi pārlūka standarta pogu vietā."
+          "label": "Uzlabots multivides atskaņotājs",
+          "hint": "Funkcionāls atskaņotājs video un audio pielikumiem Stoat stilā: ātrums, atkārtošana, ierakstu vāciņi."
         },
         "emoji_picker": {
           "label": "Uzlabots emocijzīmju atlasītājs",
@@ -47,7 +47,7 @@
           "hint": "Teksts laukā uzreiz izskatās kā ziņojumā, marķējuma simboli redzami tikai pie kursora."
         },
         "colored_text_font": {
-          "label": "Krāsains teksts parastā fontā",
+          "label": "Krāsainā teksta fontu labojums",
           "hint": "Krāsains teksts ziņojumos izmanto tērzēšanas fontu, nevis formulu fontu."
         },
         "favorite_gifs": {

@@ -94,7 +94,7 @@ const HOTKEYS_SCRIPT: &str = include_str!("hotkeys.js");
 /// повторы и ожидание ограничения частоты для запросов истории for-web.
 const HISTORY_SCRIPT: &str = include_str!("history.js");
 
-/// Свой видео- и аудиоплеер той же «Quality of Life» поверх элементов
+/// Улучшенный медиаплеер той же «Quality of Life» поверх элементов
 /// for-web: полоса в духе YouTube, скорость, повтор, обложки аудио.
 const PLAYER_SCRIPT: &str = include_str!("player.js");
 
