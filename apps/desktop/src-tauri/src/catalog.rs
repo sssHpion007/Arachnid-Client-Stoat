@@ -194,8 +194,8 @@ fn failure(error: crate::http::Error, url: &Url) -> Failure {
 /// Скачать файл целиком, не больше `limit` байт.
 #[cfg(windows)]
 fn download(url: &Url, headers: &str, limit: usize) -> Result<Vec<u8>, Failure> {
-    let fetched = crate::http::fetch(url, headers, |_| limit)
-        .map_err(|error| failure(error, url))?;
+    let fetched =
+        crate::http::fetch(url, headers, |_| limit).map_err(|error| failure(error, url))?;
     if !fetched.complete {
         return Err(Failure::TooLarge);
     }
@@ -394,7 +394,8 @@ fn fetch_about(repo: &str, listing: &Listing, id: &str, language: &str) -> Remot
             let url = raw_url(repo, &listing.commit, id, &icon).ok()?;
             let body = download(&url, "", MAX_ABOUT_FILE).ok()?;
             let mime = extensions::mime_type(Path::new(&icon));
-            Some(format!("data:{mime};base64,{}", crate::plugin_host::base64(&body)))
+            let data = crate::plugin_host::base64(&body);
+            Some(format!("data:{mime};base64,{data}"))
         });
     RemoteAbout {
         about,
