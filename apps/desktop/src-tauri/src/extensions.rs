@@ -43,7 +43,7 @@
 //! через `window.AviaMenu`. Мост (`bridge.js`) даёт тот же объект; пункты
 //! видны в разделе «Плагины» и в трее: «Расширения → Действия плагинов».
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -551,6 +551,9 @@ pub struct Extensions {
     plugin_menu: Mutex<Vec<PluginMenuEntry>>,
     /// Плагины, выполненные на открытой странице
     running: Mutex<Vec<String>>,
+    /// Плагины, которые скачали заново или удалили после загрузки страницы:
+    /// на странице выполняется прежний код
+    replaced: Mutex<BTreeSet<String>>,
     /// Нативные модули и хранилище плагинов-папок
     host: NativeHost,
 }
@@ -566,6 +569,7 @@ impl Extensions {
             saved: Mutex::new(saved),
             plugin_menu: Mutex::new(Vec::new()),
             running: Mutex::new(Vec::new()),
+            replaced: Mutex::new(BTreeSet::new()),
             host: NativeHost::new(storage),
         }
     }
@@ -1023,6 +1027,125 @@ impl Extensions {
         if let Ok(mut running) = self.running.lock() {
             *running = names;
         }
+        // новая страница выполняет уже новый код
+        if let Ok(mut replaced) = self.replaced.lock() {
+            replaced.clear();
+        }
+    }
+
+    /// Папка плагинов.
+    pub(crate) fn plugins_dir(&self) -> PathBuf {
+        self.dir.join(PLUGINS_DIR)
+    }
+
+    /// Плагины-папки и их версии (`None` — версии нет или папка не
+    /// читается): по ним каталог отмечает установленные.
+    pub(crate) fn folder_versions(&self) -> BTreeMap<String, Option<String>> {
+        self.list(Kind::Plugin)
+            .into_iter()
+            .filter(|entry| entry.folder)
+            .map(|entry| {
+                let plugin = self.load_plugin(entry);
+                (plugin.id, plugin.about.version)
+            })
+            .collect()
+    }
+
+    /// Плагин заменили или удалили: модуль выгружается, а страница, на
+    /// которой он запущен, просит перезагрузку.
+    fn mark_replaced(&self, id: &str) {
+        self.host.unload(id);
+        if let Ok(mut replaced) = self.replaced.lock() {
+            replaced.insert(id.to_owned());
+        }
+    }
+
+    /// Поставить скачанную папку `staging` на место плагина-папки `id`.
+    /// Старая версия сначала отодвигается и удаляется, только когда новая
+    /// встала на место; не встала — старая возвращается.
+    pub(crate) fn replace_plugin(&self, id: &str, staging: &Path) -> std::io::Result<()> {
+        let target = self.folder(Kind::Plugin, id);
+        let old = self.plugins_dir().join(format!(".old-{id}"));
+        if old.exists() {
+            std::fs::remove_dir_all(&old)?;
+        }
+        let existed = target.exists();
+        if existed {
+            rename_retrying(&target, &old)?;
+        }
+        if let Err(error) = rename_retrying(staging, &target) {
+            if existed {
+                let _ = std::fs::rename(&old, &target);
+            }
+            return Err(error);
+        }
+        if existed {
+            let removed = std::fs::remove_dir_all(&old);
+            if let Err(error) = removed {
+                tracing::warn!(%error, plugin = id, "старая версия плагина не удалена");
+            }
+        }
+        self.mark_replaced(id);
+        Ok(())
+    }
+
+    /// Удалить плагин (файл или папку) вместе с его выбором, настройками,
+    /// разрешениями и хранилищем. Встроенные не удаляются.
+    fn remove_plugin(&self, name: &str) -> CmdResult<()> {
+        if builtin(name).is_some() {
+            return Err(CommandError::translated(
+                "plugin",
+                "pluginBuiltin",
+                vec![],
+                "встроенный плагин не удаляется",
+            ));
+        }
+        let Some(entry) = self.entry(Kind::Plugin, name) else {
+            return Err(CommandError::translated(
+                "plugin",
+                "pluginMissing",
+                vec![],
+                "такого плагина нет в папке plugins",
+            ));
+        };
+        let not_removed = |error: std::io::Error| {
+            CommandError::translated(
+                "plugin",
+                "pluginNotRemoved",
+                vec![error.to_string()],
+                format!("плагин не удалён: {error}"),
+            )
+        };
+        let path = self.folder(Kind::Plugin, name);
+        if entry.folder {
+            // папка сначала отодвигается: недоудалённая не останется
+            // сломанным плагином
+            let old = self.plugins_dir().join(format!(".old-{name}"));
+            if old.exists() {
+                std::fs::remove_dir_all(&old).map_err(not_removed)?;
+            }
+            rename_retrying(&path, &old).map_err(not_removed)?;
+            let removed = std::fs::remove_dir_all(&old);
+            if let Err(error) = removed {
+                tracing::warn!(%error, plugin = name, "папка удалённого плагина осталась");
+            }
+            let data = self.dir.join(plugin_host::DATA_DIR).join(name);
+            if manifest::valid_id(name) && data.is_dir() {
+                let removed = std::fs::remove_dir_all(&data);
+                if let Err(error) = removed {
+                    tracing::warn!(%error, plugin = name, "хранилище плагина не удалено");
+                }
+            }
+        } else {
+            std::fs::remove_file(&path).map_err(not_removed)?;
+        }
+        self.update(|saved| {
+            saved.plugins.remove(name);
+            saved.plugin_settings.remove(name);
+            saved.granted.remove(name);
+        });
+        self.mark_replaced(name);
+        Ok(())
     }
 
     /// Темы и плагины для настроек веб-клиента.
@@ -1089,9 +1212,15 @@ impl Extensions {
                 }
             })
             .collect();
-        let reload_needed = plugins
+        let replaced = self
+            .replaced
+            .lock()
+            .map(|replaced| replaced.clone())
+            .unwrap_or_default();
+        let changed = plugins
             .iter()
             .any(|plugin| plugin.enabled != plugin.running && plugin.error.is_none());
+        let reload_needed = changed || running.iter().any(|id| replaced.contains(id));
         let theme = saved
             .theme
             .filter(|name| themes.iter().any(|theme| &theme.file == name));
@@ -1217,6 +1346,25 @@ impl Extensions {
                 Ok(path) => open_path(&path),
                 Err(error) => tracing::warn!(%error, "не удалось создать quickcss.css"),
             },
+        }
+    }
+}
+
+/// Переименовать папку; в Windows папку с открытым файлом (его как раз
+/// проверяет слежение за папкой или читает страница) переименовать нельзя —
+/// ещё пара попыток.
+fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt >= 4 || error.kind() == std::io::ErrorKind::NotFound => {
+                return Err(error);
+            }
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(Duration::from_millis(150));
+            }
         }
     }
 }
@@ -1487,7 +1635,7 @@ fn percent_decode(text: &str) -> Option<String> {
 
 /// Тип файла для ответа. HTML отдаётся текстом: адреса файлов — не место
 /// для страниц со скриптами.
-fn mime_type(path: &Path) -> &'static str {
+pub(crate) fn mime_type(path: &Path) -> &'static str {
     let extension = path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -2136,6 +2284,20 @@ pub fn extensions_reset_plugin(
     extensions.overview()
 }
 
+/// Кнопка «Удалить» у плагина: файл или папка, его настройки, разрешения и
+/// хранилище.
+#[tauri::command]
+pub fn extensions_remove_plugin(
+    file: String,
+    app: AppHandle,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<Overview> {
+    extensions.remove_plugin(&file)?;
+    tracing::info!(plugin = %file, "плагин удалён в настройках");
+    desktop::refresh_tray(&app);
+    Ok(extensions.overview())
+}
+
 /// `plugin.storage.get`: значение ключа или `null`.
 #[tauri::command(async)]
 pub fn plugin_storage_get(
@@ -2229,6 +2391,54 @@ mod tests {
             dir.to_path_buf(),
             Url::parse("https://stoat.chat/app").unwrap(),
         )
+    }
+
+    #[test]
+    fn plugins_are_replaced_and_removed() {
+        let dir = temp_dir("replace");
+        let plugins = dir.join(PLUGINS_DIR);
+        let write = |folder: &Path, version: &str| {
+            std::fs::create_dir_all(folder).unwrap();
+            let manifest = format!("name = \"T\"\nversion = \"{version}\"\n");
+            std::fs::write(folder.join("plugin.toml"), manifest).unwrap();
+            std::fs::write(folder.join("main.js"), "1").unwrap();
+        };
+        let version = |extensions: &Extensions| extensions.folder_versions().remove("translator");
+        // страница выполнила все включённые плагины
+        let load_page = |extensions: &Extensions| {
+            let overview = extensions.overview();
+            let enabled = overview.plugins.into_iter().filter(|plugin| plugin.enabled);
+            extensions.set_running(enabled.map(|plugin| plugin.file).collect());
+        };
+        write(&plugins.join("translator"), "1.0.0");
+        let extensions = extensions(&dir);
+        extensions.set_plugin("translator", true);
+        load_page(&extensions);
+        assert_eq!(version(&extensions), Some(Some("1.0.0".to_owned())));
+        assert!(!extensions.overview().reload_needed);
+
+        let staging = plugins.join(".download-translator");
+        write(&staging, "1.2.0");
+        extensions.replace_plugin("translator", &staging).unwrap();
+        assert!(!staging.exists());
+        assert!(!plugins.join(".old-translator").exists());
+        assert_eq!(version(&extensions), Some(Some("1.2.0".to_owned())));
+        // обновлённый остаётся включённым, а на странице — прежний код
+        assert!(extensions.saved().plugin_enabled("translator"));
+        assert!(extensions.overview().reload_needed);
+
+        load_page(&extensions);
+        let data = dir.join(plugin_host::DATA_DIR).join("translator");
+        std::fs::create_dir_all(&data).unwrap();
+        extensions.remove_plugin("translator").unwrap();
+        assert!(!plugins.join("translator").exists());
+        assert!(!data.exists());
+        assert!(!extensions.saved().plugins.contains_key("translator"));
+        assert_eq!(version(&extensions), None);
+        assert!(extensions.overview().reload_needed);
+        assert!(extensions.remove_plugin("translator").is_err());
+        assert!(extensions.remove_plugin("builtin:qol").is_err());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

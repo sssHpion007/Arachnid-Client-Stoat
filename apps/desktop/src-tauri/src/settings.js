@@ -323,6 +323,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   border-radius: var(--borderRadius-full, 9999px); background: transparent; color: inherit;
 }
 .arachnid-icon-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.arachnid-icon-button:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
+/* каталог плагинов: кнопки строки не сжимаются, подписи — в одну строку */
+.arachnid-catalog-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.arachnid-catalog-actions .arachnid-button { white-space: nowrap; }
 .arachnid-dialog-status { flex: 1; min-width: 0; }
 .arachnid-dialog-status[data-error] { color: var(--md-sys-color-error); }
 .arachnid-code {
@@ -741,7 +745,9 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
   /** Значок плагина из его папки: SVG — цветом текста, картинка — как есть */
   function pluginIcon(url) {
-    if (!/\.svg$/i.test(new URL(url).pathname)) {
+    // значок каталога — адрес data:
+    const svg = url.startsWith("data:") ? url.startsWith("data:image/svg+xml") : /\.svg$/i.test(new URL(url).pathname);
+    if (!svg) {
       return h("img", { class: "arachnid-plugin-icon", src: url, alt: "", draggable: "false" });
     }
     const mask = h("span", { class: "arachnid-plugin-icon", "aria-hidden": "true" });
@@ -779,6 +785,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       const extra = [
         waiting ? iconButton("lock_open", text.allow, () => askPermissions(plugin)) : null,
         plugin.settings.length ? iconButton("settings", text.pluginSettings(name), () => openPluginSettings(plugin.file)) : null,
+        plugin.builtin ? null : iconButton("delete", text.removePlugin, () => confirmRemove(plugin.file, name)),
       ].filter(Boolean);
       return item({
         iconName: plugin.builtin ? "auto_awesome" : plugin.folder ? "folder_special" : "extension",
@@ -817,7 +824,12 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         "div",
         { class: "arachnid-page-header" },
         h("span", { class: "arachnid-title" }, text.plugins),
-        button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
+        h(
+          "div",
+          { class: "arachnid-buttons" },
+          button(text.catalog, () => openCatalog(), "filled", "download"),
+          button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
+        ),
       ),
       h(
         "div",
@@ -1855,6 +1867,142 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     });
   }
 
+  /** Удалить плагин после подтверждения; done — после удаления */
+  function confirmRemove(file, name, done) {
+    if (!document.body) return;
+    const dialog = openDialog({
+      title: text.removeTitle(name),
+      compact: true,
+      dataset: { arachnidRemovePlugin: file },
+      content: h("span", {}, text.removeIntro),
+      actions: [
+        button(text.cancel, () => dialog.close(), "text"),
+        button(
+          text.removePlugin,
+          () => {
+            dialog.close();
+            void change("extensions_remove_plugin", { file }).then(() => done?.());
+          },
+          "filled",
+          "delete",
+        ),
+      ],
+    });
+  }
+
+  // ─────────────────────────── каталог плагинов ───────────────────────────
+  // Плагины из папки plugins репозитория клиента (catalog.rs): скачать,
+  // обновить до версии выше, скачать заново или удалить.
+
+  /** Открытый каталог: { render, load } */
+  let catalogView = null;
+
+  function openCatalog() {
+    if (!document.body) return;
+    // { plugins } | { error } | null — загрузка
+    let state = null;
+    /** Плагин, который сейчас скачивается */
+    let busy = null;
+    /** Ошибка скачивания: { id, message } */
+    let failure = null;
+    const body = h("div", { class: "arachnid-column" });
+    const language = () => i18n.language() ?? "";
+
+    function load(refresh = false) {
+      state = null;
+      render();
+      invoke("extensions_catalog", { language: language(), refresh })
+        .then((plugins) => (state = { plugins }))
+        .catch((error) => (state = { error: i18n.errorText(error) }))
+        .finally(render);
+    }
+
+    function install(plugin) {
+      busy = plugin.id;
+      failure = null;
+      render();
+      invoke("extensions_install_plugin", { id: plugin.id, language: language() })
+        .then((plugins) => (state = { plugins }))
+        .catch((error) => (failure = { id: plugin.id, message: i18n.errorText(error) }))
+        .finally(() => {
+          busy = null;
+          render();
+          void refresh();
+        });
+    }
+
+    function row(plugin) {
+      const name = plugin.name ?? plugin.id;
+      const local = overview?.plugins?.find((entry) => entry.file === plugin.id);
+      const tags = [
+        plugin.author && text.author(plugin.author),
+        plugin.version && text.version(plugin.version),
+        plugin.size ? formatSize(plugin.size) : null,
+      ].filter(Boolean);
+      let note = null;
+      if (failure?.id === plugin.id) note = text.installFailed(failure.message);
+      else if (plugin.error) note = text.broken(plugin.error);
+      else if (busy === plugin.id) note = text.installing;
+      else if (plugin.update) note = text.updateAvailable(plugin.installedVersion ?? "?");
+      else if (plugin.installed && local && !local.enabled) note = text.installedOff;
+      else if (plugin.installed) note = text.installed;
+      const locked = busy !== null || Boolean(plugin.error);
+      const actions = [];
+      if (!plugin.installed) {
+        actions.push(button(text.install, () => install(plugin), "filled", "download"));
+      } else {
+        if (plugin.update) actions.push(button(text.update(plugin.version), () => install(plugin), "filled", "upgrade"));
+        else actions.push(iconButton("download", text.reinstall, () => install(plugin)));
+        actions.push(iconButton("delete", text.removePlugin, () => confirmRemove(plugin.id, name, () => load())));
+      }
+      for (const control of actions) control.disabled = locked;
+      return item({
+        iconName: "extension",
+        iconNode: plugin.icon ? pluginIcon(plugin.icon) : null,
+        title: name,
+        description: [plugin.description, tags.join(" · ")].filter(Boolean).join("\n"),
+        note,
+        action: h("div", { class: "arachnid-catalog-actions" }, actions),
+      });
+    }
+
+    function render() {
+      if (catalogView?.body !== body) return;
+      if (!state) return setChildren(body, h("span", { class: "arachnid-label", role: "status" }, text.catalogLoading));
+      if (state.error) {
+        return setChildren(
+          body,
+          h("span", { class: "arachnid-label", role: "alert" }, text.catalogFailed(state.error)),
+          h("div", { class: "arachnid-buttons" }, button(text.retry, () => load(true), undefined, "refresh")),
+        );
+      }
+      setChildren(
+        body,
+        h("span", { class: "arachnid-label" }, text.catalogIntro),
+        state.plugins.length
+          ? h("div", { class: "arachnid-group" }, state.plugins.map(row))
+          : h("span", { class: "arachnid-label" }, text.catalogEmpty),
+      );
+    }
+
+    const view = { body, render, load };
+    catalogView = view;
+    const dialog = openDialog({
+      title: text.catalog,
+      compact: true,
+      dataset: { arachnidCatalog: "" },
+      content: body,
+      actions: [
+        button(text.refreshCatalog, () => load(true), "text", "refresh"),
+        button(text.done, () => dialog.close(), "text"),
+      ],
+      onClose: () => {
+        if (catalogView === view) catalogView = null;
+      },
+    });
+    load();
+  }
+
   // ─────────────────────────────── QuickCSS ───────────────────────────────
   // Редактор quickcss.css — окно поверх клиента, как Dialog в for-web
   // (Material 3: подложка, карточка 28px, кнопки-текст справа внизу). Текст
@@ -2062,6 +2210,8 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
   function renderAll() {
     renderPage();
     renderAppearance();
+    // отметка «включите его в списке» зависит от выбора плагинов
+    catalogView?.render();
     // пункт «Горячие клавиши» зависит от настроек «Quality of Life»
     queueScan();
   }

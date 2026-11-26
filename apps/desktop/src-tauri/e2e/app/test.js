@@ -1575,12 +1575,15 @@ ${sidebarGroup("", [
       // папка плагинов — напротив заголовка, автор клиента и QoL — _sssHpion007
       const pluginsHeader = settingsPage.querySelector("[data-arachnid-panel] > .arachnid-page-header");
       const headerTitle = pluginsHeader?.querySelector(".arachnid-title")?.getBoundingClientRect();
-      const headerButton = pluginsHeader?.querySelector(".arachnid-button")?.getBoundingClientRect();
+      // кнопки заголовка: «Каталог», затем папка — у правого края
+      const headerButtons = [...(pluginsHeader?.querySelectorAll(".arachnid-button") ?? [])];
+      const headerButton = headerButtons.at(-1)?.getBoundingClientRect();
       const qolDescription = qolRow?.querySelector(".arachnid-item-description")?.textContent ?? "";
       const pluginsLayout = {
         header: Boolean(pluginsHeader && headerTitle && headerButton),
         sameRow: headerTitle && headerButton ? Math.abs(headerTitle.top + headerTitle.height / 2 - (headerButton.top + headerButton.height / 2)) < 2 : null,
         right: headerButton ? Math.round(pluginsHeader.getBoundingClientRect().right - headerButton.right) : null,
+        catalogButton: headerButtons.length === 2 && headerButtons[0].textContent.includes("download"),
         bottomButtons: settingsPage.querySelectorAll("[data-arachnid-panel] > .arachnid-buttons").length,
         cardAuthor: settingsPage.querySelector("[data-arachnid-panel] .arachnid-card")?.textContent.includes("_sssHpion007"),
         qolAuthor: qolDescription.includes("_sssHpion007"),
@@ -1590,6 +1593,7 @@ ${sidebarGroup("", [
         pluginsLayout.header &&
           pluginsLayout.sameRow &&
           pluginsLayout.right === 0 &&
+          pluginsLayout.catalogButton &&
           pluginsLayout.bottomButtons === 0 &&
           pluginsLayout.cardAuthor &&
           pluginsLayout.qolAuthor,
@@ -2205,6 +2209,32 @@ ${sidebarGroup("", [
       folderDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: FOLDER });
       settingsPage.remove();
+
+      // каталог плагинов: translator из папки plugins/ репозитория скачивается,
+      // отмечается установленным и удаляется вместе с настройками
+      const catalogState = {};
+      try {
+        const list = await invoke("extensions_catalog", { language: "ru", refresh: true });
+        const remote = list.find((plugin) => plugin.id === "translator");
+        catalogState.listed = Boolean(remote?.version) && !remote?.error;
+        const after = await invoke("extensions_install_plugin", { id: "translator", language: "ru" });
+        const installed = after.find((plugin) => plugin.id === "translator");
+        catalogState.installed = installed?.installed && installed?.installedVersion === remote?.version && !installed?.update;
+        catalogState.disabled = (await pluginInfo("translator"))?.enabled === false;
+        const again = await invoke("extensions_install_plugin", { id: "translator", language: "ru" });
+        catalogState.reinstalled = again.find((plugin) => plugin.id === "translator")?.installed;
+        await invoke("extensions_remove_plugin", { file: "translator" });
+        const removed = await invoke("extensions_catalog", { language: "ru", refresh: false });
+        catalogState.removed = removed.find((plugin) => plugin.id === "translator")?.installed === false;
+        catalogState.gone = !(await pluginInfo("translator"));
+      } catch (error) {
+        catalogState.error = error?.message ?? String(error);
+      }
+      await check(
+        "каталог плагинов: translator скачивается, скачивается заново и удаляется",
+        Boolean(catalogState.listed && catalogState.installed && catalogState.disabled && catalogState.reinstalled && catalogState.removed && catalogState.gone),
+        catalogState,
+      );
 
       picker.base.remove();
 

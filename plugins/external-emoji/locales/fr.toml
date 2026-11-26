@@ -1,0 +1,2 @@
+name = "Émojis externes"
+description = "Affiche les liens du type [:nom:](lien d’image) comme des émojis dans le texte, au lieu d’un lien avec une grande image"

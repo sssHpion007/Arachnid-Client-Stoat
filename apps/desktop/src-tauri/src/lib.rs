@@ -17,6 +17,7 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri::ipc::CapabilityBuilder;
 
+mod catalog;
 mod desktop;
 mod emoji_packs;
 mod emoji_raster;
@@ -108,6 +109,9 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-extensions-set-quick-css",
     "allow-extensions-set-plugin-value",
     "allow-extensions-reset-plugin",
+    "allow-extensions-remove-plugin",
+    "allow-extensions-catalog",
+    "allow-extensions-install-plugin",
     "allow-plugin-storage-get",
     "allow-plugin-storage-set",
     "allow-plugin-native-call",
@@ -395,6 +399,9 @@ pub fn run() {
             extensions::extensions_set_quick_css,
             extensions::extensions_set_plugin_value,
             extensions::extensions_reset_plugin,
+            extensions::extensions_remove_plugin,
+            catalog::extensions_catalog,
+            catalog::extensions_install_plugin,
             extensions::plugin_storage_get,
             extensions::plugin_storage_set,
             extensions::plugin_native_call,
