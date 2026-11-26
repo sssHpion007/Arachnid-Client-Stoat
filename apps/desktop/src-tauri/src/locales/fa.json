@@ -289,6 +289,11 @@
     "spoiler": "محتوای پنهان",
     "code": "کد",
     "quote": "نقل‌قول",
+    "heading": "سرتیتر",
+    "heading1": "سرتیتر 1",
+    "heading2": "سرتیتر 2",
+    "heading3": "سرتیتر 3",
+    "noHeading": "بدون سرتیتر",
     "color": "رنگ متن",
     "customColor": "رنگ دلخواه",
     "noColor": "بدون رنگ"

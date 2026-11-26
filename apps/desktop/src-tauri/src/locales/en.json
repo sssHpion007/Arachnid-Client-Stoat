@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Code",
     "quote": "Quote",
+    "heading": "Heading",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "noHeading": "No heading",
     "color": "Text color",
     "customColor": "Custom color",
     "noColor": "No color"

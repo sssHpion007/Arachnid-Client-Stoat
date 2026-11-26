@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Kood",
     "quote": "Tsitaat",
+    "heading": "Pealkiri",
+    "heading1": "Pealkiri 1",
+    "heading2": "Pealkiri 2",
+    "heading3": "Pealkiri 3",
+    "noHeading": "Pealkirjata",
     "color": "Teksti värv",
     "customColor": "Oma värv",
     "noColor": "Värvita"

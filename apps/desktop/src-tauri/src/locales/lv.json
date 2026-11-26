@@ -289,6 +289,11 @@
     "spoiler": "Spoileris",
     "code": "Kods",
     "quote": "Citāts",
+    "heading": "Virsraksts",
+    "heading1": "Virsraksts 1",
+    "heading2": "Virsraksts 2",
+    "heading3": "Virsraksts 3",
+    "noHeading": "Bez virsraksta",
     "color": "Teksta krāsa",
     "customColor": "Sava krāsa",
     "noColor": "Bez krāsas"

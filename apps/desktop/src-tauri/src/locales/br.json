@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Kod",
     "quote": "Arroudenn",
+    "heading": "Titl",
+    "heading1": "Titl 1",
+    "heading2": "Titl 2",
+    "heading3": "Titl 3",
+    "noHeading": "Hep titl",
     "color": "Liv an destenn",
     "customColor": "Liv personel",
     "noColor": "Hep liv"

@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Kód",
     "quote": "Idézet",
+    "heading": "Címsor",
+    "heading1": "Címsor 1",
+    "heading2": "Címsor 2",
+    "heading3": "Címsor 3",
+    "noHeading": "Nincs címsor",
     "color": "Szövegszín",
     "customColor": "Egyéni szín",
     "noColor": "Nincs szín"

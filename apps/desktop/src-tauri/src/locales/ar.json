@@ -289,6 +289,11 @@
     "spoiler": "محتوى مخفي",
     "code": "رمز برمجي",
     "quote": "اقتباس",
+    "heading": "عنوان",
+    "heading1": "عنوان 1",
+    "heading2": "عنوان 2",
+    "heading3": "عنوان 3",
+    "noHeading": "بلا عنوان",
     "color": "لون النص",
     "customColor": "لون مخصص",
     "noColor": "بلا لون"

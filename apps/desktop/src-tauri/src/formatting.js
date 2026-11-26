@@ -4,8 +4,8 @@
 // `colored_text_font`.
 //
 // * Над выделенным текстом в поле сообщения (и в поле правки сообщения)
-//   появляется меню: жирный, курсив, зачёркнутый, спойлер, код, цитата и
-//   цвет текста. Включённое у выделения форматирование подсвечено; нажатие
+//   появляется меню: жирный, курсив, зачёркнутый, спойлер, код, заголовок
+//   (окно с уровнями), цитата и цвет текста. Включённое у выделения форматирование подсвечено; нажатие
 //   снимает его.
 // * Кнопки пишут разметку for-web: **жирный**, *курсив*, ~~зачёркнутый~~,
 //   ||спойлер||, `код`, «> » в начале строк — цитата. Разметка не переходит
@@ -48,6 +48,8 @@
     "|",
     { kind: "spoiler", icon: "visibility_off" },
     { kind: "code", icon: "code" },
+    "|",
+    { kind: "heading", icon: "title" },
     { kind: "quote", icon: "format_quote" },
     "|",
     { kind: "color", icon: "palette" },
@@ -60,6 +62,12 @@
   ];
 
   const MARKS = { bold: "**", italic: "*", strike: "~~", spoiler: "||", code: "`" };
+  /** Уровни заголовков в окне «Заголовок» (# … ###) */
+  const HEADINGS = [1, 2, 3];
+  /** Начало строки: цитата «> », затем заголовок «# » ($1 — цитата, $2 — решётки) */
+  const HEADING = /^((?:[ \t]*>[ \t]?)*)(#{1,6})[ \t]+/;
+  /** Разметка начала строки — цитата, заголовок, пункт списка: остаётся вне формулы */
+  const LINE_PREFIX = /^(?:[ \t]*>[ \t]?)*(?:#{1,6}[ \t]+)?(?:[ \t]*(?:[-*]|\d+[.)])[ \t]+)?/;
 
   // ─────────────────────────────── KaTeX ───────────────────────────────
 
@@ -264,6 +272,7 @@
         .split("\n")
         .every((line) => line.startsWith(">"));
     }
+    if (kind === "heading") return headingLevels(doc, from, to).some(Boolean);
     const span = spanAt(doc, from, to);
     if (kind === "color") return Boolean(span);
     if (span && STYLES.includes(kind)) {
@@ -332,6 +341,43 @@
     };
   }
 
+  /** Уровни заголовков у непустых строк выделения (0 — не заголовок) */
+  function headingLevels(doc, from, to) {
+    return doc
+      .slice(lineStart(doc, from), lineEnd(doc, Math.max(from, to - 1)))
+      .split("\n")
+      .filter((line) => line.replace(/^(?:[ \t]*>[ \t]?)*/, "").trim())
+      .map((line) => HEADING.exec(line)?.[2].length ?? 0);
+  }
+
+  /** Общий уровень заголовка у строк выделения; 0 — нет или разные */
+  function headingLevel(doc, from, to) {
+    const levels = headingLevels(doc, from, to);
+    return levels.length && levels.every((level) => level === levels[0]) ? levels[0] : 0;
+  }
+
+  /**
+   * Заголовок уровня level у строк выделения; тот же уровень ещё раз или
+   * level = 0 — обычный текст. Цитата «> » остаётся перед решётками.
+   */
+  function toggleHeading(doc, from, to, level) {
+    [from, to] = trimmed(doc, from, to);
+    if (level && headingLevel(doc, from, to) === level) level = 0;
+    const start = lineStart(doc, from);
+    const end = lineEnd(doc, Math.max(from, to - 1));
+    const insert = doc
+      .slice(start, end)
+      .split("\n")
+      .map((line) => {
+        const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line)[0];
+        const rest = line.slice(quote.length).replace(/^#{1,6}[ \t]+/, "");
+        return rest.trim() && level ? `${quote}${"#".repeat(level)} ${rest}` : quote + rest;
+      })
+      .join("\n");
+    if (insert === doc.slice(start, end)) return null;
+    return { from: start, to: end, insert, anchor: start, head: start + insert.length };
+  }
+
   function toggleQuote(doc, from, to) {
     const start = lineStart(doc, from);
     const end = lineEnd(doc, Math.max(from, to - 1));
@@ -380,10 +426,16 @@
       return { from: start, to: end, insert, anchor: start, head: start + insert.length };
     }
     if (!color || from === to) return null;
+    let at = from;
     const insert = doc
       .slice(from, to)
       .split("\n")
-      .map((line) => colorLine(line, color))
+      .map((line) => {
+        // «> », «# », «- » в начале строки — разметка строки, не текст
+        const prefix = at === lineStart(doc, at) ? LINE_PREFIX.exec(line)[0] : "";
+        at += line.length + 1;
+        return prefix + colorLine(line.slice(prefix.length), color);
+      })
       .join("\n");
     return { from, to, insert, anchor: from, head: from + insert.length };
   }
@@ -632,6 +684,12 @@
         mask(from, from + size);
         mask(to - size, to);
       }
+    }
+    // заголовок: «# » в начале строки (после цитаты)
+    for (const match of masked.matchAll(/^((?:[ \t]*>[ \t]?)*)(#{1,6}[ \t]+)(?=\S)/gm)) {
+      const from = match.index + match[1].length;
+      const end = lineEnd(doc, match.index);
+      pieces.push({ from, to: end, hide: [[from, from + match[2].length]], marks: [] });
     }
     // цитата: «> » в начале строки
     for (const match of masked.matchAll(/^> ?/gm)) {
@@ -969,6 +1027,29 @@
 }
 .${PALETTE_CLASS} [data-action]:disabled { opacity: 0.38; cursor: default; }
 .${PALETTE_CLASS} [data-action] .material-symbols-outlined { font-size: 18px; line-height: 1; }
+.${PALETTE_CLASS} [data-headings] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+}
+.${PALETTE_CLASS} [data-heading] {
+  padding: 6px 10px;
+  border-radius: 8px;
+  text-align: start;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.${PALETTE_CLASS} [data-heading="1"] { font-size: 20px; }
+.${PALETTE_CLASS} [data-heading="2"] { font-size: 17px; }
+.${PALETTE_CLASS} [data-heading="3"] { font-size: 15px; }
+.${PALETTE_CLASS} [data-heading]:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.${PALETTE_CLASS} [data-heading][aria-pressed="true"] {
+  color: var(--md-sys-color-on-secondary-container);
+  background: var(--md-sys-color-secondary-container);
+}
 .${PALETTE_CLASS} input[type="color"] {
   position: absolute;
   width: 0;
@@ -982,6 +1063,7 @@
   /** Редактор, у которого открыто меню (фокус может уйти в окно цвета) */
   let editor = null;
   let menu = null;
+  /** Открытое окно под кнопкой меню: палитра или заголовки (data-for) */
   let palette = null;
   /** Последний выбранный цвет — полоска под значком палитры */
   let lastColor = SWATCHES[0];
@@ -1020,7 +1102,12 @@
       const control = event.target.closest("button[data-kind]");
       if (!control) return;
       const kind = control.dataset.kind;
-      if (kind === "color") return palette ? closePalette() : openPalette(control);
+      if (kind === "color" || kind === "heading") {
+        const open = palette?.dataset.for;
+        closePalette();
+        if (open !== kind) (kind === "color" ? openPalette : openHeadings)(control);
+        return;
+      }
       closePalette();
       edit((doc, from, to) => toggle(doc, from, to, kind));
     });
@@ -1119,11 +1206,7 @@
   function openPalette(anchor) {
     const current = selection();
     if (!current) return;
-    palette = document.createElement("div");
-    palette.className = PALETTE_CLASS;
-    const title = document.createElement("div");
-    title.dataset.title = "";
-    title.textContent = text.color;
+    palette = popup("color", text.color);
     const swatches = document.createElement("div");
     swatches.dataset.swatches = "";
     const chosen = selectedColor();
@@ -1148,14 +1231,58 @@
     const actions = document.createElement("div");
     actions.dataset.actions = "";
     actions.append(custom, none, native);
-    palette.append(title, swatches, actions);
-    palette.addEventListener("mousedown", (event) => event.preventDefault());
+    palette.append(swatches, actions);
     document.body.append(palette);
     menu.dataset.palette = "";
     placePalette(anchor);
   }
 
-  function placePalette(anchor = menu?.querySelector('[data-kind="color"]')) {
+  /** Окно под кнопкой kind меню (палитра, заголовки) с подписью сверху */
+  function popup(kind, caption) {
+    const element = document.createElement("div");
+    element.className = PALETTE_CLASS;
+    element.dataset.for = kind;
+    const title = document.createElement("div");
+    title.dataset.title = "";
+    title.textContent = caption;
+    element.append(title);
+    element.addEventListener("mousedown", (event) => event.preventDefault());
+    return element;
+  }
+
+  function chooseHeading(level) {
+    closePalette();
+    edit((doc, from, to) => toggleHeading(doc, from, to, level));
+  }
+
+  function openHeadings(anchor) {
+    const current = selection();
+    if (!current) return;
+    palette = popup("heading", text.heading);
+    const chosen = headingLevel(current.doc, current.from, current.to);
+    const list = document.createElement("div");
+    list.dataset.headings = "";
+    for (const level of HEADINGS) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.heading = String(level);
+      button.textContent = text[`heading${level}`];
+      button.setAttribute("aria-pressed", String(level === chosen));
+      button.addEventListener("click", () => chooseHeading(level));
+      list.append(button);
+    }
+    const none = action("format_clear", text.noHeading, () => chooseHeading(0));
+    none.disabled = !isActive(current.doc, current.from, current.to, "heading");
+    const actions = document.createElement("div");
+    actions.dataset.actions = "";
+    actions.append(none);
+    palette.append(list, actions);
+    document.body.append(palette);
+    menu.dataset.palette = "";
+    placePalette(anchor);
+  }
+
+  function placePalette(anchor = menu?.querySelector(`[data-kind="${palette?.dataset.for}"]`)) {
     if (!palette || !anchor) return;
     const button = anchor.getBoundingClientRect();
     const bar = menu.getBoundingClientRect();

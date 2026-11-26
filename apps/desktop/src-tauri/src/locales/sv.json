@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Kod",
     "quote": "Citat",
+    "heading": "Rubrik",
+    "heading1": "Rubrik 1",
+    "heading2": "Rubrik 2",
+    "heading3": "Rubrik 3",
+    "noHeading": "Ingen rubrik",
     "color": "Textfärg",
     "customColor": "Egen färg",
     "noColor": "Ingen färg"

@@ -289,6 +289,11 @@
     "spoiler": "Spoiler",
     "code": "Code",
     "quote": "Citation",
+    "heading": "Titre",
+    "heading1": "Titre 1",
+    "heading2": "Titre 2",
+    "heading3": "Titre 3",
+    "noHeading": "Sans titre",
     "color": "Couleur du texte",
     "customColor": "Couleur personnalisée",
     "noColor": "Sans couleur"
