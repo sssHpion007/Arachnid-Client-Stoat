@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Förhandsvisningar av favorit-GIF:ar",
-          "hint": "Lokalt går snabbare, från webbplatsen sparas inget på disken.",
+          "hint": "Från internet sparas inget på disken, lokalt går snabbare.",
           "options": {
-            "local": "Spara på den här datorn",
-            "remote": "Hämta från webbplatsen"
+            "remote": "Hämta från internet",
+            "local": "Spara på den här datorn"
           }
         },
         "hotkeys": {

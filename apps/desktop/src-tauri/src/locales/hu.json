@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Kedvenc GIF-ek előnézetei",
-          "hint": "Helyben gyorsabb, a webhelyről betöltve semmi sem marad a lemezen.",
+          "hint": "Az internetről betöltve semmi sem marad a lemezen, helyben gyorsabb.",
           "options": {
-            "local": "Tárolás ezen a számítógépen",
-            "remote": "Betöltés a webhelyről"
+            "remote": "Betöltés az internetről",
+            "local": "Tárolás ezen a számítógépen"
           }
         },
         "hotkeys": {

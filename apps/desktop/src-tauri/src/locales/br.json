@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Rakweloù ar GIFoù muiañ-karet",
-          "hint": "War an urzhiataer eo buanoc’h; eus al lec’hienn ne vez miret netra war ar bladenn.",
+          "hint": "Eus ar genrouedad ne vez miret netra war ar bladenn; war an urzhiataer eo buanoc’h.",
           "options": {
-            "local": "Mirout war an urzhiataer-mañ",
-            "remote": "Kargañ eus al lec’hienn"
+            "remote": "Kargañ eus ar genrouedad",
+            "local": "Mirout war an urzhiataer-mañ"
           }
         },
         "hotkeys": {

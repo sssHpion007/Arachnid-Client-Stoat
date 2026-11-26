@@ -309,8 +309,8 @@ fn qol_settings() -> Vec<usercss::Setting> {
             "gif_previews",
             "Превью избранных GIF",
             &[
+                ("remote", "Загружать с интернета"),
                 ("local", "Хранить на компьютере"),
-                ("remote", "Загружать с сайта"),
             ],
         ),
         checkbox("hotkeys", "Горячие клавиши", false),
@@ -2489,7 +2489,7 @@ mod tests {
             "interface,history,media_player,emoji_picker,favorite_gifs,gifs_open_favorites,\
              gif_previews,hotkeys"
         );
-        assert_eq!(qol.values["gif_previews"], "local");
+        assert_eq!(qol.values["gif_previews"], "remote");
         assert_eq!(qol.values["history"], "1");
         assert_eq!(qol.values["media_player"], "1");
         assert_eq!(qol.values["favorite_gifs"], "1");
@@ -2503,11 +2503,11 @@ mod tests {
 
         assert!(extensions.set_plugin_value("builtin:qol", "gifs_open_favorites", Some("1")));
         assert!(!extensions.set_plugin_value("builtin:qol", "nothing", Some("1")));
-        assert!(extensions.set_plugin_value("builtin:qol", "gif_previews", Some("remote")));
+        assert!(extensions.set_plugin_value("builtin:qol", "gif_previews", Some("local")));
         assert!(!extensions.set_plugin_value("builtin:qol", "gif_previews", Some("cloud")));
         let values = extensions.plugin_values("builtin:qol").unwrap();
         assert_eq!(values["gifs_open_favorites"], true);
-        assert_eq!(values["gif_previews"], "remote");
+        assert_eq!(values["gif_previews"], "local");
         assert_eq!(values["interface"], true);
         let script = extensions.plugins().remove(0).1;
         assert!(script.contains("\"gifs_open_favorites\":true"));

@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Favorite GIF previews",
-          "hint": "Stored locally they load faster; from the site nothing is kept on disk.",
+          "hint": "From the internet nothing is kept on disk; stored locally they load faster.",
           "options": {
-            "local": "Store on this computer",
-            "remote": "Load from the site"
+            "remote": "Load from the internet",
+            "local": "Store on this computer"
           }
         },
         "hotkeys": {

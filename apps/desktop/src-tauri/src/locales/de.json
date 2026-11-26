@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Vorschauen der Lieblings-GIFs",
-          "hint": "Lokal ist schneller, von der Website bleibt nichts auf der Festplatte.",
+          "hint": "Aus dem Internet bleibt nichts auf der Festplatte, lokal ist schneller.",
           "options": {
-            "local": "Auf diesem Computer speichern",
-            "remote": "Von der Website laden"
+            "remote": "Aus dem Internet laden",
+            "local": "Auf diesem Computer speichern"
           }
         },
         "hotkeys": {

@@ -1209,6 +1209,13 @@
       const favorites = async () => (await invoke("favorite_gifs_list")).favorites;
       const failed = (error) => ({ failed: error });
 
+      // по умолчанию превью загружаются с интернета; здесь проверяются
+      // превью на компьютере
+      const previewsDefault = (await pluginInfo("builtin:qol"))?.values.gif_previews;
+      await check("превью избранных GIF по умолчанию — с интернета", previewsDefault === "remote", previewsDefault);
+      await invoke("extensions_set_plugin_value", { file: "builtin:qol", name: "gif_previews", value: "local" });
+      await sleep(500); // значение доходит до страницы вызовом из клиента
+
       const listing = await invoke("favorite_gifs_list");
       await check(
         "избранные GIF: сначала пусто, превью — из файлов клиента",
@@ -1603,7 +1610,8 @@ ${sidebarGroup("", [
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
       );
 
-      // превью избранных GIF: выбор и очистка папки (превью сделаны в шаге с избранным)
+      // превью избранных GIF: выбор и очистка папки (превью сделаны в шаге с
+      // избранным, там же выбрано «Хранить на компьютере»)
       const previewsSelect = qolInput("gif_previews");
       const clearPreviews = previewsSelect?.closest(".arachnid-column")?.nextElementSibling?.querySelector(".arachnid-button");
       const usageBefore = await invoke("favorite_gifs_previews");

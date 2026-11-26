@@ -219,6 +219,9 @@ img.arachnid-plugin-icon { object-fit: contain; }
 .arachnid-button:hover {
   background: color-mix(in srgb, var(--md-sys-color-on-secondary-container) 8%, var(--md-sys-color-secondary-container));
 }
+/* подпись — по высоте заглавных букв: посередине кнопки при любом шрифте
+   (у запасного шрифта кириллицы место над буквами больше, и текст садился ниже) */
+.arachnid-button-label { text-box: trim-both cap alphabetic; }
 .arachnid-button:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
 .arachnid-select:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
 .arachnid-button[data-variant="filled"] { background: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); }
@@ -411,7 +414,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       "button",
       { type: "button", class: "arachnid-button", dataset: variant ? { variant } : undefined, onClick },
       iconName ? icon(iconName) : null,
-      label,
+      h("span", { class: "arachnid-button-label" }, label),
     );
 
   /** Кнопка-значок внутри строки: щелчок не переключает саму строку */

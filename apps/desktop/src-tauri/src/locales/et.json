@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Lemmik-GIF-ide eelvaated",
-          "hint": "Arvutis on kiirem, saidilt laadides ei jää kettale midagi.",
+          "hint": "Internetist laadides ei jää kettale midagi, arvutis on kiirem.",
           "options": {
-            "local": "Salvesta selles arvutis",
-            "remote": "Laadi saidilt"
+            "remote": "Laadi internetist",
+            "local": "Salvesta selles arvutis"
           }
         },
         "hotkeys": {

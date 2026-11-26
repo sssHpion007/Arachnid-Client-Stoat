@@ -15,12 +15,12 @@
 // * GIF в избранном и в Gifbox воспроизводятся, только пока на них наведён
 //   указатель; до того видно превью — один кадр. Где оно берётся — по
 //   настройке `gif_previews`:
+//   - «remote» (по умолчанию): на диск ничего не пишется — плитка загружает
+//     готовое маленькое превью сайта (Tenor, Giphy), а у других сайтов — сам
+//     файл, от которого остаётся первый кадр;
 //   - «local»: превью делает эта страница (WebView2 умеет разбирать всё, что
 //     показывает), а файлы для него скачивает и хранит клиент
-//     (favorite_gifs.rs) — превью в несколько килобайт в каталоге данных;
-//   - «remote»: на диск ничего не пишется — плитка загружает готовое
-//     маленькое превью сайта (Tenor, Giphy), а у других сайтов — сам файл,
-//     от которого остаётся первый кадр.
+//     (favorite_gifs.rs) — превью в несколько килобайт в каталоге данных.
 //   Список — в каталоге данных, на этом компьютере. Сами GIF не сохраняются —
 //   только ссылки.
 // * Отправка — как у Gifbox for-web: ссылка уходит сообщением в открытый
@@ -515,7 +515,7 @@
   const findFavorite = (url) => (url ? (store.list.find((known) => known.url === url || known.media === url) ?? null) : null);
 
   /** Превью хранятся на компьютере (иначе — загружаются с сайта) */
-  let storing = plugin.settings.gif_previews !== "remote";
+  let storing = plugin.settings.gif_previews === "local";
 
   /** Превью, сохранённое клиентом */
   const localPreview = (favorite) => (favorite.preview ? `${store.base}${favorite.id}.webp?v=${favorite.preview}` : null);
@@ -1984,7 +1984,7 @@
   let favoritesOn = plugin.settings.favorite_gifs !== false;
 
   function onSettingsChange(values) {
-    const local = values.gif_previews !== "remote";
+    const local = values.gif_previews === "local";
     if (local !== storing) {
       storing = local;
       changed();

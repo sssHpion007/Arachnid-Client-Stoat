@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Izlases GIF priekšskatījumi",
-          "hint": "Datorā ir ātrāk, no vietnes — diskā nekas netiek glabāts.",
+          "hint": "No interneta — diskā nekas netiek glabāts, datorā ir ātrāk.",
           "options": {
-            "local": "Glabāt šajā datorā",
-            "remote": "Ielādēt no vietnes"
+            "remote": "Ielādēt no interneta",
+            "local": "Glabāt šajā datorā"
           }
         },
         "hotkeys": {

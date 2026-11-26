@@ -48,10 +48,10 @@
         },
         "gif_previews": {
           "label": "Aperçus des GIF favoris",
-          "hint": "En local, c’est plus rapide ; depuis le site, rien n’est gardé sur le disque.",
+          "hint": "Depuis Internet, rien n’est gardé sur le disque ; en local, c’est plus rapide.",
           "options": {
-            "local": "Stocker sur cet ordinateur",
-            "remote": "Charger depuis le site"
+            "remote": "Charger depuis Internet",
+            "local": "Stocker sur cet ordinateur"
           }
         },
         "hotkeys": {
