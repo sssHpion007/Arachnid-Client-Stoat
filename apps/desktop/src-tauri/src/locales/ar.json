@@ -331,6 +331,10 @@
     "tableColumn": "عمود",
     "more": "المزيد",
     "less": "أقل",
+    "cut": "قص",
+    "copy": "نسخ",
+    "paste": "لصق",
+    "selectAll": "تحديد الكل",
     "insertLink": "إدراج رابط…",
     "insertTime": "إدراج وقت…",
     "insertTable": "إدراج جدول…"

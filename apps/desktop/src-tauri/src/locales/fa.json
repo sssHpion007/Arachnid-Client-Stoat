@@ -331,6 +331,10 @@
     "tableColumn": "ستون",
     "more": "بیشتر",
     "less": "کمتر",
+    "cut": "برش",
+    "copy": "کپی",
+    "paste": "چسباندن",
+    "selectAll": "انتخاب همه",
     "insertLink": "درج پیوند…",
     "insertTime": "درج زمان…",
     "insertTable": "درج جدول…"

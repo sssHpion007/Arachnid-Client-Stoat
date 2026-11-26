@@ -331,6 +331,10 @@
     "tableColumn": "Kolonna",
     "more": "Vairāk",
     "less": "Mazāk",
+    "cut": "Izgriezt",
+    "copy": "Kopēt",
+    "paste": "Ielīmēt",
+    "selectAll": "Atlasīt visu",
     "insertLink": "Ievietot saiti…",
     "insertTime": "Ievietot laiku…",
     "insertTable": "Ievietot tabulu…"

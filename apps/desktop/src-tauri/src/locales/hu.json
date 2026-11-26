@@ -331,6 +331,10 @@
     "tableColumn": "Oszlop",
     "more": "Több",
     "less": "Kevesebb",
+    "cut": "Kivágás",
+    "copy": "Másolás",
+    "paste": "Beillesztés",
+    "selectAll": "Összes kijelölése",
     "insertLink": "Hivatkozás beszúrása…",
     "insertTime": "Idő beszúrása…",
     "insertTable": "Táblázat beszúrása…"

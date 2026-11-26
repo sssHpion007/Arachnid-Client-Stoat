@@ -331,6 +331,10 @@
     "tableColumn": "Column",
     "more": "More",
     "less": "Less",
+    "cut": "Cut",
+    "copy": "Copy",
+    "paste": "Paste",
+    "selectAll": "Select all",
     "insertLink": "Insert link…",
     "insertTime": "Insert time…",
     "insertTable": "Insert table…"

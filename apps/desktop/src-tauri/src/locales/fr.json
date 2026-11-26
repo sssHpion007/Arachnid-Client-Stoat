@@ -331,6 +331,10 @@
     "tableColumn": "Colonne",
     "more": "Plus",
     "less": "Moins",
+    "cut": "Couper",
+    "copy": "Copier",
+    "paste": "Coller",
+    "selectAll": "Tout sélectionner",
     "insertLink": "Insérer un lien…",
     "insertTime": "Insérer une heure…",
     "insertTable": "Insérer un tableau…"

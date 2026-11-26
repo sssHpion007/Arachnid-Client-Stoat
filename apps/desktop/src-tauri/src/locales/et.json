@@ -331,6 +331,10 @@
     "tableColumn": "Veerg",
     "more": "Veel",
     "less": "Vähem",
+    "cut": "Lõika",
+    "copy": "Kopeeri",
+    "paste": "Kleebi",
+    "selectAll": "Vali kõik",
     "insertLink": "Lisa link…",
     "insertTime": "Lisa aeg…",
     "insertTable": "Lisa tabel…"

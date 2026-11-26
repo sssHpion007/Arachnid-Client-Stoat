@@ -10,9 +10,12 @@
 // * Стрелка в конце меню раскрывает остальное (состояние — в localStorage):
 //   выделение цветом (\colorbox), подчёркнутый (\underline), размер, блок
 //   кода с языком, списки (маркированный, нумерованный, задачи), разделитель.
-// * Контекстное меню поля ввода (WebView2, см. context_menu.rs): «Вставить
-//   ссылку…» [текст](адрес), «Вставить время…» <t:…:f> и «Вставить
-//   таблицу…» (GFM) — окно у точки щелчка, работает и без выделения.
+// * Правый щелчок по полю ввода — своё меню в стиле меню for-web (как в
+//   чате) вместо меню WebView2: вырезать, копировать, вставить (и картинки —
+//   их for-web прикрепит к сообщению), выделить всё, «Добавить ссылку…»
+//   [текст](адрес), «Добавить время…» <t:…:f> и «Добавить таблицу…» (GFM) —
+//   окно у точки щелчка, работает и без выделения. Shift + правый щелчок —
+//   меню WebView2 (подсказки орфографии).
 // * Кнопки пишут разметку for-web: **жирный**, *курсив*, ~~зачёркнутый~~,
 //   ||спойлер||, `код`, «> » в начале строк — цитата. Разметка не переходит
 //   через строки, поэтому многострочное выделение размечается построчно.
@@ -72,12 +75,7 @@
   ];
   /** Кнопки, которые открывают окно под собой */
   const POPUP_KINDS = ["color", "highlight", "size", "heading", "codeblock"];
-  /** Пункты контекстного меню поля ввода (см. context_menu.rs): окно у точки щелчка */
-  const CONTEXT_ITEMS = [
-    { id: "link", label: "insertLink" },
-    { id: "time", label: "insertTime" },
-    { id: "table", label: "insertTable" },
-  ];
+  const CONTEXT_CLASS = "arachnid-format-context";
   /** Размер таблицы, которую можно выбрать в окне «Таблица»: столбцы × строки */
   const TABLE_GRID = { columns: 6, rows: 5 };
 
@@ -1566,6 +1564,43 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   font-size: 12px;
 }
 .${PALETTE_CLASS} [data-chip=""] { grid-column: 1 / -1; font-family: inherit; }
+.${CONTEXT_CLASS} {
+  position: fixed;
+  z-index: 1001;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--gap-md, 8px) 0;
+  overflow: hidden;
+  border-radius: var(--borderRadius-xs, 4px);
+  background: var(--md-sys-color-surface-container);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: var(--md-sys-elevation-2, 0 2px 6px rgb(0 0 0 / 0.3));
+  user-select: none;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.${CONTEXT_CLASS} [role="menuitem"] {
+  display: flex;
+  gap: var(--gap-md, 8px);
+  align-items: center;
+  padding: var(--gap-md, 8px) var(--gap-lg, 16px);
+  cursor: pointer;
+}
+.${CONTEXT_CLASS} [role="menuitem"]:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.${CONTEXT_CLASS} [role="menuitem"]:active {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent);
+}
+.${CONTEXT_CLASS} [role="menuitem"][aria-disabled="true"] { opacity: 0.38; pointer-events: none; }
+.${CONTEXT_CLASS} [role="menuitem"] > .material-symbols-outlined { font-size: 16px; }
+.${CONTEXT_CLASS} [role="menuitem"] > span:not([aria-hidden="true"]) { flex-grow: 1; margin-top: 1px; }
+.${CONTEXT_CLASS} [data-divider] {
+  height: 1px;
+  margin: var(--gap-sm, 4px) 0;
+  background: var(--md-sys-color-outline-variant);
+}
 .${PALETTE_CLASS} [data-grid] {
   display: grid;
   grid-template-columns: repeat(var(--columns), 22px);
@@ -1707,20 +1742,16 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     const area = editor.contentDOM.getBoundingClientRect();
     const first = rects[0] ?? area;
     const last = rects.at(-1) ?? area;
-    const left = Math.min(...rects.map((rect) => rect.left), first.left);
-    const right = Math.max(...rects.map((rect) => rect.right), first.right);
     // мерить у левого края: у правого края окна меню сжималось бы
     menu.style.left = "0px";
-    // над выделением по центру — свёрнутое меню; кнопки за стрелкой
-    // добавляются справа, меню не сдвигается
-    menu.removeAttribute("data-expanded");
-    const base = menu.offsetWidth;
-    menu.toggleAttribute("data-expanded", expanded);
     // узкое окно — меню переносится на вторую строку
     menu.toggleAttribute("data-wrapped", menu.offsetHeight > 52);
     const width = menu.offsetWidth;
     const height = menu.offsetHeight;
-    const x = Math.max(GAP, Math.min(innerWidth - width - GAP, (left + right) / 2 - base / 2));
+    // меню начинается там, где начинается выделение; кнопки за стрелкой
+    // добавляются справа, меню не сдвигается
+    const start = editor.coordsAtPos?.(editor.state.selection.main.from, 1);
+    const x = Math.max(GAP, Math.min(innerWidth - width - GAP, start?.left ?? first.left));
     let y = first.top - height - GAP;
     if (y < GAP) y = last.bottom + GAP;
     menu.style.left = `${x}px`;
@@ -2094,30 +2125,157 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 
   /** Точка правого щелчка, у которой открыто окно из контекстного меню */
   let contextPoint = null;
-  /** Последний правый щелчок по полю ввода: { view, x, y, at } */
-  let contextTarget = null;
 
-  function onContextMenu(event) {
-    const view = editorOf(event.target.closest?.(".cm-content"));
-    contextTarget = view ? { view, x: event.clientX, y: event.clientY, at: Date.now() } : null;
+  // ─────────────────────── контекстное меню поля ввода ───────────────────────
+  // Как ContextMenu for-web (меню сообщений, каналов): те же цвета, отступы и
+  // положение у точки щелчка.
+
+  /** Открытое меню: { element, close } */
+  let contextMenu = null;
+  const closeContextMenu = () => contextMenu?.close();
+
+  /** Выделенный текст редактора или "" */
+  const selectedText = (view) => view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to);
+
+  function copySelection(view, cut) {
+    const value = selectedText(view);
+    if (!value) return;
+    navigator.clipboard.writeText(value).then(
+      () => {
+        if (!cut || !view.dom.isConnected) return;
+        const { from, to } = view.state.selection.main;
+        view.dispatch({ changes: { from, to }, userEvent: "delete.cut", scrollIntoView: true });
+      },
+      () => {}, // буфер недоступен — ничего не меняется
+    );
   }
 
-  /** Для context_menu.rs: пункты меню после правого щелчка и их выбор */
-  window.__arachnidFormatContext = {
-    items() {
-      // щелчок по полю — только что (меню WebView2 спрашивает сразу после него)
-      if (!active || !contextTarget || Date.now() - contextTarget.at > 5000) return [];
-      return CONTEXT_ITEMS.map((item) => ({ id: item.id, label: text[item.label] }));
-    },
-    run(id) {
-      const target = contextTarget;
-      if (!active || !target?.view.dom.isConnected || !CONTEXT_ITEMS.some((item) => item.id === id)) return;
-      hide();
-      editor = target.view;
-      target.view.focus();
-      POPUPS[id]({ x: target.x, y: target.y });
-    },
-  };
+  /**
+   * Вставка из буфера обмена событием paste, как от Ctrl+V: текст вставит
+   * редактор, картинки и файлы прикрепит for-web (FilePasteCollector).
+   */
+  async function pasteClipboard(view) {
+    const data = new DataTransfer();
+    try {
+      for (const item of await navigator.clipboard.read()) {
+        for (const type of item.types) {
+          const blob = await item.getType(type);
+          if (type === "text/plain") data.setData("text/plain", await blob.text());
+          else if (!type.startsWith("text/")) data.items.add(new File([blob], `image.${type.split("/")[1] ?? "png"}`, { type }));
+        }
+      }
+    } catch {
+      try {
+        data.setData("text/plain", await navigator.clipboard.readText());
+      } catch {
+        return; // буфер недоступен
+      }
+    }
+    if (!view.dom.isConnected) return;
+    view.focus();
+    view.contentDOM.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  }
+
+  /** Окно ссылки, времени или таблицы у точки щелчка */
+  function openAt(kind, view, x, y) {
+    hide();
+    editor = view;
+    view.focus();
+    POPUPS[kind]({ x, y });
+  }
+
+  function openContextMenu(view, x, y) {
+    closeContextMenu();
+    hide();
+    const empty = view.state.selection.main.empty;
+    const entries = [
+      { icon: "content_cut", label: text.cut, disabled: empty, run: () => copySelection(view, true) },
+      { icon: "content_copy", label: text.copy, disabled: empty, run: () => copySelection(view, false) },
+      { icon: "content_paste", label: text.paste, run: () => void pasteClipboard(view) },
+      {
+        icon: "select_all",
+        label: text.selectAll,
+        run: () => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }),
+      },
+      "divider",
+      { icon: "link", label: text.insertLink, run: () => openAt("link", view, x, y) },
+      { icon: "schedule", label: text.insertTime, run: () => openAt("time", view, x, y) },
+      { icon: "table", label: text.insertTable, run: () => openAt("table", view, x, y) },
+    ];
+    const element = document.createElement("div");
+    element.className = CONTEXT_CLASS;
+    element.setAttribute("role", "menu");
+    for (const entry of entries) {
+      if (entry === "divider") {
+        const divider = document.createElement("div");
+        divider.dataset.divider = "";
+        element.append(divider);
+        continue;
+      }
+      const item = document.createElement("a");
+      item.setAttribute("role", "menuitem");
+      if (entry.disabled) item.setAttribute("aria-disabled", "true");
+      const caption = document.createElement("span");
+      caption.textContent = entry.label;
+      item.append(icon(entry.icon), caption);
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        if (entry.disabled) return;
+        close();
+        view.focus();
+        entry.run();
+      });
+      element.append(item);
+    }
+    // щелчок по меню не забирает фокус и выделение у поля
+    element.addEventListener("mousedown", (event) => event.preventDefault());
+    element.addEventListener("contextmenu", (event) => event.preventDefault());
+    document.body.append(element);
+
+    // как floating-ui у for-web: справа снизу от точки, у края — с другой стороны
+    const { width, height } = element.getBoundingClientRect();
+    let left = x + 5;
+    let top = y + 5;
+    if (left + width > innerWidth - GAP) left = Math.max(GAP, x - 5 - width);
+    if (top + height > innerHeight - GAP) top = Math.max(GAP, y - 5 - height);
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+
+    const onPointer = (event) => {
+      if (!element.contains(event.target)) close();
+    };
+    const onKey = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    function close() {
+      removeEventListener("pointerdown", onPointer, true);
+      removeEventListener("keydown", onKey, true);
+      removeEventListener("blur", close);
+      removeEventListener("resize", close);
+      removeEventListener("wheel", close, true);
+      element.remove();
+      if (contextMenu?.element === element) contextMenu = null;
+    }
+    addEventListener("pointerdown", onPointer, true);
+    addEventListener("keydown", onKey, true);
+    addEventListener("blur", close);
+    addEventListener("resize", close);
+    addEventListener("wheel", close, true);
+    contextMenu = { element, close };
+  }
+
+  function onContextMenu(event) {
+    // Shift + правый щелчок — меню WebView2 (подсказки орфографии)
+    if (event.shiftKey) return;
+    const view = editorOf(event.target.closest?.(".cm-content"));
+    if (!view) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenu(view, event.clientX, event.clientY);
+  }
 
   function placePalette(anchor = menu?.querySelector(`[data-kind="${palette?.dataset.for}"]`)) {
     if (contextPopup() && contextPoint) {
@@ -2160,6 +2318,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 
   function onPointerDown(event) {
     if (menu?.contains(event.target) || palette?.contains(event.target)) return;
+    if (contextMenu?.element.contains(event.target)) return;
     if (palette) closePalette();
     selecting = Boolean(event.target.closest?.(".cm-content"));
     if (selecting) hide();
@@ -2220,7 +2379,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("focusout", onFocusOut, true);
     document.removeEventListener("contextmenu", onContextMenu, true);
-    contextTarget = null;
+    closeContextMenu();
     removeEventListener("scroll", onViewport, true);
     removeEventListener("resize", onViewport);
   }

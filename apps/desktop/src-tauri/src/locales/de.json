@@ -331,8 +331,12 @@
     "tableColumn": "Spalte",
     "more": "Mehr",
     "less": "Weniger",
-    "insertLink": "Link einfügen…",
-    "insertTime": "Zeit einfügen…",
-    "insertTable": "Tabelle einfügen…"
+    "cut": "Ausschneiden",
+    "copy": "Kopieren",
+    "paste": "Einfügen",
+    "selectAll": "Alles auswählen",
+    "insertLink": "Link hinzufügen…",
+    "insertTime": "Zeit hinzufügen…",
+    "insertTable": "Tabelle hinzufügen…"
   }
 }

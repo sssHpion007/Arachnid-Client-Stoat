@@ -331,6 +331,10 @@
     "tableColumn": "Bann",
     "more": "Muioc’h",
     "less": "Nebeutoc’h",
+    "cut": "Troc’hañ",
+    "copy": "Eilañ",
+    "paste": "Pegañ",
+    "selectAll": "Diuzañ pep tra",
     "insertLink": "Ensoc’hañ un ere…",
     "insertTime": "Ensoc’hañ an eur…",
     "insertTable": "Ensoc’hañ un daolenn…"
