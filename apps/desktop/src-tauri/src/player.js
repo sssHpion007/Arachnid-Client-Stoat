@@ -28,8 +28,8 @@
 //   пересылается самому <video>/<audio> (меню for-web встаёт у указателя).
 // * Видео и аудио, которые не загрузились (оборвался ответ, загрузка встала),
 //   незаметно загружаются заново — см. «надёжная загрузка». Видео по ссылке,
-//   которое не отдал прокси встраиваний Stoat (January), просится у него
-//   снова, а затем грузится с сайта напрямую (см. «прокси встраиваний»).
+//   которое не отдал прокси встраиваний Stoat, — ещё раз, когда прокси
+//   забудет свою ошибку.
 // * Видео, которое WebView2 не показывает (HEVC из TikTok и с телефона,
 //   AVI, WMV…), клиент по нажатию ▶ незаметно перекодирует в H.264
 //   (transcode.rs): пока идёт перекодирование — обычный значок загрузки.
@@ -706,63 +706,6 @@
     }
   }
 
-  // ─────────────────────────── прокси встраиваний ───────────────────────────
-  // Видео и аудио по ссылке for-web показывает через прокси встраиваний Stoat
-  // (January): …/proxy?url=<файл>. January отдаёт файл, только скачав его
-  // целиком, и на скачивание у него 10 секунд; не успел — ответ 400, и этот
-  // ответ он помнит минуту (по адресу файла). Большое видео — особенно с CDN
-  // Discord, по ссылкам из Discord, — так часто не грузится с первого раза,
-  // а повтор в ту же минуту получает ту же ошибку. Помогало переключить
-  // канал: элемент создавался заново позже, когда январская ошибка
-  // забывалась, а второе скачивание шло быстрее (CDN уже держал файл рядом).
-  //
-  // Поэтому после ошибки (или если ответа нет PROXY_STALL_MS) файл сразу
-  // просится у прокси снова — с меткой `#arachnid-<n>` в конце адреса файла.
-  // Метка — часть адреса только для памяти January: на сайт она не уходит
-  // (часть адреса после # в запрос не попадает), а запомненная ошибка к
-  // новому адресу не относится. Не вышло и так — файл грузится с сайта
-  // напрямую (Discord и некоторые сайты из России открываются не всегда,
-  // поэтому только в последнюю очередь). Адрес, который загрузил файл,
-  // запоминается: новый элемент того же файла (сменили канал) берёт сразу
-  // его; адрес, который не загрузил, минуту пропускается.
-
-  /** Сколько раз просить файл у прокси (первый — адрес for-web) */
-  const PROXY_TRIES = 3;
-  /** Столько прокси может не отвечать: сам он ждёт сайт до 15 с, мс */
-  const PROXY_STALL_MS = 25000;
-  /** Столько помнит ошибку прокси — и столько адрес пропускается, мс */
-  const FAILED_FOR_MS = 60000;
-  /** Адрес → когда он не загрузил файл */
-  const failedSources = new Map();
-  /** Исходный адрес файла → адрес, который его загрузил */
-  const workingSources = new Map();
-
-  const failedRecently = (source) => performance.now() - (failedSources.get(source) ?? -Infinity) < FAILED_FOR_MS;
-
-  /** Прокси January: его адрес и адрес файла (без своей метки) или null */
-  function proxyParts(src) {
-    let url;
-    try {
-      url = new URL(src, location.href);
-    } catch {
-      return null;
-    }
-    const file = url.pathname.endsWith("/proxy") ? url.searchParams.get("url") : null;
-    if (!file || !/^https?:\/\//i.test(file)) return null;
-    return { proxy: `${url.origin}${url.pathname}`, file: file.replace(/#arachnid-\d+$/, "") };
-  }
-
-  /** Адреса, с которых можно загрузить файл, по порядку; не через прокси — null */
-  function sourcesOf(src) {
-    const parts = proxyParts(src);
-    if (!parts) return null;
-    const proxied = (n) => `${parts.proxy}?url=${encodeURIComponent(n ? `${parts.file}#arachnid-${n}` : parts.file)}`;
-    const list = Array.from({ length: PROXY_TRIES }, (_, n) => proxied(n));
-    // адрес элемента — как его записал for-web (кодирование могло отличаться)
-    if (!list.includes(src)) list[0] = src;
-    return { file: parts.file, list: [...list, parts.file] };
-  }
-
   // ─────────────────────────── надёжная загрузка ───────────────────────────
   // Видео и аудио иногда не загружаются с первого раза: оборвался ответ,
   // декодер видеокарты не создался, пока грузились другие видео, загрузка
@@ -777,9 +720,15 @@
   //   — сразу. Файла нет (4xx) или формат не тот — дальше решает плеер;
   // * загрузка (до метаданных) или воспроизведение стоят дольше STALL_MS, не
   //   получив ни байта, — тоже заново;
-  // * файл по ссылке через прокси January после ошибки или без ответа
-  //   PROXY_STALL_MS — сразу снова, а затем напрямую (см. «прокси
-  //   встраиваний»).
+  // * видео и аудио по ссылке for-web берёт через прокси встраиваний Stoat
+  //   (January, …/proxy?url=…). Он отдаёт файл, только скачав его целиком за
+  //   10 с, иначе — ответ 400, и этот ответ помнит минуту. Поэтому большое
+  //   видео (например, с CDN Discord) не грузилось с первого раза, повторы в
+  //   ту же минуту получали ту же ошибку, а помогала смена канала. Здесь
+  //   после неудачных быстрых повторов файл грузится ещё раз с того же адреса
+  //   через PROXY_FORGETS_MS после первой ошибки — когда прокси её забыл; не
+  //   вышло и тогда — как обычно. Пока файл грузится, ничего лишнего не
+  //   запрашивается: адрес тот же, что у for-web.
   //
   // Каждый сбой с текстом ошибки Chromium записывается в журнал клиента
   // (media_report): по нему видно, почему файл не загрузился.
@@ -791,6 +740,18 @@
   /** Столько загрузка может стоять без данных, мс */
   const STALL_MS = 10000;
   const WATCH_MS = 2000;
+  /** Столько прокси встраиваний Stoat помнит ошибку — с запасом, мс */
+  const PROXY_FORGETS_MS = 62000;
+
+  /** Адрес через прокси встраиваний Stoat (January): …/proxy?url=… */
+  function viaProxy(src) {
+    try {
+      const url = new URL(src, location.href);
+      return url.pathname.endsWith("/proxy") && /^https?:\/\//i.test(url.searchParams.get("url") ?? "");
+    } catch {
+      return false;
+    }
+  }
 
   /** Сбой загрузки — в журнал клиента */
   function reportMedia(media, event, attempts) {
@@ -825,6 +786,10 @@
     let src = media.currentSrc || media.src;
     let timer = 0;
     let last = performance.now();
+    /** Когда (performance.now) адрес src не загрузился первый раз */
+    let firstError = 0;
+    /** Повтор после того, как прокси забыл ошибку, уже был */
+    let proxyRetried = false;
     const touch = () => (last = performance.now());
     const report = (event) => reportMedia(media, event, attempts);
 
@@ -847,44 +812,19 @@
       timer = setTimeout(reload, delay);
     }
 
-    /** Адреса файла по ссылке (см. «прокси встраиваний») */
-    const sources = sourcesOf(media.currentSrc || media.src) || { file: null, list: [] };
-
-    /** Загрузить файл с другого адреса; `true` — адрес сменился */
-    function useSource(next, event) {
-      if (!next || next === (media.currentSrc || media.src)) return false;
-      if (event) report(event);
-      clearTimeout(timer);
-      timer = 0;
-      const position = media.currentTime;
-      const resume = wanted();
-      [src, attempts] = [next, 0];
-      touch();
-      if (event) onRetry(resume);
-      // новый адрес — загрузка начинается заново сама
-      media.src = next;
-      if (position > 0) media.currentTime = position;
-      if (resume) void media.play().catch(() => {});
-      return true;
-    }
-
-    /** Текущий адрес не отдал файл — следующий; `true` — адрес сменился */
-    function nextSource(event) {
-      const current = media.currentSrc || media.src;
-      const index = sources.list.indexOf(current);
-      if (index === -1) return false;
-      failedSources.set(current, performance.now());
-      if (workingSources.get(sources.file) === current) workingSources.delete(sources.file);
-      const next = sources.list.slice(index + 1).find((source) => !failedRecently(source));
-      return useSource(next, `${event}, next source`);
-    }
-
     function onError() {
       const current = media.currentSrc || media.src;
-      if (current !== src) [src, attempts] = [current, 0];
+      if (current !== src) [src, attempts, firstError, proxyRetried] = [current, 0, 0, false];
       report("error");
-      if (nextSource("error")) return;
+      firstError ||= performance.now();
       if (attempts < QUICK_RETRIES_MS.length) return later(QUICK_RETRIES_MS[attempts]);
+      // прокси Stoat отвечает запомненной ошибкой — повтор, когда он её забудет
+      // (отдельные запросы failureOf к прокси получили бы ту же ошибку)
+      if (!proxyRetried && viaProxy(current)) {
+        proxyRetried = true;
+        report("proxy retry later");
+        return later(Math.max(0, firstError + PROXY_FORGETS_MS - performance.now()));
+      }
       const failed = media.error;
       void failureOf(media).then((reason) => {
         if (media.error !== failed || timer) return;
@@ -898,27 +838,17 @@
     }
 
     // загрузилось после повторов — в журнал, что помогло
-    const onLoaded = () => {
-      const current = media.currentSrc || media.src;
-      if (sources.list.includes(current)) {
-        workingSources.set(sources.file, current);
-        if (current !== sources.list[0]) report("recovered by another source");
-      }
-      if (attempts) report("recovered");
-    };
+    const onLoaded = () => attempts && report("recovered");
 
     // сеть вернулась — не ждать повтора
     const onOnline = () => timer && later(0);
 
     function watch(now) {
-      const index = sources.list.indexOf(media.currentSrc || media.src);
-      const limit = index >= 0 && index < PROXY_TRIES ? PROXY_STALL_MS : STALL_MS;
-      if (timer || media.error || !media.isConnected || now - last < limit) return;
+      if (timer || media.error || !media.isConnected || now - last < STALL_MS) return;
       const loading =
         media.readyState === HTMLMediaElement.HAVE_NOTHING && media.networkState === HTMLMediaElement.NETWORK_LOADING;
       const stuck = wanted() && !media.paused && media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
       if (!loading && !stuck) return;
-      if (loading && nextSource("stalled loading")) return;
       report(loading ? "stalled loading" : "stalled playback");
       reload();
     }
@@ -939,10 +869,8 @@
       const now = performance.now();
       for (const check of stallWatches) check(now);
     }, WATCH_MS);
-    // адрес, который уже загружал этот файл, или первый, который не подводил
-    // в последнюю минуту; иначе ошибка могла случиться до плеера
-    const first = workingSources.get(sources.file) ?? sources.list.find((source) => !failedRecently(source));
-    if (!useSource(first, null) && media.error) onError();
+    // ошибка случилась до плеера
+    if (media.error) onError();
 
     return {
       /** Пользователь ждёт (нажал ▶): назначенный повтор — сейчас; false — повтора нет */
