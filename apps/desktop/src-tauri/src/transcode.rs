@@ -199,7 +199,9 @@ impl Transcoder {
             }
             *queue = Some(sender);
         }
-        queue.as_ref().is_some_and(|sender| sender.send(url.to_owned()).is_ok())
+        queue
+            .as_ref()
+            .is_some_and(|sender| sender.send(url.to_owned()).is_ok())
     }
 
     fn set(&self, url: &str, status: Status) {
@@ -223,7 +225,9 @@ impl Transcoder {
                 let seconds = started.elapsed().as_secs_f32();
                 tracing::info!(%url, seconds, "видео перекодировано");
                 lock(&self.jobs).files.insert(id.clone(), path);
-                Status::Done { src: media_url(&id, &name) }
+                Status::Done {
+                    src: media_url(&id, &name),
+                }
             }
             Err(code) => {
                 tracing::warn!(%url, code, "видео не перекодировано");
@@ -394,7 +398,12 @@ mod platform {
             let bitrate = super::target_bitrate(probe.bitrate, size, probe.duration);
             // видеокарта не справилась посреди файла — ещё раз без неё
             for hardware in [true, false] {
-                self.set(url, Status::Converting { progress: Some(0.0) });
+                self.set(
+                    url,
+                    Status::Converting {
+                        progress: Some(0.0),
+                    },
+                );
                 let args = super::convert_args(hardware, bitrate);
                 let Err(log) = self.run(url, &ffmpeg, &args, source, output, probe.duration) else {
                     return Ok(());
@@ -465,7 +474,9 @@ mod platform {
 
     fn command(ffmpeg: &Path) -> Command {
         let mut command = Command::new(ffmpeg);
-        command.stdin(Stdio::null()).creation_flags(CREATE_NO_WINDOW);
+        command
+            .stdin(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW);
         command
     }
 
@@ -778,10 +789,27 @@ mod tests {
     #[test]
     fn hardware_decoding_goes_before_input() {
         let args = convert_args(true, 3_000_000);
-        assert!(args.input.windows(2).any(|pair| pair == ["-hwaccel", "d3d11va"]));
-        assert!(args.output.windows(2).any(|pair| pair == ["-b:v", "3000000"]));
-        assert!(args.output.windows(2).any(|pair| pair == ["-c:v", "h264_mf"]));
-        assert!(!convert_args(false, 3_000_000).input.iter().any(|arg| arg == "-hwaccel"));
+        assert!(
+            args.input
+                .windows(2)
+                .any(|pair| pair == ["-hwaccel", "d3d11va"])
+        );
+        assert!(
+            args.output
+                .windows(2)
+                .any(|pair| pair == ["-b:v", "3000000"])
+        );
+        assert!(
+            args.output
+                .windows(2)
+                .any(|pair| pair == ["-c:v", "h264_mf"])
+        );
+        assert!(
+            !convert_args(false, 3_000_000)
+                .input
+                .iter()
+                .any(|arg| arg == "-hwaccel")
+        );
     }
 
     #[test]
@@ -806,7 +834,10 @@ mod tests {
         assert_eq!(file_name("  "), "video.mp4");
         assert_eq!(file_name(".."), "video.mp4");
         let url = media_url("7", "клип #1?.mp4");
-        assert!(url.ends_with("/media/7/%D0%BA%D0%BB%D0%B8%D0%BF%20%231%3F.mp4"), "{url}");
+        assert!(
+            url.ends_with("/media/7/%D0%BA%D0%BB%D0%B8%D0%BF%20%231%3F.mp4"),
+            "{url}"
+        );
         assert!(url.starts_with(crate::extensions::ASSET_BASE));
     }
 
@@ -830,9 +861,18 @@ mod tests {
 
     #[test]
     fn status_is_serialized_for_the_page() {
-        let json = serde_json::to_value(Status::Converting { progress: Some(0.5) }).unwrap();
-        assert_eq!(json, serde_json::json!({ "state": "converting", "progress": 0.5 }));
+        let json = serde_json::to_value(Status::Converting {
+            progress: Some(0.5),
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({ "state": "converting", "progress": 0.5 })
+        );
         let json = serde_json::to_value(Status::Failed { code: "network" }).unwrap();
-        assert_eq!(json, serde_json::json!({ "state": "failed", "code": "network" }));
+        assert_eq!(
+            json,
+            serde_json::json!({ "state": "failed", "code": "network" })
+        );
     }
 }

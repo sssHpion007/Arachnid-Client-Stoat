@@ -39,7 +39,10 @@ fn parse_items(json: &str) -> Vec<Item> {
 /// Скрипт выбранного пункта id.
 #[cfg_attr(not(windows), allow(dead_code))]
 fn run_script(id: &str) -> String {
-    format!("window.__arachnidFormatContext?.run({})", serde_json::Value::from(id))
+    format!(
+        "window.__arachnidFormatContext?.run({})",
+        serde_json::Value::from(id)
+    )
 }
 
 #[cfg(windows)]
@@ -199,7 +202,10 @@ mod tests {
 
     #[test]
     fn run_script_quotes_id() {
-        assert_eq!(run_script("table"), r#"window.__arachnidFormatContext?.run("table")"#);
+        assert_eq!(
+            run_script("table"),
+            r#"window.__arachnidFormatContext?.run("table")"#
+        );
         assert_eq!(
             run_script("a\")-alert(1)//"),
             r#"window.__arachnidFormatContext?.run("a\")-alert(1)//")"#
