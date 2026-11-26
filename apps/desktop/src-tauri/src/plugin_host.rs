@@ -294,8 +294,7 @@ fn send(
 }
 
 /// Base64 (RFC 4648, с `=`).
-#[cfg_attr(not(windows), allow(dead_code))]
-fn base64(data: &[u8]) -> String {
+pub(crate) fn base64(data: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {

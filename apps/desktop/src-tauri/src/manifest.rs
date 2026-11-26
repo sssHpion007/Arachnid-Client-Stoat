@@ -294,6 +294,37 @@ pub fn parse_plugin(dir: &Path, text: &str) -> Result<PluginManifest, String> {
     })
 }
 
+/// Название, версия, автор, описание и значок из `plugin.toml` — для
+/// каталога плагинов, где остальных файлов плагина ещё нет. Значок — путь
+/// внутри папки, если это картинка подходящего типа.
+pub fn catalog_about(text: &str) -> Result<(About, Option<String>), String> {
+    let raw: RawPlugin =
+        toml::from_str(text).map_err(|error| toml_error(PLUGIN_MANIFEST, &error))?;
+    let icon = raw.icon.filter(|icon| {
+        let extension = icon
+            .rsplit_once('.')
+            .map(|(_, extension)| extension.to_ascii_lowercase())
+            .unwrap_or_default();
+        relative_path(icon).is_some() && ICON_TYPES.contains(&extension.as_str())
+    });
+    let about = about(raw.name, raw.version, raw.author, raw.description)?;
+    Ok((about, icon))
+}
+
+/// Название и описание из перевода `locales/<язык>.toml` — для каталога
+/// плагинов. Перевод не читается — их нет.
+pub fn locale_about(text: &str) -> (Option<String>, Option<String>) {
+    #[derive(Deserialize)]
+    struct Raw {
+        name: Option<String>,
+        description: Option<String>,
+    }
+    match toml::from_str::<Raw>(text) {
+        Ok(raw) => (clean(raw.name), clean(raw.description)),
+        Err(_) => (None, None),
+    }
+}
+
 /// Прочитать `theme.toml` папки `dir`.
 pub fn parse_theme(dir: &Path, text: &str) -> Result<ThemeManifest, String> {
     let raw: RawTheme = toml::from_str(text).map_err(|error| toml_error(THEME_MANIFEST, &error))?;
@@ -880,5 +911,23 @@ mod tests {
         assert!(!host_allowed(&patterns, "deepl.com"));
         assert!(!host_allowed(&patterns, "evildeepl.com"));
         assert!(!host_allowed(&patterns, "example.com"));
+    }
+
+    #[test]
+    fn catalog_reads_about_without_plugin_files() {
+        let text = "name = \"Translator\"\nversion = \"1.2.0\"\nicon = \"icon.svg\"\n\
+                    [[settings]]\nname = \"x\"\ntype = \"text\"\n";
+        let (about, icon) = catalog_about(text).unwrap();
+        assert_eq!(about.name.as_deref(), Some("Translator"));
+        assert_eq!(about.version.as_deref(), Some("1.2.0"));
+        assert_eq!(icon.as_deref(), Some("icon.svg"));
+        let outside = "name = \"A\"\nicon = \"../a.svg\"";
+        let (_, icon) = catalog_about(outside).unwrap();
+        assert_eq!(icon, None);
+        assert!(catalog_about("version = \"1\"").is_err());
+
+        let locale = "name = \"Переводчик\"\n[settings.x]\nlabel = \"Икс\"\n";
+        assert_eq!(locale_about(locale), (Some("Переводчик".into()), None));
+        assert_eq!(locale_about("name = "), (None, None));
     }
 }

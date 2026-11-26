@@ -2206,6 +2206,32 @@ ${sidebarGroup("", [
       await invoke("extensions_reset_plugin", { file: FOLDER });
       settingsPage.remove();
 
+      // каталог плагинов: translator из папки plugins/ репозитория скачивается,
+      // отмечается установленным и удаляется вместе с настройками
+      const catalogState = {};
+      try {
+        const list = await invoke("extensions_catalog", { language: "ru", refresh: true });
+        const remote = list.find((plugin) => plugin.id === "translator");
+        catalogState.listed = Boolean(remote?.version) && !remote?.error;
+        const after = await invoke("extensions_install_plugin", { id: "translator", language: "ru" });
+        const installed = after.find((plugin) => plugin.id === "translator");
+        catalogState.installed = installed?.installed && installed?.installedVersion === remote?.version && !installed?.update;
+        catalogState.disabled = (await pluginInfo("translator"))?.enabled === false;
+        const again = await invoke("extensions_install_plugin", { id: "translator", language: "ru" });
+        catalogState.reinstalled = again.find((plugin) => plugin.id === "translator")?.installed;
+        await invoke("extensions_remove_plugin", { file: "translator" });
+        const removed = await invoke("extensions_catalog", { language: "ru", refresh: false });
+        catalogState.removed = removed.find((plugin) => plugin.id === "translator")?.installed === false;
+        catalogState.gone = !(await pluginInfo("translator"));
+      } catch (error) {
+        catalogState.error = error?.message ?? String(error);
+      }
+      await check(
+        "каталог плагинов: translator скачивается, скачивается заново и удаляется",
+        Boolean(catalogState.listed && catalogState.installed && catalogState.disabled && catalogState.reinstalled && catalogState.removed && catalogState.gone),
+        catalogState,
+      );
+
       picker.base.remove();
 
       // имя сессии: вход for-web (stoat-api: fetch, тело — строка JSON)
