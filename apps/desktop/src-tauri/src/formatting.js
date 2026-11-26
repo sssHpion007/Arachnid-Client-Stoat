@@ -8,12 +8,12 @@
 //   (окно с уровнями 1–6), цитата и цвет текста. Включённое у выделения
 //   форматирование подсвечено; нажатие снимает его.
 // * Стрелка в конце меню раскрывает остальное (состояние — в localStorage):
-//   выделение цветом (\colorbox), подчёркнутый (\underline), размер, блок
-//   кода с языком, списки (маркированный, нумерованный, задачи), разделитель.
+//   подчёркнутый (\underline), размер, блок кода с языком, списки
+//   (маркированный, нумерованный, задачи), разделитель.
 // * Правый щелчок по полю ввода — своё меню в стиле меню for-web (как в
 //   чате) вместо меню WebView2: вырезать, копировать, вставить (и картинки —
-//   их for-web прикрепит к сообщению), выделить всё, «Добавить ссылку…»
-//   [текст](адрес), «Добавить время…» <t:…:f> и «Добавить таблицу…» (GFM) —
+//   их for-web прикрепит к сообщению), выделить всё, «Добавить
+//   гиперссылку…» [текст](адрес), «Добавить время…» <t:…:f> и «Добавить таблицу…» (GFM) —
 //   окно у точки щелчка, работает и без выделения. Shift + правый щелчок —
 //   меню WebView2 (подсказки орфографии).
 // * Кнопки пишут разметку for-web: **жирный**, *курсив*, ~~зачёркнутый~~,
@@ -62,7 +62,6 @@
     { kind: "quote", icon: "format_quote" },
     "|",
     { kind: "color", icon: "palette" },
-    { kind: "highlight", icon: "format_ink_highlighter", extra: true },
     { kind: "underline", icon: "format_underlined", extra: true },
     { kind: "size", icon: "format_size", extra: true },
     { separator: true, extra: true },
@@ -74,7 +73,7 @@
     { kind: "more", icon: "chevron_right" },
   ];
   /** Кнопки, которые открывают окно под собой */
-  const POPUP_KINDS = ["color", "highlight", "size", "heading", "codeblock"];
+  const POPUP_KINDS = ["color", "size", "heading", "codeblock"];
   const CONTEXT_CLASS = "arachnid-format-context";
   /** Размер таблицы, которую можно выбрать в окне «Таблица»: столбцы × строки */
   const TABLE_GRID = { columns: 6, rows: 5 };
@@ -83,15 +82,6 @@
   const SWATCHES = [
     "#e5534b", "#f0883e", "#e3b341", "#57ab5a", "#39c5cf", "#539bf5", "#b083f0", "#e275ad",
     "#ff938a", "#ffb77c", "#f8e3a1", "#8ddb8c", "#96d0ff", "#c9d1ff", "#dcbdfb", "#adbac7",
-  ];
-  /**
-   * Цвета выделения (фона): яркие и тёмные. KaTeX у for-web (0.16.22) не
-   * принимает полупрозрачные цвета, поэтому цвет текста на фоне без своего
-   * цвета подбирается сам — светлый или тёмный (см. contrastText).
-   */
-  const HIGHLIGHTS = [
-    "#e5534b", "#f0883e", "#e3b341", "#57ab5a", "#39c5cf", "#539bf5", "#b083f0", "#e275ad",
-    "#6e2622", "#6b3a14", "#5f4a12", "#24502a", "#14535a", "#1f4273", "#47307a", "#6a2850",
   ];
   /** Размеры текста KaTeX: \small — обычный (как текст чата) */
   const SIZES = ["footnotesize", "small", "large", "Large", "huge"];
@@ -161,25 +151,18 @@
 
   /**
    * Стили слова в формуле. Жирный, курсив и подчёркнутый — внутри \textsf,
-   * выделение — \colorbox вокруг него, зачёркнутый — \sout снаружи всего:
-   * KaTeX у for-web (0.16.22) не пускает \sout в текст (\textsf, \colorbox).
-   * Выделение хранится стилем "bg:#rrggbb".
+   * зачёркнутый — \sout снаружи: KaTeX у for-web (0.16.22) не пускает \sout
+   * в текст (\textsf).
    */
   const STYLES = ["bold", "italic", "underline", "strike"];
   const STYLE_TEX = { bold: "textbf", italic: "textit", underline: "underline", strike: "sout" };
   const TEX_STYLE = { textbf: "bold", textit: "italic", underline: "underline", sout: "strike", texttt: "code" };
   const STYLE_MARK = { bold: "**", italic: "*", strike: "~~", code: "`" };
   const TEX_SYMBOLS = { textbackslash: "\\", textasciicircum: "^", textasciitilde: "~" };
-  /**
-   * Подпорка в слове с фоном или подчёркнутым: одна высота и глубина у всех
-   * слов — фон одной полосой, черта на одной линии. Соседние слова с фоном
-   * заходят друг на друга на отступы \colorbox (по 0.3em), иначе между
-   * словами щель.
-   */
+  /** Подпорка в подчёркнутом слове: одна глубина у всех слов — черта на одной линии */
   const STRUT = "\\rule[-0.25em]{0em}{1.05em}";
-  const BOX_JOIN = "\\kern-0.6em";
 
-  /** Конец аргументов \rule[…]{…}{…} и \kern-0.6em с index после имени команды */
+  /** Конец аргументов \rule[…]{…}{…} и \kern-0.6em (было у выделения цветом) с index после имени команды */
   function commandArgsEnd(name, tex, index, limit = tex.length) {
     if (name === "kern") {
       const size = /^\s*-?(?:\d+\.?\d*|\.\d+)\s*(?:em|ex|pt|mu)/.exec(tex.slice(index, limit));
@@ -203,22 +186,7 @@
   }
 
   /** Стили, которых нет в разметке Stoat: с ними текст остаётся формулой */
-  const TEX_ONLY = (style) => style === "underline" || style.startsWith("bg:");
-
-  const backgroundOf = (styles) => styles.find((style) => style.startsWith("bg:"))?.slice(3) ?? null;
-  const withBackground = (styles, color) => [
-    ...styles.filter((style) => !style.startsWith("bg:")),
-    ...(color ? [`bg:${color}`] : []),
-  ];
-
-  /** Цвет текста на фоне color (#rgb / #rrggbb), когда своего цвета нет */
-  function contrastText(color) {
-    let hex = color.replace("#", "");
-    if (hex.length === 3) hex = [...hex].map((char) => char + char).join("");
-    const [r, g, b] = [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
-    if ([r, g, b].some(Number.isNaN)) return "#ffffff";
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? "#1b1b21" : "#ffffff";
-  }
+  const TEX_ONLY = (style) => style === "underline";
 
   const sameStyles = (a, b) => a.length === b.length && a.every((style) => b.includes(style));
 
@@ -250,11 +218,9 @@
 
   /**
    * Куски → тело формулы: слово с пробелом после него — свой \textsf.
-   * color — цвет всего куска: без него текст на фоне получает свой цвет.
    */
-  function segmentsTex(segments, color) {
+  function segmentsTex(segments) {
     const words = [];
-    let boxed = false;
     for (const { text: value, styles } of segments) {
       for (const word of value.match(/\S+\s*|\s+/g) ?? []) {
         // пробел в начале куска — к предыдущему слову
@@ -262,24 +228,17 @@
           words[words.length - 1] = words.at(-1).replace(/\}+$/, (end) => word + end);
           continue;
         }
-        const background = backgroundOf(styles);
         let tex = escapeTex(word);
-        if (background || styles.includes("underline")) tex = STRUT + tex;
+        if (styles.includes("underline")) tex = STRUT + tex;
         for (const style of ["underline", "italic", "bold"]) {
           if (styles.includes(style)) tex = `\\${STYLE_TEX[style]}{${tex}}`;
         }
         tex = `\\${styles.includes("code") ? "texttt" : "textsf"}{${tex}}`;
-        if (background) {
-          if (!color) tex = `\\textcolor{${contrastText(background)}}{${tex}}`;
-          tex = `\\colorbox{${background}}{${tex}}`;
-        }
         if (styles.includes("strike")) tex = `\\sout{${tex}}`;
-        if (words.length) words[words.length - 1] += (boxed && background ? BOX_JOIN : "") + "\\allowbreak";
         words.push(tex);
-        boxed = Boolean(background);
       }
     }
-    return words.join("");
+    return words.join("\\allowbreak");
   }
 
   /** Индекс скобки, закрывающей `{` на месте open (\{ и \} не считаются) */
@@ -320,10 +279,10 @@
         if (tex[index] !== "{") continue;
         let inner = styles;
         if (name === "colorbox" || name === "textcolor") {
-          // первый аргумент — цвет: фон куска или цвет текста на фоне
+          // первый аргумент — цвет (фон выделения цветом прежних версий меню) —
+          // отбрасывается, остаётся текст
           const end = closingBrace(tex, index);
           if (end < 0) break;
-          if (name === "colorbox") inner = withBackground(styles, tex.slice(index + 1, end).trim());
           index = end + 1;
           while (tex[index] === " ") index += 1;
           if (tex[index] !== "{") continue;
@@ -365,7 +324,7 @@
   function spanText({ color, size }, segments) {
     const tex = color || size !== BASE_SIZE || segments.some((segment) => segment.styles.some(TEX_ONLY));
     if (!tex) return segmentsMarkdown(segments);
-    return `$$${color ? `\\color{${color}}` : ""}\\${size}${segmentsTex(segments, color)}$$`;
+    return `$$${color ? `\\color{${color}}` : ""}\\${size}${segmentsTex(segments)}$$`;
   }
 
   /**
@@ -515,7 +474,6 @@
     const span = spanAt(doc, from, to);
     if (kind === "color") return Boolean(span?.color);
     if (kind === "size") return Boolean(span) && span.size !== BASE_SIZE;
-    if (kind === "highlight") return Boolean(span) && spanSegments(doc, span).some((segment) => backgroundOf(segment.styles));
     if (span && STYLES.includes(kind)) {
       return spanSegments(doc, span).every((segment) => !segment.text.trim() || segment.styles.includes(kind));
     }
@@ -810,16 +768,6 @@
   /** Цвет текста color (`#rrggbb`) у выделения; null — снять цвет */
   const paint = (doc, from, to, color) => restyle(doc, from, to, (props, segments) => [{ ...props, color }, segments], Boolean(color));
 
-  /** Выделение цветом (фон) у выделения; null — снять */
-  const highlight = (doc, from, to, color) =>
-    restyle(
-      doc,
-      from,
-      to,
-      (props, segments) => [props, segments.map((segment) => ({ ...segment, styles: withBackground(segment.styles, color) }))],
-      Boolean(color),
-    );
-
   /** Размер текста у выделения; \small — обычный */
   const resize = (doc, from, to, size) =>
     restyle(doc, from, to, (props, segments) => [{ ...props, size }, segments], size !== BASE_SIZE);
@@ -1111,11 +1059,6 @@
     if (set.has("code")) rules.push("font-family:var(--fonts-monospace,monospace)");
     const lines = [set.has("underline") && "underline", set.has("strike") && "line-through"].filter(Boolean);
     if (lines.length) rules.push(`text-decoration:${lines.join(" ")}`);
-    const background = backgroundOf([...set]);
-    if (background) {
-      rules.push(`background-color:${cssColor(background)}`);
-      if (!span.color) rules.push(`color:${contrastText(background)}`);
-    }
     return rules.join(";");
   }
 
@@ -1123,7 +1066,7 @@
   function texPiece(doc, span) {
     const hide = [[span.from, span.contentFrom], [span.contentTo, span.to]];
     const marks = [];
-    // стили открытых скобок: имя стиля, "bg:#…" или null
+    // стили открытых скобок: имя стиля или null
     const stack = [];
     const style = () => liveStyle(span, stack.filter(Boolean));
     const visible = (from, to) => {
@@ -1158,7 +1101,7 @@
           continue;
         }
         if ((command[1] === "colorbox" || command[1] === "textcolor") && doc[end] === "{") {
-          // \colorbox{#цвет}{ — прячется вместе с цветом, текст внутри — на фоне
+          // \colorbox{#цвет}{ (прежние версии меню) — прячется вместе с цветом
           const argEnd = closingBrace(doc, end);
           if (argEnd < 0 || argEnd >= span.contentTo || doc[argEnd + 1] !== "{") {
             hide.push([index, end]);
@@ -1166,7 +1109,7 @@
             continue;
           }
           hide.push([index, argEnd + 2]);
-          stack.push(command[1] === "colorbox" ? `bg:${doc.slice(end + 1, argEnd).trim()}` : null);
+          stack.push(null);
           index = argEnd + 2;
           continue;
         }
@@ -1272,7 +1215,7 @@
 }
 /* подпорки высоты формулы раздвигают строки, а тексту они не нужны */
 .katex.${PLAIN_CLASS} .strut { display: none; }
-/* \\sout, \\underline, \\colorbox — строка текста вместо столбика KaTeX с чертой или фоном */
+/* \\sout, \\underline — строка текста вместо столбика KaTeX с чертой */
 .katex.${PLAIN_CLASS} :is(.vlist-t, .vlist-r, .vlist, .vlist > span, .vlist > span > span) {
   display: inline !important;
   position: static !important;
@@ -1283,13 +1226,6 @@
 .katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s, .underline-line, .rule) { display: none !important; }
 .katex.${PLAIN_CLASS} .vlist:has(> span > .sout) { text-decoration: line-through; }
 .katex.${PLAIN_CLASS} .vlist:has(> span > .underline-line) { text-decoration: underline; }
-/* фон \\colorbox — у текста (цвет из --arachnid-plain-bg, см. markFormulas);
-   отступы по бокам — от .boxpad KaTeX, соседние слова заходят на них (\\kern) */
-.katex.${PLAIN_CLASS} .vlist:has(> span > .colorbox) {
-  border-radius: 3px;
-  background: var(--arachnid-plain-bg);
-  -webkit-box-decoration-break: clone;
-}
 ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   .map(([size, index]) => `.katex.${PLAIN_CLASS} .katex-html .sizing.size${index} { font-size: ${SIZE_EM[size]}em !important; }`)
   .join("\n")}
@@ -1308,7 +1244,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 
   /**
    * В формуле только текст: части строки — пробелы, подпорки KaTeX и текст
-   * (\textsf…, в том числе внутри \sout, \underline, \colorbox) без математики.
+   * (\textsf…, в том числе внутри \sout и \underline) без математики.
    */
   function textOnly(formula) {
     const bases = formula.querySelectorAll(":scope > .katex-html > .base");
@@ -1330,10 +1266,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     for (const formula of formulas) {
       if (!textOnly(formula)) continue;
       formula.classList.add(PLAIN_CLASS);
-      // фон \colorbox рисует отдельный элемент; без столбика KaTeX — фон у текста
-      for (const box of formula.querySelectorAll(".stretchy.colorbox")) {
-        box.closest(".vlist")?.style.setProperty("--arachnid-plain-bg", box.style.backgroundColor);
-      }
     }
   }
 
@@ -1356,7 +1288,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     formulaWatcher.disconnect();
     for (const formula of document.querySelectorAll(`.${PLAIN_CLASS}`)) {
       formula.classList.remove(PLAIN_CLASS);
-      for (const list of formula.querySelectorAll(".vlist")) list.style.removeProperty("--arachnid-plain-bg");
     }
     document.getElementById(PLAIN_STYLE_ID)?.remove();
   }
@@ -1423,17 +1354,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 .${MENU_CLASS}:not([data-expanded]) [data-extra] { display: none; }
 .${MENU_CLASS} [data-kind="more"] .material-symbols-outlined { transition: transform 0.15s; }
 .${MENU_CLASS}[data-expanded] [data-kind="more"] .material-symbols-outlined { transform: rotate(180deg); }
-.${MENU_CLASS} [data-kind="highlight"]::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: 6px;
-  width: 16px;
-  height: 3px;
-  border-radius: 2px;
-  transform: translateX(-50%);
-  background: var(--arachnid-format-highlight);
-}
 .${MENU_CLASS} [data-kind="color"]::after {
   content: "";
   position: absolute;
@@ -1633,7 +1553,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   let palette = null;
   /** Последний выбранный цвет — полоска под значком палитры */
   let lastColor = SWATCHES[0];
-  let lastHighlight = HIGHLIGHTS[2];
   /** Меню развёрнуто стрелкой — помнится и в следующих запусках */
   const EXPANDED_KEY = "arachnid-format-expanded";
   const remembered = () => {
@@ -1726,7 +1645,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     editor = current.view;
     label();
     menu.style.setProperty("--arachnid-format-color", lastColor);
-    menu.style.setProperty("--arachnid-format-highlight", lastHighlight);
     for (const control of menu.querySelectorAll("button[data-kind]")) {
       const on = isActive(current.doc, current.from, current.to, control.dataset.kind);
       control.setAttribute("aria-pressed", String(on));
@@ -1895,24 +1813,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     const [custom, native] = swatchGrid(element, SWATCHES, chosen, lastColor, choose);
     const none = action("format_color_reset", text.noColor, () => choose(null));
     none.disabled = !isActive(current.doc, current.from, current.to, "color");
-    element.append(actionsRow(custom, none, native));
-    openPopup(element, anchor);
-  }
-
-  function openHighlight(anchor) {
-    const current = selection();
-    if (!current) return;
-    const element = popup("highlight", text.highlight);
-    const span = selectedSpan();
-    const backgrounds = span ? spanSegments(current.doc, span).map((segment) => backgroundOf(segment.styles)) : [];
-    const chosen = backgrounds.find(Boolean)?.toLowerCase() ?? null;
-    const choose = (color) => {
-      if (color) lastHighlight = color;
-      apply((doc, from, to) => highlight(doc, from, to, color));
-    };
-    const [custom, native] = swatchGrid(element, HIGHLIGHTS, chosen, lastHighlight, choose);
-    const none = action("format_color_reset", text.noHighlight, () => choose(null));
-    none.disabled = !isActive(current.doc, current.from, current.to, "highlight");
     element.append(actionsRow(custom, none, native));
     openPopup(element, anchor);
   }
@@ -2114,7 +2014,6 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 
   const POPUPS = {
     color: openPalette,
-    highlight: openHighlight,
     size: openSizes,
     heading: openHeadings,
     link: openLink,

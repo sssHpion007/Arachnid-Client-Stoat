@@ -300,8 +300,6 @@
     "color": "Text color",
     "customColor": "Custom color",
     "noColor": "No color",
-    "highlight": "Highlight",
-    "noHighlight": "No highlight",
     "underline": "Underline",
     "size": "Text size",
     "sizeSmaller": "Small",

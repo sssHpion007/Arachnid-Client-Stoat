@@ -300,8 +300,6 @@
     "color": "Textfarbe",
     "customColor": "Eigene Farbe",
     "noColor": "Keine Farbe",
-    "highlight": "Hervorheben",
-    "noHighlight": "Keine Hervorhebung",
     "underline": "Unterstrichen",
     "size": "Textgröße",
     "sizeSmaller": "Klein",

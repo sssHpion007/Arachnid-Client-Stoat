@@ -300,8 +300,6 @@
     "color": "Teksti värv",
     "customColor": "Oma värv",
     "noColor": "Värvita",
-    "highlight": "Esiletõst",
-    "noHighlight": "Esiletõstuta",
     "underline": "Allajoonitud",
     "size": "Teksti suurus",
     "sizeSmaller": "Väike",

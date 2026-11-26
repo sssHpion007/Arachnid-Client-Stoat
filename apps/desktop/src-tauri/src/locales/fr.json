@@ -300,8 +300,6 @@
     "color": "Couleur du texte",
     "customColor": "Couleur personnalisée",
     "noColor": "Sans couleur",
-    "highlight": "Surlignage",
-    "noHighlight": "Sans surlignage",
     "underline": "Souligné",
     "size": "Taille du texte",
     "sizeSmaller": "Petit",

@@ -300,8 +300,6 @@
     "color": "Textfärg",
     "customColor": "Egen färg",
     "noColor": "Ingen färg",
-    "highlight": "Markera med färg",
-    "noHighlight": "Ingen markering",
     "underline": "Understruken",
     "size": "Textstorlek",
     "sizeSmaller": "Liten",
