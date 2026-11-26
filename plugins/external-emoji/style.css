@@ -1,0 +1,30 @@
+/* Ссылка, вместо которой показано эмодзи */
+a[data-arachnid-external-emoji="shown"] {
+  display: none !important;
+}
+
+/* Эмодзи — как CustomEmoji for-web (EmojiBase) */
+img.arachnid-external-emoji {
+  display: inline-block;
+  width: var(--emoji-size, 1.4em);
+  height: var(--emoji-size, 1.4em);
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.3em;
+  object-fit: contain;
+  /* без подписи, пока картинка грузится */
+  color: transparent;
+}
+
+/* Сообщение только из эмодзи: одно — крупно, несколько — поменьше */
+[data-arachnid-external-emoji-size="large"] {
+  --emoji-size: var(--emoji-size-large, 96px);
+}
+
+[data-arachnid-external-emoji-size="medium"] {
+  --emoji-size: var(--emoji-size-medium, 48px);
+}
+
+/* Встраивание картинки эмодзи под сообщением */
+[data-arachnid-external-emoji-embed] {
+  display: none !important;
+}

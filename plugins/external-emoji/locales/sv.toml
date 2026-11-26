@@ -1,0 +1,2 @@
+name = "Externa emojier"
+description = "Visar länkar som [:namn:](bildlänk) som emojier i texten i stället för en länk med en stor bild"
