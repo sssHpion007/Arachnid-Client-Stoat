@@ -302,6 +302,8 @@ img.arachnid-plugin-icon { object-fit: contain; }
 .arachnid-dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-block-start: 24px; }
 .arachnid-dialog[data-compact] { width: min(560px, 100%); height: auto; max-height: 100%; }
 .arachnid-dialog[data-compact] .arachnid-dialog-content { overflow-y: auto; font-size: 0.875rem; line-height: 1.25rem; }
+/* полоса прокрутки в цветах темы, как у прокручиваемых списков for-web (directives/scrollable.ts) */
+.arachnid-dialog-content, .arachnid-code textarea { scrollbar-color: var(--md-sys-color-primary) transparent; }
 /* пояснение под флажком — с начала его подписи: у mdui-checkbox значок 40px
    и по 10px над и под подписью */
 .arachnid-setting-hint { padding-inline-start: 40px; margin-top: -6px; }
