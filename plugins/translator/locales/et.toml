@@ -1,0 +1,30 @@
+name = "Tõlkija"
+description = "Tõlgib sõnumeid sõnumi tööriistariba nupu ja kontekstimenüü kirjega"
+
+[settings.service]
+label = "Tõlketeenus"
+hint = "Kuhu sõnumi tekst tõlkimiseks saadetakse."
+options = { google = "Google Tõlge", deepl = "DeepL (vaja API-võtit)" }
+
+[settings.language]
+label = "Sihtkeel"
+hint = "„Nagu kliendis” järgib Stoati liidese keelt."
+options = { auto = "Nagu kliendis" }
+
+[settings.deepl_key]
+label = "DeepL API-võti"
+hint = "Vajalik ainult DeepL-i jaoks: selle leiad oma DeepL-i kontolt."
+
+[strings]
+translate = "Tõlgi"
+original = "Näita originaali"
+mark = "(tõlgitud)"
+source = "Lähtekeel"
+same = "Sõnum on juba selles keeles"
+failed = "Tõlkimine ebaõnnestus"
+network = "Tõlketeenus pole saadaval"
+limit = "Tõlketeenus piirab päringuid, proovi hiljem uuesti"
+deeplKey = "Määra DeepL API-võti plugina seadetes"
+deeplBadKey = "DeepL API-võti lükati tagasi"
+deeplQuota = "DeepL-i märgikvoot on otsas"
+deeplLanguage = "DeepL ei tõlgi sellesse keelde"

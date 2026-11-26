@@ -9,7 +9,9 @@
 //!
 //! Сами GIF на диск не скачиваются: окно воспроизводит их по ссылке и только
 //! пока на плитку наведён указатель, а до того показывает превью в несколько
-//! килобайт. Кадр для превью снимает страница (WebView2 разбирает все
+//! килобайт. Хранить превью можно и не на компьютере (настройка плагина
+//! `gif_previews`): тогда окно загружает готовые превью сайтов, а папку
+//! превью можно очистить ([`FavoriteGifs::clear_previews`]). Кадр для превью снимает страница (WebView2 разбирает все
 //! форматы, которые умеет показывать), а файл для неё скачивает клиент:
 //! чужие сайты не дают странице рисовать свои файлы на холсте (CORS). Превью
 //! страница получает по адресам `http://arachnid.localhost/favorite-gifs/
@@ -124,6 +126,13 @@ pub struct NewFavorite {
     pub query: String,
 }
 
+/// Папка превью: сколько файлов и сколько они занимают.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+pub struct PreviewsUsage {
+    pub files: u64,
+    pub bytes: u64,
+}
+
 /// Список для страницы.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -181,13 +190,13 @@ impl FavoriteGifs {
     /// Изменить список и сохранить его; при ошибке список не меняется.
     fn change<T>(
         &self,
-        change: impl FnOnce(&mut Vec<Favorite>) -> Result<T, String>,
-    ) -> Result<T, String> {
+        change: impl FnOnce(&mut Vec<Favorite>) -> Result<T, GifError>,
+    ) -> Result<T, GifError> {
         let mut list = self.lock();
         let mut next = list.clone();
         let value = change(&mut next)?;
         if let Err(error) = self.save(&next) {
-            return Err(format!("список не сохранён: {error}"));
+            return Err(GifError::ListNotSaved(error.to_string()));
         }
         *list = next;
         Ok(value)
@@ -205,12 +214,12 @@ impl FavoriteGifs {
 
     /// Добавить GIF в начало. Если такая ссылка уже есть, GIF поднимается
     /// в начало, а непустое описание заменяет прежнее.
-    pub fn add(&self, new: NewFavorite) -> Result<Favorite, String> {
+    pub fn add(&self, new: NewFavorite) -> Result<Favorite, GifError> {
         let url = checked_url(&new.url)?;
         let media = checked_url(&new.media)?;
         let sides = 1..=MAX_SIDE;
         if !sides.contains(&new.width) || !sides.contains(&new.height) {
-            return Err("размеры GIF не подходят".into());
+            return Err(GifError::BadSize);
         }
         let description = clean_text(&new.description);
         let query = clean_text(&new.query);
@@ -224,7 +233,7 @@ impl FavoriteGifs {
                 return Ok(known);
             }
             if list.len() >= MAX_FAVORITES {
-                return Err(format!("в избранном уже {MAX_FAVORITES} GIF"));
+                return Err(GifError::Full);
             }
             let favorite = Favorite {
                 id: new_id(list),
@@ -246,7 +255,7 @@ impl FavoriteGifs {
     }
 
     /// Новое описание.
-    pub fn describe(&self, id: &str, description: &str) -> Result<Favorite, String> {
+    pub fn describe(&self, id: &str, description: &str) -> Result<Favorite, GifError> {
         let description = clean_text(description);
         self.change(|list| {
             let favorite = find(list, id)?;
@@ -256,12 +265,12 @@ impl FavoriteGifs {
     }
 
     /// Убрать GIF вместе с превью.
-    pub fn remove(&self, id: &str) -> Result<(), String> {
+    pub fn remove(&self, id: &str) -> Result<(), GifError> {
         self.change(|list| {
             let before = list.len();
             list.retain(|favorite| favorite.id != id);
             if list.len() == before {
-                return Err(missing());
+                return Err(GifError::Missing);
             }
             Ok(())
         })?;
@@ -272,12 +281,12 @@ impl FavoriteGifs {
     }
 
     /// Поставить GIF на место `index` (0 — в самый верх).
-    pub fn move_to(&self, id: &str, index: usize) -> Result<(), String> {
+    pub fn move_to(&self, id: &str, index: usize) -> Result<(), GifError> {
         self.change(|list| {
             let from = list
                 .iter()
                 .position(|favorite| favorite.id == id)
-                .ok_or_else(missing)?;
+                .ok_or(GifError::Missing)?;
             let favorite = list.remove(from);
             list.insert(index.min(list.len()), favorite);
             Ok(())
@@ -285,7 +294,7 @@ impl FavoriteGifs {
     }
 
     /// GIF отправили в чат.
-    pub fn mark_sent(&self, id: &str) -> Result<(), String> {
+    pub fn mark_sent(&self, id: &str) -> Result<(), GifError> {
         self.change(|list| {
             let favorite = find(list, id)?;
             favorite.sent = favorite.sent.saturating_add(1);
@@ -295,15 +304,15 @@ impl FavoriteGifs {
     }
 
     /// Сохранить превью (WebP).
-    pub fn set_preview(&self, id: &str, preview: &[u8]) -> Result<Favorite, String> {
+    pub fn set_preview(&self, id: &str, preview: &[u8]) -> Result<Favorite, GifError> {
         if preview.len() > MAX_PREVIEW {
-            return Err("превью больше 512 КБ".into());
+            return Err(GifError::PreviewTooLarge);
         }
         if !is_webp(preview) {
-            return Err("превью — не WebP".into());
+            return Err(GifError::PreviewNotWebp);
         }
         if !valid_id(id) {
-            return Err(missing());
+            return Err(GifError::Missing);
         }
         let file = self.preview_file(id);
         self.change(|list| {
@@ -313,11 +322,46 @@ impl FavoriteGifs {
                 .map_or(Ok(()), std::fs::create_dir_all)
                 .and_then(|()| write_atomically(&file, preview));
             if let Err(error) = written {
-                return Err(format!("превью не сохранено: {error}"));
+                return Err(GifError::PreviewNotSaved(error.to_string()));
             }
             favorite.preview = favorite.preview.saturating_add(1);
             Ok(favorite.clone())
         })
+    }
+
+    /// Сколько занимает папка превью.
+    pub fn previews_usage(&self) -> PreviewsUsage {
+        let mut usage = PreviewsUsage::default();
+        let Ok(entries) = std::fs::read_dir(self.dir.join(PREVIEWS_DIR)) else {
+            return usage;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.metadata() else {
+                continue;
+            };
+            if meta.is_file() {
+                usage.files += 1;
+                usage.bytes += meta.len();
+            }
+        }
+        usage
+    }
+
+    /// Удалить все превью. Под замком списка: превью, которое сохраняется
+    /// в это время, либо удалится, либо запишется уже после очистки.
+    pub fn clear_previews(&self) -> Result<PreviewsUsage, GifError> {
+        let dir = self.dir.join(PREVIEWS_DIR);
+        self.change(|list| {
+            for favorite in list.iter_mut() {
+                favorite.preview = 0;
+            }
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(GifError::PreviewsNotCleared(error.to_string())),
+            }
+        })?;
+        Ok(self.previews_usage())
     }
 
     /// Файл превью по пути адреса после [`ASSET_PREFIX`] (`<id>.webp`).
@@ -330,14 +374,126 @@ impl FavoriteGifs {
     }
 }
 
-fn find<'a>(list: &'a mut [Favorite], id: &str) -> Result<&'a mut Favorite, String> {
-    list.iter_mut()
-        .find(|favorite| favorite.id == id)
-        .ok_or_else(missing)
+/// Почему не получилось. Страница показывает текст по коду на языке
+/// интерфейса (`errors` в `locales/*.json`), `Display` — для журнала.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GifError {
+    /// Список не записан на диск
+    ListNotSaved(String),
+    BadSize,
+    /// В избранном уже [`MAX_FAVORITES`] GIF
+    Full,
+    Missing,
+    PreviewTooLarge,
+    PreviewNotWebp,
+    PreviewNotSaved(String),
+    /// Папка превью не удалена
+    PreviewsNotCleared(String),
+    LongUrl,
+    NotUrl,
+    NotHttp,
+    /// Ошибка WinHTTP: код Win32
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Unreachable(u32),
+    /// Сайт ответил не 200
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Status(u32),
+    #[cfg_attr(not(windows), allow(dead_code))]
+    BadUrl,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    TooLarge,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Interrupted,
+    /// По ссылке не GIF и не страница: тип файла
+    #[cfg_attr(not(windows), allow(dead_code))]
+    NotGifOrPage(String),
+    #[cfg_attr(not(windows), allow(dead_code))]
+    NoMedia,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    MediaTooLarge,
+    /// По ссылке не картинка и не видео: тип файла
+    #[cfg_attr(not(windows), allow(dead_code))]
+    NotMedia(String),
+    /// Ссылки разбираются только в Windows
+    #[cfg_attr(windows, allow(dead_code))]
+    Unsupported,
 }
 
-fn missing() -> String {
-    "этой GIF нет в избранном".into()
+impl GifError {
+    /// Ключ перевода
+    fn code(&self) -> &'static str {
+        match self {
+            Self::ListNotSaved(_) => "listNotSaved",
+            Self::BadSize => "badSize",
+            Self::Full => "full",
+            Self::Missing => "missing",
+            Self::PreviewTooLarge => "previewTooLarge",
+            Self::PreviewNotWebp => "previewNotWebp",
+            Self::PreviewNotSaved(_) => "previewNotSaved",
+            Self::PreviewsNotCleared(_) => "previewsNotCleared",
+            Self::LongUrl => "longUrl",
+            Self::NotUrl => "notUrl",
+            Self::NotHttp => "notHttp",
+            Self::Unreachable(_) => "unreachable",
+            Self::Status(_) => "status",
+            Self::BadUrl => "badUrl",
+            Self::TooLarge => "tooLarge",
+            Self::Interrupted => "interrupted",
+            Self::NotGifOrPage(_) => "notGifOrPage",
+            Self::NoMedia => "noMedia",
+            Self::MediaTooLarge => "mediaTooLarge",
+            Self::NotMedia(_) => "notMedia",
+            Self::Unsupported => "gifsUnsupported",
+        }
+    }
+
+    /// Подстановки перевода
+    fn args(&self) -> Vec<String> {
+        match self {
+            Self::ListNotSaved(detail)
+            | Self::PreviewNotSaved(detail)
+            | Self::PreviewsNotCleared(detail)
+            | Self::NotGifOrPage(detail)
+            | Self::NotMedia(detail) => vec![detail.clone()],
+            Self::Full => vec![MAX_FAVORITES.to_string()],
+            Self::Unreachable(code) | Self::Status(code) => vec![code.to_string()],
+            _ => Vec::new(),
+        }
+    }
+}
+
+impl std::fmt::Display for GifError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ListNotSaved(error) => write!(f, "список не сохранён: {error}"),
+            Self::BadSize => f.write_str("размеры GIF не подходят"),
+            Self::Full => write!(f, "в избранном уже {MAX_FAVORITES} GIF"),
+            Self::Missing => f.write_str("этой GIF нет в избранном"),
+            Self::PreviewTooLarge => f.write_str("превью больше 512 КБ"),
+            Self::PreviewNotWebp => f.write_str("превью — не WebP"),
+            Self::PreviewNotSaved(error) => write!(f, "превью не сохранено: {error}"),
+            Self::PreviewsNotCleared(error) => write!(f, "превью не удалены: {error}"),
+            Self::LongUrl => f.write_str("слишком длинная ссылка"),
+            Self::NotUrl => f.write_str("это не ссылка"),
+            Self::NotHttp => f.write_str("нужна ссылка http:// или https://"),
+            Self::Unreachable(code) => write!(f, "сайт недоступен (код Windows {code})"),
+            Self::Status(status) => write!(f, "сайт ответил {status}"),
+            Self::BadUrl => f.write_str("ссылка не подходит"),
+            Self::TooLarge => f.write_str("файл слишком большой"),
+            Self::Interrupted => f.write_str("загрузка прервана"),
+            Self::NotGifOrPage(mime) => write!(f, "по ссылке не GIF и не страница ({mime})"),
+            Self::NoMedia => f.write_str("на странице нет GIF, видео или картинки"),
+            Self::MediaTooLarge => f.write_str("файл больше 48 МБ"),
+            Self::NotMedia(mime) => write!(f, "по ссылке не картинка и не видео ({mime})"),
+            Self::Unsupported => f.write_str("ссылки избранных GIF открываются только в Windows"),
+        }
+    }
+}
+
+fn find<'a>(list: &'a mut [Favorite], id: &str) -> Result<&'a mut Favorite, GifError> {
+    list.iter_mut()
+        .find(|favorite| favorite.id == id)
+        .ok_or(GifError::Missing)
 }
 
 fn load(path: &Path) -> Vec<Favorite> {
@@ -417,19 +573,19 @@ fn valid_id(id: &str) -> bool {
 }
 
 /// Ссылка http(s) не длиннее [`MAX_URL`].
-fn parse_url(raw: &str) -> Result<Url, String> {
+fn parse_url(raw: &str) -> Result<Url, GifError> {
     let raw = raw.trim();
     if raw.len() > MAX_URL {
-        return Err("слишком длинная ссылка".into());
+        return Err(GifError::LongUrl);
     }
-    let url = Url::parse(raw).map_err(|_| "это не ссылка".to_owned())?;
+    let url = Url::parse(raw).map_err(|_| GifError::NotUrl)?;
     if !matches!(url.scheme(), "http" | "https") || url.host().is_none() {
-        return Err("нужна ссылка http:// или https://".into());
+        return Err(GifError::NotHttp);
     }
     Ok(url)
 }
 
-fn checked_url(raw: &str) -> Result<String, String> {
+fn checked_url(raw: &str) -> Result<String, GifError> {
     parse_url(raw).map(String::from)
 }
 
@@ -625,22 +781,22 @@ fn page_media(html: &str, base: &Url) -> Option<Resolved> {
 }
 
 #[cfg(windows)]
-fn network_error(error: crate::http::Error) -> String {
+fn network_error(error: crate::http::Error) -> GifError {
     use crate::http::{Error, StopReason};
 
     match error {
-        Error::Network(code) => format!("сайт недоступен (код Windows {code})"),
-        Error::Status(status) => format!("сайт ответил {status}"),
-        Error::Url => "ссылка не подходит".to_owned(),
-        Error::Stopped(StopReason::TooLarge) => "файл слишком большой".to_owned(),
-        Error::Stopped(_) => "загрузка прервана".to_owned(),
+        Error::Network(code) => GifError::Unreachable(code),
+        Error::Status(status) => GifError::Status(status),
+        Error::Url => GifError::BadUrl,
+        Error::Stopped(StopReason::TooLarge) => GifError::TooLarge,
+        Error::Stopped(_) => GifError::Interrupted,
     }
 }
 
 /// Найти файл по ссылке: сама ссылка на картинку или видео — или страница,
 /// где они указаны.
 #[cfg(windows)]
-pub fn resolve(raw: &str) -> Result<Resolved, String> {
+pub fn resolve(raw: &str) -> Result<Resolved, GifError> {
     let url = parse_url(raw)?;
     let limit = |headers: &[(String, String)]| match kind_of_type(&content_type(headers)) {
         Some(_) => 0,
@@ -657,43 +813,48 @@ pub fn resolve(raw: &str) -> Result<Resolved, String> {
         });
     }
     if !mime.contains("html") {
-        return Err(format!("по ссылке не GIF и не страница ({mime})"));
+        return Err(GifError::NotGifOrPage(mime));
     }
     let html = String::from_utf8_lossy(&fetched.body);
-    page_media(&html, &url).ok_or_else(|| "на странице нет GIF, видео или картинки".to_owned())
+    page_media(&html, &url).ok_or(GifError::NoMedia)
 }
 
 /// Скачать файл для превью.
 #[cfg(windows)]
-pub fn download(raw: &str) -> Result<Vec<u8>, String> {
+pub fn download(raw: &str) -> Result<Vec<u8>, GifError> {
     let url = parse_url(raw)?;
     let fetched = crate::http::fetch(&url, MEDIA_HEADERS, |_| MAX_MEDIA);
     let fetched = fetched.map_err(network_error)?;
     if !fetched.complete {
-        return Err("файл больше 48 МБ".into());
+        return Err(GifError::MediaTooLarge);
     }
     let mime = content_type(&fetched.headers);
     let binary = mime.is_empty() || mime.ends_with("octet-stream");
     if kind_of_type(&mime).is_none() && !binary {
-        return Err(format!("по ссылке не картинка и не видео ({mime})"));
+        return Err(GifError::NotMedia(mime));
     }
     Ok(fetched.body)
 }
 
 #[cfg(not(windows))]
-pub fn resolve(_raw: &str) -> Result<Resolved, String> {
-    Err("ссылки избранных GIF открываются только в Windows".into())
+pub fn resolve(_raw: &str) -> Result<Resolved, GifError> {
+    Err(GifError::Unsupported)
 }
 
 #[cfg(not(windows))]
-pub fn download(_raw: &str) -> Result<Vec<u8>, String> {
-    Err("ссылки избранных GIF открываются только в Windows".into())
+pub fn download(_raw: &str) -> Result<Vec<u8>, GifError> {
+    Err(GifError::Unsupported)
 }
 
 // ──────────────────────────────── команды ────────────────────────────────
 
-fn error(message: String) -> CommandError {
-    CommandError::new("favorite-gifs", message)
+fn error(error: GifError) -> CommandError {
+    CommandError::translated(
+        "favorite-gifs",
+        error.code(),
+        error.args(),
+        error.to_string(),
+    )
 }
 
 #[tauri::command]
@@ -747,6 +908,18 @@ pub fn favorite_gifs_set_preview(
     gifs: State<'_, Arc<FavoriteGifs>>,
 ) -> CmdResult<Favorite> {
     gifs.set_preview(&id, &preview).map_err(error)
+}
+
+#[tauri::command]
+pub fn favorite_gifs_previews(gifs: State<'_, Arc<FavoriteGifs>>) -> PreviewsUsage {
+    gifs.previews_usage()
+}
+
+#[tauri::command]
+pub fn favorite_gifs_clear_previews(
+    gifs: State<'_, Arc<FavoriteGifs>>,
+) -> CmdResult<PreviewsUsage> {
+    gifs.clear_previews().map_err(error)
 }
 
 #[tauri::command]
@@ -823,6 +996,25 @@ mod tests {
         let saved = restarted.list().pop().unwrap();
         assert_eq!((saved.description.as_str(), saved.sent), ("танец", 1));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn previews_are_cleared() {
+        let dir = temp_dir("clear");
+        let gifs = FavoriteGifs::new(dir.clone());
+        let gif = gifs.add(new_gif("https://example.com/a")).unwrap();
+        gifs.set_preview(&gif.id, WEBP).unwrap();
+        let usage = gifs.previews_usage();
+        assert_eq!(usage.files, 1);
+        assert_eq!(usage.bytes, WEBP.len() as u64);
+        assert_eq!(gifs.clear_previews().unwrap(), PreviewsUsage::default());
+        assert_eq!(gifs.list()[0].preview, 0);
+        assert!(!gifs.preview_file(&gif.id).exists());
+        // без папки — тоже не ошибка
+        assert_eq!(gifs.clear_previews().unwrap(), PreviewsUsage::default());
+        // после перезапуска превью нет и в списке
+        assert_eq!(FavoriteGifs::new(dir.clone()).list()[0].preview, 0);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

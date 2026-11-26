@@ -1,0 +1,2 @@
+# скрипты запускает bash и в Windows (CI: MSYS2, Git Bash): с CRLF он падает
+*.sh text eol=lf

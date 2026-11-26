@@ -1,0 +1,57 @@
+name: ffmpeg
+description: >
+  ffmpeg для перекодирования видео в клиенте (apps/desktop/ffmpeg/build.sh):
+  собирается в MSYS2 один раз на версию и скрипт, дальше берётся из кэша.
+  Путь к exe — в переменной ARACHNID_FFMPEG для следующих шагов (build.rs
+  встраивает его в клиент).
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: actions/cache@v4
+      with:
+        path: ffmpeg-bin
+        key: ffmpeg-n9.0.2-${{ hashFiles('apps/desktop/ffmpeg/build.sh') }}
+
+    - if: steps.cache.outputs.cache-hit != 'true'
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: UCRT64
+        update: false
+        install: >-
+          make diffutils curl tar
+          mingw-w64-ucrt-x86_64-gcc
+          mingw-w64-ucrt-x86_64-nasm
+          mingw-w64-ucrt-x86_64-pkgconf
+
+    - if: steps.cache.outputs.cache-hit != 'true'
+      name: Сборка ffmpeg
+      shell: msys2 {0}
+      run: |
+        # msys2 запускает bash с -e: без +e шаг кончился бы до аннотации
+        set +e -uo pipefail
+        version=n9.0.2
+        temp=$(cygpath -u "$RUNNER_TEMP")
+        log="$temp/ffmpeg-build.log"
+        {
+          curl -fsSL "https://codeload.github.com/FFmpeg/FFmpeg/tar.gz/refs/tags/$version" | tar xz -C "$temp" &&
+            apps/desktop/ffmpeg/build.sh "$temp/FFmpeg-$version" ffmpeg-bin/ffmpeg.exe
+        } 2>&1 | tee "$log"
+        status=${PIPESTATUS[0]}
+        if [ "$status" -ne 0 ]; then
+          # логи Actions доступны не всем инструментам, аннотации — через API
+          printf '::error title=ffmpeg не собран (%s)::%s\n' "$status" \
+            "$(tail -n 60 "$log" | sed 's/%/%25/g; s/\r//g' | awk '{ printf "%s%%0A", $0 }')"
+          exit "$status"
+        fi
+
+    - name: ARACHNID_FFMPEG
+      shell: pwsh
+      run: |
+        $exe = Join-Path $env:GITHUB_WORKSPACE "ffmpeg-bin\ffmpeg.exe"
+        if (-not (Test-Path $exe)) {
+          "::error title=ffmpeg::нет $exe"
+          exit 1
+        }
+        "ARACHNID_FFMPEG=$exe" >> $env:GITHUB_ENV

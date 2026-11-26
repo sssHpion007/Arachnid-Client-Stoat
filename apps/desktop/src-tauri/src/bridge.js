@@ -23,6 +23,8 @@
   if (!internals || location.origin !== appOrigin || window.native) return;
 
   const invoke = (command, args) => internals.invoke(command, args);
+  /** Переводы и язык интерфейса Stoat (i18n.js) */
+  const i18n = window.__arachnidI18n;
 
   // ───────────────────────────── настройки ─────────────────────────────
   // desktopConfig.get() синхронный: for-web читает его при отрисовке.
@@ -363,6 +365,23 @@
         author: info.author,
         description: info.description,
       }),
+      /** Язык интерфейса Stoat (код for-web или браузера) */
+      get language() {
+        return i18n.language();
+      },
+      /**
+       * Строка `key` из [strings] plugin.toml на языке интерфейса — из
+       * перевода locales/<язык>.toml, если он есть; `{0}`, `{1}`… — аргументы
+       */
+      t(key, ...args) {
+        const code = i18n.pick(Object.keys(info.locales));
+        const template = (code && info.locales[code].strings?.[key]) ?? info.strings[key] ?? String(key);
+        return i18n.format(template, args);
+      },
+      onLanguageChange(listener) {
+        if (typeof listener !== "function") throw new TypeError("listener must be a function");
+        return i18n.onChange(listener);
+      },
       /** Значения настроек из plugin.toml: флажок — boolean, число — number */
       get settings() {
         return state.values;
@@ -491,39 +510,11 @@
   }
 
   // ───────────────────────────── меню трея ─────────────────────────────
-  // Подписи как в Stoat for Desktop; на русской системе — по-русски.
-  const russian = /^ru\b/i.test(navigator.language || "");
-  void invoke("set_tray_labels", {
-    labels: russian
-      ? {
-          version: "Версия",
-          show: "Показать приложение",
-          hide: "Скрыть приложение",
-          quit: "Выйти из приложения",
-          extensions: "Расширения",
-          themes: "Темы",
-          plugins: "Плагины",
-          defaultTheme: "Stoat (по умолчанию)",
-          noPlugins: "Плагинов нет",
-          openFolder: "Открыть папку",
-          quickCss: "Изменить QuickCSS",
-          pluginActions: "Действия плагинов",
-        }
-      : {
-          version: "Version",
-          show: "Show App",
-          hide: "Hide App",
-          quit: "Quit App",
-          extensions: "Extensions",
-          themes: "Themes",
-          plugins: "Plugins",
-          defaultTheme: "Stoat (default)",
-          noPlugins: "No plugins",
-          openFolder: "Open Folder",
-          quickCss: "Edit QuickCSS",
-          pluginActions: "Plugin Actions",
-        },
-  });
+  // Подписи как в Stoat for Desktop, на языке интерфейса Stoat (i18n.js);
+  // сменили язык — меню пересобирается.
+  const sendTrayLabels = () => void invoke("set_tray_labels", { labels: i18n.messages("tray") });
+  sendTrayLabels();
+  i18n.onChange(sendTrayLabels);
 
   // ───────────────────────── перетаскивание окна ─────────────────────────
   // Рамка for-web помечает области стилем `-webkit-app-region: drag`, как в

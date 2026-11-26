@@ -47,6 +47,27 @@ const WEBVIEW_DIR: &str = "webview";
 /// Мост `window.native` / `window.desktopConfig` для веб-клиента.
 const BRIDGE_SCRIPT: &str = include_str!("bridge.js");
 
+/// Переводы подписей клиента и плагинов (`window.__arachnidI18n`);
+/// выполняется до моста.
+const I18N_SCRIPT: &str = include_str!("i18n.js");
+
+/// Словари `i18n.js`: английский — основной, остальные — языки, которые
+/// for-web отмечает проверенными (`Languages.ts`, `verified`).
+pub(crate) const LOCALES: &[(&str, &str)] = &[
+    ("en", include_str!("locales/en.json")),
+    ("ar", include_str!("locales/ar.json")),
+    ("br", include_str!("locales/br.json")),
+    ("de", include_str!("locales/de.json")),
+    ("et", include_str!("locales/et.json")),
+    ("fa", include_str!("locales/fa.json")),
+    ("fr", include_str!("locales/fr.json")),
+    ("hu", include_str!("locales/hu.json")),
+    ("lv", include_str!("locales/lv.json")),
+    ("ru", include_str!("locales/ru.json")),
+    ("sv", include_str!("locales/sv.json")),
+    ("uk", include_str!("locales/uk.json")),
+];
+
 /// Раздел «Плагины», выбор темы в «Внешнем виде» и подпись Arachnid Client в
 /// настройках веб-клиента; выполняется после моста.
 const SETTINGS_SCRIPT: &str = include_str!("settings.js");
@@ -68,6 +89,18 @@ const GIFS_SCRIPT: &str = include_str!("gifs.js");
 /// Горячие клавиши той же «Quality of Life»: настройка и действия звонка;
 /// сочетания ловит `hotkeys.rs`.
 const HOTKEYS_SCRIPT: &str = include_str!("hotkeys.js");
+
+/// Надёжная загрузка истории чата той же «Quality of Life»: тайм-аут,
+/// повторы и ожидание ограничения частоты для запросов истории for-web.
+const HISTORY_SCRIPT: &str = include_str!("history.js");
+
+/// Улучшенный медиаплеер той же «Quality of Life» поверх элементов
+/// for-web: полоса в духе YouTube, скорость, повтор, обложки аудио.
+const PLAYER_SCRIPT: &str = include_str!("player.js");
+
+/// Меню форматирования той же «Quality of Life» над выделенным текстом поля
+/// сообщения: разметка for-web и цветной текст формулой KaTeX.
+const FORMATTING_SCRIPT: &str = include_str!("formatting.js");
 
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
 /// 0.16.3) для `emoji.js`.
@@ -383,6 +416,16 @@ fn bridge_script(config: &DesktopConfig, instance: &Instance) -> String {
         .replace("__ARACHNID_VERSIONS__", &js_literal(&Versions::current()))
 }
 
+/// Скрипт переводов со всеми словарями: JSON — корректный литерал JavaScript.
+fn i18n_script() -> String {
+    let locales: Vec<String> = LOCALES
+        .iter()
+        .map(|(code, json)| format!("{}: {json}", js_literal(code)))
+        .collect();
+    let locales = format!("{{{}}}", locales.join(",\n"));
+    I18N_SCRIPT.replace("__ARACHNID_LOCALES__", &locales)
+}
+
 /// Скрипт окна выбора эмодзи со списком эмодзи for-web и разделами.
 fn emoji_script() -> String {
     EMOJI_SCRIPT
@@ -392,10 +435,16 @@ fn emoji_script() -> String {
 
 /// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
 /// ролей (`emoji.js`), избранные GIF (`gifs.js`), горячие клавиши
-/// (`hotkeys.js`). Выполняется телом функции с объектом `plugin`, как
-/// плагин-папка: по `plugin.settings` включается каждая часть.
+/// (`hotkeys.js`), загрузка истории чата (`history.js`), видео- и аудиоплеер
+/// (`player.js`), меню форматирования (`formatting.js`). Выполняется телом
+/// функции с объектом `plugin`, как плагин-папка: по `plugin.settings`
+/// включается каждая часть.
 pub(crate) fn qol_script() -> String {
-    format!("{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}", emoji_script())
+    format!(
+        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}\n{PLAYER_SCRIPT}\n\
+         {FORMATTING_SCRIPT}",
+        emoji_script()
+    )
 }
 
 /// Значение для подстановки в скрипт: JSON — корректный литерал JavaScript.
@@ -460,6 +509,7 @@ pub fn create_main_window(
         .decorations(!config.custom_frame)
         .visible(false)
         .data_directory(desktop.dir.join(WEBVIEW_DIR))
+        .initialization_script(i18n_script())
         .initialization_script(bridge_script(&config, instance))
         .initialization_script(SETTINGS_SCRIPT)
         .initialization_script(DEFAULTS_SCRIPT)
@@ -887,6 +937,8 @@ pub fn set_tray_labels(labels: TrayLabels, app: AppHandle, desktop: State<'_, Ar
 mod tests {
     use std::collections::BTreeMap;
 
+    use serde_json::Value;
+
     use super::*;
 
     /// Как в Stoat for Desktop, кроме Discord RPC: он выключен до явного
@@ -946,6 +998,54 @@ mod tests {
     }
 
     #[test]
+    fn i18n_gets_every_locale() {
+        let script = i18n_script();
+        assert!(!script.contains("__ARACHNID_"), "осталась метка в i18n.js");
+        assert!(script.contains(r#""uk": {"#));
+    }
+
+    /// Подстановки `{0}`, `{1}`… строки по порядку номеров
+    fn placeholders(text: &str) -> Vec<&str> {
+        let pattern = regex::Regex::new(r"\{\d+\}").unwrap();
+        let mut found: Vec<&str> = pattern.find_iter(text).map(|m| m.as_str()).collect();
+        found.sort_unstable();
+        found
+    }
+
+    /// Словарь повторяет английский: те же ключи, те же подстановки.
+    fn same_shape(code: &str, path: &str, english: &Value, locale: &Value) {
+        match (english, locale) {
+            (Value::Object(english), Value::Object(locale)) => {
+                for key in english.keys().chain(locale.keys()) {
+                    let (Some(left), Some(right)) = (english.get(key), locale.get(key)) else {
+                        panic!("{code}: ключ {path}.{key} есть не во всех словарях");
+                    };
+                    same_shape(code, &format!("{path}.{key}"), left, right);
+                }
+            }
+            (Value::String(english), Value::String(locale)) => {
+                assert!(!locale.trim().is_empty(), "{code}: пустая строка {path}");
+                assert_eq!(
+                    placeholders(english),
+                    placeholders(locale),
+                    "{code}: подстановки {path}"
+                );
+            }
+            _ => panic!("{code}: {path} — не строка и не раздел"),
+        }
+    }
+
+    #[test]
+    fn locales_repeat_english() {
+        let english: Value = serde_json::from_str(LOCALES[0].1).unwrap();
+        for (code, json) in LOCALES {
+            let parsed = serde_json::from_str::<Value>(json);
+            let locale = parsed.unwrap_or_else(|error| panic!("{code}: {error}"));
+            same_shape(code, "", &english, &locale);
+        }
+    }
+
+    #[test]
     fn bridge_gets_every_placeholder() {
         let instance = Instance::default();
         let script = bridge_script(&DesktopConfig::default(), &instance);
@@ -964,6 +1064,9 @@ mod tests {
             EMOJI_PACKS_SCRIPT,
             GIFS_SCRIPT,
             HOTKEYS_SCRIPT,
+            HISTORY_SCRIPT,
+            PLAYER_SCRIPT,
+            FORMATTING_SCRIPT,
         ] {
             assert!(!script.contains("__ARACHNID_"));
         }

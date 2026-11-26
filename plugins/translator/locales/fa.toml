@@ -1,0 +1,30 @@
+name = "مترجم"
+description = "ترجمهٔ پیام‌ها با دکمه‌ای در نوار ابزار پیام و گزینه‌ای در منوی زمینه"
+
+[settings.service]
+label = "سرویس ترجمه"
+hint = "متن پیام برای ترجمه به کجا فرستاده می‌شود."
+options = { google = "Google Translate", deepl = "DeepL (کلید API لازم است)" }
+
+[settings.language]
+label = "زبان ترجمه"
+hint = "«مانند کلاینت» از زبان رابط Stoat پیروی می‌کند."
+options = { auto = "مانند کلاینت" }
+
+[settings.deepl_key]
+label = "کلید DeepL API"
+hint = "فقط برای DeepL لازم است: آن را در حساب DeepL خود پیدا کنید."
+
+[strings]
+translate = "ترجمه"
+original = "نمایش متن اصلی"
+mark = "(ترجمه‌شده)"
+source = "زبان مبدأ"
+same = "پیام از قبل به همین زبان است"
+failed = "ترجمه ناموفق بود"
+network = "سرویس ترجمه در دسترس نیست"
+limit = "سرویس ترجمه درخواست‌ها را محدود کرده است، بعداً دوباره تلاش کنید"
+deeplKey = "کلید DeepL API را در تنظیمات پلاگین وارد کنید"
+deeplBadKey = "کلید DeepL API پذیرفته نشد"
+deeplQuota = "سهمیهٔ نویسه‌های DeepL تمام شده است"
+deeplLanguage = "DeepL به این زبان ترجمه نمی‌کند"

@@ -1,0 +1,30 @@
+name = "Fordító"
+description = "Üzenetek fordítása az üzenet eszköztárának gombjával és a helyi menüből"
+
+[settings.service]
+label = "Fordítószolgáltatás"
+hint = "Ide kerül az üzenet szövege fordításra."
+options = { google = "Google Fordító", deepl = "DeepL (API-kulcs szükséges)" }
+
+[settings.language]
+label = "Célnyelv"
+hint = "A „Mint a kliensben” a Stoat felületének nyelvét követi."
+options = { auto = "Mint a kliensben" }
+
+[settings.deepl_key]
+label = "DeepL API-kulcs"
+hint = "Csak a DeepL-hez kell: a DeepL-fiókodban találod."
+
+[strings]
+translate = "Fordítás"
+original = "Eredeti megjelenítése"
+mark = "(lefordítva)"
+source = "Forrásnyelv"
+same = "Az üzenet már ezen a nyelven van"
+failed = "A fordítás sikertelen"
+network = "A fordítószolgáltatás nem érhető el"
+limit = "A fordítószolgáltatás korlátozza a kéréseket, próbáld újra később"
+deeplKey = "Add meg a DeepL API-kulcsot a plugin beállításaiban"
+deeplBadKey = "A DeepL API-kulcsot elutasították"
+deeplQuota = "Elfogyott a DeepL karakterkerete"
+deeplLanguage = "A DeepL nem fordít erre a nyelvre"

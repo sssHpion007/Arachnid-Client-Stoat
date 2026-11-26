@@ -8,26 +8,43 @@
 //! в `docs/extensions.md`.
 //!
 //! ```toml
-//! name = "Переводчик"
+//! name = "Translator"
 //! version = "1.0.0"
 //! author = "Ava"
-//! description = "Переводит сообщения"
+//! description = "Translates messages"
+//! icon = "icon.svg"
 //!
 //! [permissions]
 //! network = ["api.example.com"]
 //!
 //! [[settings]]
 //! name = "language"
-//! label = "Язык перевода"
+//! label = "Target language"
 //! type = "select"
-//! default = "ru"
-//! options = [{ value = "ru", label = "Русский" }, { value = "en", label = "English" }]
+//! default = "en"
+//! options = [{ value = "en", label = "English" }, { value = "ru", label = "Русский" }]
+//!
+//! [strings]
+//! translate = "Translate"
+//! ```
+//!
+//! Переводы названия, описания, подписей настроек и строк `[strings]` —
+//! `locales/<язык>.toml` рядом с манифестом:
+//!
+//! ```toml
+//! name = "Переводчик"
+//!
+//! [settings.language]
+//! label = "Язык перевода"
+//!
+//! [strings]
+//! translate = "Перевести"
 //! ```
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::usercss::{Kind as SettingKind, SelectOption, Setting};
@@ -36,6 +53,8 @@ use crate::usercss::{Kind as SettingKind, SelectOption, Setting};
 pub const PLUGIN_MANIFEST: &str = "plugin.toml";
 /// Манифест темы-папки.
 pub const THEME_MANIFEST: &str = "theme.toml";
+/// Папка переводов плагина: `locales/<язык>.toml`.
+pub const LOCALES_DIR: &str = "locales";
 
 /// Файлы плагина по умолчанию: берутся, если они есть, а в манифесте не
 /// указаны другие.
@@ -52,6 +71,13 @@ const MAX_SETTINGS: usize = 64;
 const MAX_HOSTS: usize = 32;
 /// Наибольшая длина строк манифеста (название, описание, подпись).
 const MAX_TEXT: usize = 1024;
+/// Сколько строк `[strings]` и переводов можно объявить.
+const MAX_STRINGS: usize = 256;
+const MAX_LOCALES: usize = 64;
+/// Наибольший размер файла перевода.
+const MAX_LOCALE_SIZE: u64 = 256 * 1024;
+/// Значок плагина — картинка этих типов.
+const ICON_TYPES: &[&str] = &["svg", "png", "webp", "gif", "jpg", "jpeg"];
 
 /// Годится ли имя папки в идентификатор: латиница, цифры, `-`, `_`, `.`,
 /// не с точки. Идентификатор попадает в адреса файлов и в имя папки
@@ -103,10 +129,43 @@ pub struct PluginManifest {
     pub style: Option<String>,
     /// Нативный модуль WebAssembly
     pub native: Option<String>,
+    /// Значок в разделе «Плагины» (путь внутри папки)
+    pub icon: Option<String>,
     /// Адреса, к которым плагин просит доступ в сеть (`[permissions] network`)
     pub network: Vec<String>,
     /// Настройки в разделе «Плагины»
     pub settings: Vec<Setting>,
+    /// Строки для кода плагина (`[strings]`, `plugin.t`)
+    pub strings: BTreeMap<String, String>,
+    /// Переводы `locales/<язык>.toml` по кодам языков
+    pub locales: BTreeMap<String, PluginLocale>,
+}
+
+/// Перевод плагина-папки: всё, что в нём не указано, берётся из манифеста.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct PluginLocale {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Подписи настроек по их именам
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub settings: BTreeMap<String, SettingText>,
+    /// Строки `[strings]`
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub strings: BTreeMap<String, String>,
+}
+
+/// Перевод подписи, пояснения и вариантов настройки.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SettingText {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
+    /// Подписи вариантов выбора по их значениям
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub options: BTreeMap<String, String>,
 }
 
 /// Тема-папка, прочитанная из `theme.toml`.
@@ -128,10 +187,33 @@ struct RawPlugin {
     main: Option<String>,
     style: Option<String>,
     native: Option<String>,
+    icon: Option<String>,
     #[serde(default)]
     permissions: RawPermissions,
     #[serde(default)]
     settings: Vec<RawSetting>,
+    #[serde(default)]
+    strings: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLocale {
+    name: Option<String>,
+    description: Option<String>,
+    #[serde(default)]
+    settings: BTreeMap<String, RawSettingText>,
+    #[serde(default)]
+    strings: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSettingText {
+    label: Option<String>,
+    hint: Option<String>,
+    #[serde(default)]
+    options: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -155,6 +237,7 @@ struct RawTheme {
 struct RawSetting {
     name: String,
     label: Option<String>,
+    hint: Option<String>,
     #[serde(rename = "type")]
     kind: RawKind,
     default: Option<toml::Value>,
@@ -195,13 +278,19 @@ pub fn parse_plugin(dir: &Path, text: &str) -> Result<PluginManifest, String> {
             "в папке нет ни {DEFAULT_MAIN}, ни {DEFAULT_STYLE}, ни {DEFAULT_NATIVE}"
         ));
     }
+    let settings = settings(raw.settings)?;
+    let strings = strings(raw.strings)?;
+    let locales = locales(dir, &settings, &strings)?;
     Ok(PluginManifest {
         about: about(raw.name, raw.version, raw.author, raw.description)?,
         main,
         style,
         native,
+        icon: icon(dir, raw.icon)?,
         network: hosts(raw.permissions.network)?,
-        settings: settings(raw.settings)?,
+        settings,
+        strings,
+        locales,
     })
 }
 
@@ -267,6 +356,150 @@ fn file_field(
         return Err(format!("{field} = \"{value}\": такого файла нет"));
     }
     Ok(Some(value))
+}
+
+/// Значок: картинка внутри папки.
+fn icon(dir: &Path, value: Option<String>) -> Result<Option<String>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let extension = value
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !ICON_TYPES.contains(&extension.as_str()) {
+        return Err(format!(
+            "icon = \"{value}\": значок — SVG, PNG, WebP, GIF или JPEG"
+        ));
+    }
+    file_field(dir, "icon", Some(value), "")
+}
+
+/// Годится ли строка в ключ `[strings]`: латиница, цифры, `-`, `_`, `.`.
+fn valid_key(key: &str) -> bool {
+    !key.is_empty()
+        && key.len() <= MAX_ID_LEN
+        && key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+}
+
+/// Строка для кода плагина: как есть, но не длиннее [`MAX_TEXT`].
+fn limited(value: String) -> String {
+    value.chars().take(MAX_TEXT).collect()
+}
+
+fn strings(raw: BTreeMap<String, String>) -> Result<BTreeMap<String, String>, String> {
+    if raw.len() > MAX_STRINGS {
+        return Err(format!("в strings больше {MAX_STRINGS} строк"));
+    }
+    raw.into_iter()
+        .map(|(key, value)| {
+            if !valid_key(&key) {
+                return Err(format!("strings: ключ «{key}» — латиница, цифры, -_."));
+            }
+            Ok((key, limited(value)))
+        })
+        .collect()
+}
+
+/// Код языка в имени файла перевода: `en`, `pt-BR`, `zh-Hans`.
+fn valid_language(code: &str) -> bool {
+    let mut parts = code.split('-');
+    let base = parts.next().unwrap_or_default();
+    let base_valid = matches!(base.len(), 2 | 3) && base.bytes().all(|b| b.is_ascii_lowercase());
+    base_valid && parts.all(valid_subtag)
+}
+
+/// Часть кода языка после `-`: регион или письменность.
+fn valid_subtag(part: &str) -> bool {
+    (2..=8).contains(&part.len()) && part.bytes().all(|byte| byte.is_ascii_alphanumeric())
+}
+
+/// Текст файла не больше `limit` байт.
+fn read_text(path: &Path, limit: u64) -> Option<String> {
+    if !std::fs::metadata(path).is_ok_and(|meta| meta.len() <= limit) {
+        return None;
+    }
+    std::fs::read_to_string(path).ok()
+}
+
+/// Переводы из `locales/<язык>.toml`; папки нет — переводов нет.
+fn locales(
+    dir: &Path,
+    settings: &[Setting],
+    strings: &BTreeMap<String, String>,
+) -> Result<BTreeMap<String, PluginLocale>, String> {
+    let Ok(entries) = std::fs::read_dir(dir.join(LOCALES_DIR)) else {
+        return Ok(BTreeMap::new());
+    };
+    let mut result = BTreeMap::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+            continue;
+        }
+        let Some(code) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let file = format!("{LOCALES_DIR}/{code}.toml");
+        if !valid_language(code) {
+            return Err(format!(
+                "{file}: имя файла — код языка (en, pt-BR, zh-Hans)"
+            ));
+        }
+        if result.len() >= MAX_LOCALES {
+            return Err(format!("в {LOCALES_DIR} больше {MAX_LOCALES} переводов"));
+        }
+        let text = read_text(&path, MAX_LOCALE_SIZE)
+            .ok_or_else(|| format!("{file} не читается или больше 256 КБ"))?;
+        let locale = parse_locale(&text, settings, strings);
+        let locale = locale.map_err(|error| format!("{file}: {error}"))?;
+        result.insert(code.to_owned(), locale);
+    }
+    Ok(result)
+}
+
+/// Перевод: подписи только существующих настроек и вариантов, строки —
+/// только объявленные в `[strings]` манифеста.
+fn parse_locale(
+    text: &str,
+    settings: &[Setting],
+    strings: &BTreeMap<String, String>,
+) -> Result<PluginLocale, String> {
+    let raw: RawLocale = toml::from_str(text).map_err(|error| error.message().to_owned())?;
+    let mut locale = PluginLocale {
+        name: clean(raw.name),
+        description: clean(raw.description),
+        ..PluginLocale::default()
+    };
+    for (name, raw) in raw.settings {
+        let Some(setting) = settings.iter().find(|setting| setting.name == name) else {
+            return Err(format!("настройки {name} нет в {PLUGIN_MANIFEST}"));
+        };
+        let mut options = BTreeMap::new();
+        for (value, label) in raw.options {
+            if !setting.options.iter().any(|option| option.name == value) {
+                return Err(format!("у настройки {name} нет варианта {value}"));
+            }
+            if let Some(label) = clean(Some(label)) {
+                options.insert(value, label);
+            }
+        }
+        let text = SettingText {
+            label: clean(raw.label),
+            hint: clean(raw.hint),
+            options,
+        };
+        locale.settings.insert(name, text);
+    }
+    for (key, value) in raw.strings {
+        if !strings.contains_key(&key) {
+            return Err(format!("строки {key} нет в [strings] {PLUGIN_MANIFEST}"));
+        }
+        locale.strings.insert(key, limited(value));
+    }
+    Ok(locale)
 }
 
 /// Адреса из `[permissions] network`: `example.com` — только этот адрес,
@@ -375,6 +608,7 @@ fn setting(raw: RawSetting) -> Result<Setting, String> {
     };
     let mut setting = Setting {
         label: raw.label.unwrap_or_else(|| name.clone()),
+        hint: clean(raw.hint),
         name,
         kind,
         default: String::new(),
@@ -531,6 +765,98 @@ mod tests {
         check(NO_COLOR, "нужен default");
         check(BAD_CHOICE, "не подходит");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    const LOCALIZED: &str = "name = \"Translator\"\nicon = \"icon.svg\"\n\
+                             [[settings]]\nname = \"lang\"\ntype = \"select\"\n\
+                             hint = \"Where to translate\"\n\
+                             options = [{ value = \"en\", label = \"English\" }]\n\
+                             [strings]\ntranslate = \"Translate\"\n";
+    const RU_LOCALE: &str = "name = \"Переводчик\"\n\
+                             [settings.lang]\nlabel = \"Язык\"\noptions = { en = \"Английский\" }\n\
+                             [strings]\ntranslate = \"Перевести\"\n";
+
+    #[test]
+    fn plugin_locales_translate_texts() {
+        let dir = temp_dir("locales");
+        std::fs::write(dir.join("main.js"), "").unwrap();
+        std::fs::write(dir.join("icon.svg"), "<svg/>").unwrap();
+        let locales = dir.join(LOCALES_DIR);
+        std::fs::create_dir_all(&locales).unwrap();
+        std::fs::write(locales.join("ru.toml"), RU_LOCALE).unwrap();
+        let manifest = parse_plugin(&dir, LOCALIZED).unwrap();
+        assert_eq!(manifest.icon.as_deref(), Some("icon.svg"));
+        assert_eq!(
+            manifest.settings[0].hint.as_deref(),
+            Some("Where to translate")
+        );
+        assert_eq!(manifest.strings["translate"], "Translate");
+        let ru = &manifest.locales["ru"];
+        assert_eq!(ru.name.as_deref(), Some("Переводчик"));
+        assert_eq!(ru.settings["lang"].label.as_deref(), Some("Язык"));
+        assert_eq!(ru.settings["lang"].options["en"], "Английский");
+        assert_eq!(ru.strings["translate"], "Перевести");
+
+        let check = |file: &str, text: &str, expected: &str| {
+            std::fs::write(locales.join(file), text).unwrap();
+            let error = parse_plugin(&dir, LOCALIZED).unwrap_err();
+            assert!(error.contains(expected), "{file}: {error}");
+            std::fs::remove_file(locales.join(file)).unwrap();
+        };
+        check("de.toml", "[strings]\nunknown = \"x\"", "unknown");
+        check("de.toml", "[settings.lang.options]\nfr = \"x\"", "fr");
+        check("de.toml", "[settings.size]\nlabel = \"x\"", "size");
+        check("de.toml", "title = \"x\"", "de.toml");
+        check("Bad_Name.toml", "", "код языка");
+
+        let icon = LOCALIZED.replace("icon.svg", "icon.txt");
+        assert!(parse_plugin(&dir, &icon).unwrap_err().contains("значок"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Ключи строк перевода или манифеста
+    fn keys(strings: &BTreeMap<String, String>) -> Vec<&String> {
+        strings.keys().collect()
+    }
+
+    /// Плагины из папки plugins/ репозитория читаются, у них есть значок и
+    /// полные переводы на все языки клиента.
+    #[test]
+    fn repository_plugins_are_translated() {
+        let languages = crate::desktop::LOCALES.iter().map(|(code, _)| *code);
+        let languages: Vec<&str> = languages.filter(|code| *code != "en").collect();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        for entry in std::fs::read_dir(root.join("../../../plugins")).unwrap() {
+            let dir = entry.unwrap().path();
+            let name = dir.display().to_string();
+            let text = std::fs::read_to_string(dir.join(PLUGIN_MANIFEST)).unwrap();
+            let manifest = parse_plugin(&dir, &text);
+            let manifest = manifest.unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(manifest.icon.is_some(), "{name}: нет значка");
+            for code in &languages {
+                let Some(locale) = manifest.locales.get(*code) else {
+                    panic!("{name}: нет перевода {code}");
+                };
+                assert!(locale.name.is_some(), "{name} {code}: name");
+                assert!(locale.description.is_some(), "{name} {code}");
+                assert_eq!(keys(&locale.strings), keys(&manifest.strings), "{code}");
+                for setting in &manifest.settings {
+                    let text = locale.settings.get(&setting.name);
+                    let label = text.and_then(|text| text.label.as_ref());
+                    assert!(label.is_some(), "{name} {code}: {}", setting.name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn language_codes_are_bcp47_like() {
+        for good in ["en", "pt-BR", "zh-Hans", "ckb"] {
+            assert!(valid_language(good), "{good}");
+        }
+        for bad in ["", "e", "EN", "en_US", "en-", "english", "en-x"] {
+            assert!(!valid_language(bad), "{bad}");
+        }
     }
 
     #[test]

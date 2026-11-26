@@ -1,0 +1,30 @@
+name = "Översättare"
+description = "Översätter meddelanden med en knapp i meddelandets verktygsfält och ett menyalternativ"
+
+[settings.service]
+label = "Översättningstjänst"
+hint = "Vart meddelandetexten skickas för översättning."
+options = { google = "Google Översätt", deepl = "DeepL (API-nyckel krävs)" }
+
+[settings.language]
+label = "Målspråk"
+hint = "”Som i klienten” följer Stoats gränssnittsspråk."
+options = { auto = "Som i klienten" }
+
+[settings.deepl_key]
+label = "DeepL API-nyckel"
+hint = "Behövs bara för DeepL: du hittar den i ditt DeepL-konto."
+
+[strings]
+translate = "Översätt"
+original = "Visa original"
+mark = "(översatt)"
+source = "Källspråk"
+same = "Meddelandet är redan på det här språket"
+failed = "Översättningen misslyckades"
+network = "Översättningstjänsten är inte tillgänglig"
+limit = "Översättningstjänsten begränsar förfrågningar, försök igen senare"
+deeplKey = "Ange DeepL API-nyckeln i pluginets inställningar"
+deeplBadKey = "DeepL API-nyckeln avvisades"
+deeplQuota = "DeepL-teckenkvoten är slut"
+deeplLanguage = "DeepL översätter inte till det här språket"

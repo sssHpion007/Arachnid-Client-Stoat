@@ -8,6 +8,7 @@ secrets.json
 Thumbs.db
 node_modules/
 *.log
+__pycache__/
 
 # Tauri / фронтенд
 apps/desktop/src-tauri/target/

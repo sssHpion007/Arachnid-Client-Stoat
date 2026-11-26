@@ -34,70 +34,30 @@
   /** UNICODE_EMOJI_PACKS в UnicodeEmoji.tsx */
   const PACKS = ["fluent-3d", "fluent-color", "fluent-flat", "mutant", "noto", "twemoji"];
 
-  const russian = /^ru\b/i.test(navigator.language || "");
-  const text = russian
-    ? {
-        builtin: "Встроен",
-        builtinHint: "Встроен в клиент: показывается сразу, без загрузки с сервера",
-        system: "В системе",
-        systemHint: "Уже есть в Windows (шрифт Segoe UI Emoji): скачивать не нужно, флаги — с сервера",
-        installed: "Скачан",
-        installedHint: (size) => `Скачан (${size}): показывается сразу, без загрузки с сервера`,
-        availableHint: (size) =>
-          size ? `Скачать (${size}): набор будет показываться сразу, без загрузки с сервера` : "Скачать",
-        failed: "Ошибка",
-        download: "Скачать",
-        retry: "Повторить",
-        cancel: "Отменить скачивание",
-        remove: "Удалить",
-        progress: (received, total) => `Скачано ${received} из ${total}`,
-        kb: "КБ",
-        mb: "МБ",
-        failure: {
-          network: (code) => (code ? `Нет связи с GitHub (ошибка ${code})` : "Нет связи с GitHub"),
-          status: (code) => `Сервер ответил ${code}`,
-          missing: () => "Набора нет на сервере загрузки",
-          corrupt: () => "Файл пришёл повреждённым, попробуйте ещё раз",
-          io: (_, message) => `Не удалось сохранить файл: ${message}`,
-          unsupported: () => "Скачивание наборов есть только в Windows",
-        },
-      }
-    : {
-        builtin: "Built-in",
-        builtinHint: "Built into the client: shows instantly, without loading from the server",
-        system: "In system",
-        systemHint: "Already in Windows (Segoe UI Emoji font): no download needed, flags come from the server",
-        installed: "Downloaded",
-        installedHint: (size) => `Downloaded (${size}): shows instantly, without loading from the server`,
-        availableHint: (size) =>
-          size ? `Download (${size}): the pack will show instantly, without loading from the server` : "Download",
-        failed: "Error",
-        download: "Download",
-        retry: "Retry",
-        cancel: "Cancel download",
-        remove: "Delete",
-        progress: (received, total) => `Downloaded ${received} of ${total}`,
-        kb: "KB",
-        mb: "MB",
-        failure: {
-          network: (code) => (code ? `Cannot reach GitHub (error ${code})` : "Cannot reach GitHub"),
-          status: (code) => `The server responded with ${code}`,
-          missing: () => "The pack is missing on the download server",
-          corrupt: () => "The file arrived damaged, please try again",
-          io: (_, message) => `Could not save the file: ${message}`,
-          unsupported: () => "Downloading packs is only available on Windows",
-        },
-      };
+  // На языке интерфейса Stoat (i18n.js)
+  const i18n = window.__arachnidI18n;
+  const text = i18n.text("packs");
 
-  const sizeFormat = new Intl.NumberFormat(russian ? "ru" : "en", { maximumFractionDigits: 1 });
   function formatSize(bytes) {
+    const sizeFormat = new Intl.NumberFormat(i18n.intl(), { maximumFractionDigits: 1 });
     if (bytes >= 1024 * 1024) return `${sizeFormat.format(bytes / (1024 * 1024))} ${text.mb}`;
     return `${sizeFormat.format(Math.max(1, Math.round(bytes / 1024)))} ${text.kb}`;
   }
 
   function failureText(failure) {
-    const describe = text.failure[failure?.kind] ?? text.failure.network;
-    return describe(failure?.code, failure?.message ?? "");
+    const messages = text.failure;
+    switch (failure?.kind) {
+      case "status":
+        return messages.status(failure.code);
+      case "io":
+        return messages.io(failure.message ?? "");
+      case "missing":
+      case "corrupt":
+      case "unsupported":
+        return messages[failure.kind];
+      default:
+        return failure?.code ? messages.networkCode(failure.code) : messages.network;
+    }
   }
 
   // Значки Material Symbols (Apache 2.0), viewBox 0 -960 960 960: шрифт
@@ -310,7 +270,7 @@ svg { width: 24px; height: 24px; fill: currentColor; }
     const size = pack.size ? formatSize(pack.size) : "";
     return [
       `available:${size}`,
-      [label(size, text.availableHint(size)), button("download", text.availableHint(size), run("emoji_pack_download"), true)],
+      [label(size, size ? text.availableHint(size) : text.download), button("download", size ? text.availableHint(size) : text.download, run("emoji_pack_download"), true)],
     ];
   }
 

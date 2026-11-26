@@ -1,0 +1,30 @@
+name = "Übersetzer"
+description = "Übersetzt Nachrichten per Schaltfläche in der Nachrichtenleiste und per Kontextmenü"
+
+[settings.service]
+label = "Übersetzungsdienst"
+hint = "Wohin der Nachrichtentext zur Übersetzung gesendet wird."
+options = { google = "Google Übersetzer", deepl = "DeepL (API-Schlüssel nötig)" }
+
+[settings.language]
+label = "Zielsprache"
+hint = "„Wie im Client“ folgt der Sprache der Stoat-Oberfläche."
+options = { auto = "Wie im Client" }
+
+[settings.deepl_key]
+label = "DeepL-API-Schlüssel"
+hint = "Nur für DeepL nötig: Du findest ihn in deinem DeepL-Konto."
+
+[strings]
+translate = "Übersetzen"
+original = "Original anzeigen"
+mark = "(übersetzt)"
+source = "Ausgangssprache"
+same = "Die Nachricht ist bereits in dieser Sprache"
+failed = "Übersetzung fehlgeschlagen"
+network = "Der Übersetzungsdienst ist nicht erreichbar"
+limit = "Der Übersetzungsdienst begrenzt Anfragen, versuche es später erneut"
+deeplKey = "Lege den DeepL-API-Schlüssel in den Plugin-Einstellungen fest"
+deeplBadKey = "Der DeepL-API-Schlüssel wurde abgelehnt"
+deeplQuota = "Das DeepL-Zeichenkontingent ist aufgebraucht"
+deeplLanguage = "DeepL übersetzt nicht in diese Sprache"

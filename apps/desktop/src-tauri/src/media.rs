@@ -17,7 +17,9 @@
 //!
 //! Динамикам отдельного разрешения в Chromium не нужно; разрешается
 //! автовоспроизведение со звуком, чтобы звуки уведомлений и голос собеседников
-//! играли сразу после запуска, ещё до первого щелчка по окну.
+//! играли сразу после запуска, ещё до первого щелчка по окну, и чтение буфера
+//! обмена — для «Вставить» в меню правого щелчка по полю ввода
+//! (`formatting.js`), без окна «Разрешить сайту видеть буфер обмена».
 //!
 //! Системный переключатель Windows «Разрешить приложениям доступ к микрофону»
 //! остаётся за пользователем: его приложение менять не должно.
@@ -45,10 +47,11 @@ mod platform {
     use super::from_client;
 
     /// Что выдаётся клиенту без запроса.
-    const ALLOWED: [wv::COREWEBVIEW2_PERMISSION_KIND; 3] = [
+    const ALLOWED: [wv::COREWEBVIEW2_PERMISSION_KIND; 4] = [
         wv::COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
         wv::COREWEBVIEW2_PERMISSION_KIND_CAMERA,
         wv::COREWEBVIEW2_PERMISSION_KIND_AUTOPLAY,
+        wv::COREWEBVIEW2_PERMISSION_KIND_CLIPBOARD_READ,
     ];
 
     pub fn allow(window: &WebviewWindow, origin: String) {
@@ -134,7 +137,7 @@ mod platform {
     }
 }
 
-/// Выдать веб-клиенту микрофон, камеру и автовоспроизведение.
+/// Выдать веб-клиенту микрофон, камеру, автовоспроизведение и чтение буфера обмена.
 #[cfg(windows)]
 pub fn allow_for_client(window: &tauri::WebviewWindow, instance: &crate::instance::Instance) {
     platform::allow(window, instance.origin());

@@ -221,6 +221,8 @@
   const JOINED_MARK = "data-arachnid-joined";
   /** Пометка плитки профиля, оставшейся в ряду одной: она во всю ширину */
   const LONE_MARK = "data-arachnid-lone";
+  /** Пометка строки баннера профиля «имя#тег — местоимения»: она столбцом */
+  const NAMES_MARK = "data-arachnid-profile-names";
 
   /**
    * Разделы в порядке Discord; `indices` — номера эмодзи раздела в
@@ -241,49 +243,9 @@
     indices: (GROUPS[category.id] ?? []).map((emoji) => FIRST.get(emoji)).filter((index) => index !== undefined),
   }));
 
-  // Как и остальные добавления клиента — на языке системы.
-  const russian = /^ru\b/i.test(navigator.language || "");
-  const text = russian
-    ? {
-        favorites: "Избранное",
-        frequent: "Часто используемые",
-        standard: "Стандартные эмодзи",
-        people: "Люди",
-        nature: "Природа",
-        food: "Еда и напитки",
-        travel: "Путешествия и места",
-        activity: "Занятия",
-        objects: "Предметы",
-        symbols: "Символы",
-        flags: "Флаги",
-        download: "Скачать изображение",
-        favorite: "Добавить в избранное",
-        unfavorite: "Убрать из избранного",
-        failed: "Не удалось сохранить изображение",
-        memberSince: "Участник с",
-        onStoat: (date) => `В Stoat с ${date}`,
-        onServer: (name, date) => `На сервере «${name}» с ${date}`,
-      }
-    : {
-        favorites: "Favorites",
-        frequent: "Frequently Used",
-        standard: "Standard Emoji",
-        people: "People",
-        nature: "Nature",
-        food: "Food & Drink",
-        travel: "Travel & Places",
-        activity: "Activities",
-        objects: "Objects",
-        symbols: "Symbols",
-        flags: "Flags",
-        download: "Download Image",
-        favorite: "Add to Favorites",
-        unfavorite: "Remove from Favorites",
-        failed: "Could not save the image",
-        memberSince: "Member since",
-        onStoat: (date) => `On Stoat since ${date}`,
-        onServer: (name, date) => `On ${name} since ${date}`,
-      };
+  // Как и остальные добавления клиента — на языке интерфейса Stoat (i18n.js)
+  const i18n = window.__arachnidI18n;
+  const text = i18n.text("emoji");
 
   /** Картинка стандартного эмодзи — как unicodeEmojiUrl for-web */
   const emojiUrl = (pack, emoji) =>
@@ -596,6 +558,17 @@
 }
 `;
 
+  /** Рамка картинки или видео в сообщении — SizedContent for-web: размеры
+   *  задаёт встроенный стиль с aspect-ratio */
+  const SIZED_CONTENT = 'main div[style*="aspect-ratio"]';
+  const SIZED_IMAGE = `${SIZED_CONTENT} > img`;
+  /** Отметка загрузившейся (или не загрузившейся) картинки */
+  const IMAGE_SHOWN = "data-arachnid-shown";
+  /** Анимация, по началу которой видно, что картинка попала в документ */
+  const IMAGE_APPEARED = "arachnid-image-appeared";
+  /** Повторы загрузки картинки после ошибки, мс; потом — значок битой картинки */
+  const IMAGE_RETRIES_MS = [1000, 2000, 5000, 10000, 30000];
+
   /** Реакции, заголовки групп участников и значки ролей (см. начало файла) */
   const INTERFACE_STYLE = `
 ${REACTION} {
@@ -636,6 +609,16 @@ ${MESSAGE_ROLE_ICON} > img {
   grid-column: 1 / -1;
   aspect-ratio: auto;
 }
+[${NAMES_MARK}] {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--gap-xs, 4px);
+}
+[${NAMES_MARK}] > :last-child {
+  align-self: stretch;
+  text-align: start;
+}
+[${NAMES_MARK}] > :last-child:has(span:empty) { display: none; }
 .arachnid-joined {
   display: flex;
   flex-direction: column;
@@ -697,6 +680,45 @@ span.arachnid-joined-icon {
   white-space: nowrap;
   pointer-events: none;
 }
+/* картинки вложений и встраиваний (SizedContent for-web) — не построчно по
+   мере загрузки: пока грузятся, на их месте мерцает заглушка, как у
+   сообщений, загрузились — плавно проявляются */
+${SIZED_IMAGE} {
+  transition: opacity 0.25s ease-out;
+}
+${SIZED_IMAGE}:not([${IMAGE_SHOWN}]) {
+  opacity: 0;
+  /* пустая анимация: её начало сообщает, что картинка появилась в документе */
+  animation: ${IMAGE_APPEARED} 1ms;
+}
+@keyframes ${IMAGE_APPEARED} {
+}
+${SIZED_CONTENT}:has(> img:not([${IMAGE_SHOWN}])) {
+  background: linear-gradient(
+    90deg,
+    var(--md-sys-color-surface-container-highest) 25%,
+    var(--md-sys-color-surface-container-high) 50%,
+    var(--md-sys-color-surface-container-highest) 75%
+  );
+  background-size: 200% 100%;
+  animation: arachnid-image-shimmer 1.5s infinite;
+}
+@keyframes arachnid-image-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ${SIZED_IMAGE} {
+    transition: none;
+  }
+  ${SIZED_CONTENT} {
+    animation: none;
+  }
+}
 `;
 
   function ensureStyle(id, css) {
@@ -710,7 +732,8 @@ span.arachnid-joined-icon {
   // Правый щелчок в окне эмодзи — своё меню в стиле ContextMenu for-web
   // (как меню избранных GIF в gifs.js) вместо меню браузера.
 
-  const errorText = (error) => String(error?.message ?? error ?? "");
+  /** Ошибка команды — по её коду на языке интерфейса (i18n.js) */
+  const errorText = (error) => i18n.errorText(error);
 
   let snackbar = null;
   let snackbarTimer = 0;
@@ -1645,6 +1668,143 @@ span.arachnid-joined-icon {
     }
   }
 
+  // ─────────────────────── плавное появление картинок ───────────────────────
+  // Картинка видна, когда загрузилась целиком или не загрузилась вовсе
+  // (тогда — значок битой картинки браузера); событие load/error ловится при
+  // перехвате на document, как у значков ролей. Но Solid задаёт картинке
+  // адрес до того, как вставить её в документ, и картинка из кэша успевает
+  // загрузиться раньше: её load до document не доходит. Такую картинку
+  // выдаёт начало пустой анимации, которая у неё есть, пока она не показана:
+  // анимация начинается, когда картинка попала в документ, — если она к
+  // этому времени уже загружена, она показывается сразу.
+  //
+  // Не загрузилась (оборвался ответ, сбой сети) — for-web так и оставил бы
+  // её битой, пока сообщение не пересоздастся. Она незаметно загружается
+  // заново, через IMAGE_RETRIES_MS, а когда сеть возвращается — сразу и снова
+  // с первого повтора; пока она грузится, её не видно, как и в первый раз.
+  //
+  // GIF так не ждёт: её load приходит, только когда скачан весь файл, а кадры
+  // видны и раньше. GIF видна сразу — это GIF с сайтов GIF (их for-web
+  // показывает по прямой ссылке) и ссылки на .gif. Вложение Stoat по адресу
+  // не узнать: картинки autumn отдаёт уменьшенными — они загружаются быстро,
+  // а GIF — целиком, поэтому вложение, которое грузится дольше
+  // ATTACHMENT_PATIENCE_MS, показывается по мере загрузки.
+
+  /** Сайты GIF: for-web берёт их картинки по прямой ссылке (lib/gifs.ts) */
+  const GIF_HOSTS = /(^|\.)(tenor\.com|giphy\.com|gifbox\.me)$/i;
+  /** Столько вложение Stoat ждёт полной загрузки, мс */
+  const ATTACHMENT_PATIENCE_MS = 700;
+  /** Ожидание вложения: картинка → таймер */
+  const patience = new WeakMap();
+
+  /** Адрес картинки; у встраивания через прокси January — исходный (`?url=`) */
+  function imageTarget(img) {
+    try {
+      const url = new URL(img.getAttribute("src") ?? "", location.href);
+      const proxied = url.pathname.endsWith("/proxy") ? url.searchParams.get("url") : null;
+      return proxied ? new URL(proxied) : url;
+    } catch {
+      return null;
+    }
+  }
+
+  /** GIF: видна сразу, по мере загрузки */
+  function isGif(img) {
+    const url = imageTarget(img);
+    return Boolean(url && (GIF_HOSTS.test(url.hostname) || /\.gif$/i.test(url.pathname)));
+  }
+
+  /** Вложение Stoat (autumn): /attachments/<id> */
+  const isAttachment = (img) => /\/attachments\/[^/]+$/.test(imageTarget(img)?.pathname ?? "");
+
+  /** Картинка появилась и ещё грузится: GIF — сразу, вложение — если грузится долго */
+  function onLoading(img) {
+    if (isGif(img)) return img.setAttribute(IMAGE_SHOWN, "");
+    if (!isAttachment(img) || patience.has(img)) return;
+    patience.set(
+      img,
+      setTimeout(() => {
+        patience.delete(img);
+        if (img.isConnected && !img.complete) img.setAttribute(IMAGE_SHOWN, "");
+      }, ATTACHMENT_PATIENCE_MS),
+    );
+  }
+
+  /** Картинка → сколько раз она уже загружалась заново */
+  const imageRetries = new WeakMap();
+  /** Повтор назначен: картинка → таймер */
+  const imageTimers = new Map();
+
+  /** Загрузилась ли картинка с ошибкой (complete без размеров) */
+  const broken = (img) => img.complete && img.naturalWidth === 0 && Boolean(img.getAttribute("src"));
+
+  function onSizedImage(event) {
+    const img = event.target;
+    if (!(img instanceof HTMLImageElement) || !img.matches(SIZED_IMAGE)) return;
+    if (event.type === "animationstart") {
+      if (event.animationName !== IMAGE_APPEARED) return;
+      if (!img.complete) return onLoading(img);
+    }
+    clearTimeout(patience.get(img));
+    patience.delete(img);
+    if ((event.type === "error" || broken(img)) && retryImage(img)) return;
+    img.setAttribute(IMAGE_SHOWN, "");
+  }
+
+  /** Загрузить картинку заново после паузы; false — повторы кончились */
+  function retryImage(img) {
+    if (imageTimers.has(img)) return true;
+    const attempt = imageRetries.get(img) ?? 0;
+    if (attempt >= IMAGE_RETRIES_MS.length) return false;
+    imageRetries.set(img, attempt + 1);
+    const timer = setTimeout(() => {
+      imageTimers.delete(img);
+      reloadImage(img);
+    }, IMAGE_RETRIES_MS[attempt]);
+    imageTimers.set(img, timer);
+    img.removeAttribute(IMAGE_SHOWN);
+    return true;
+  }
+
+  // Тот же адрес заново: картинку с ошибкой браузер в памяти не держит
+  function reloadImage(img) {
+    const src = img.getAttribute("src");
+    if (!img.isConnected || !src) return;
+    img.removeAttribute("src");
+    img.setAttribute("src", src);
+  }
+
+  // сеть вернулась — битые картинки сразу и снова со всеми повторами
+  function onOnline() {
+    for (const img of document.querySelectorAll(SIZED_IMAGE)) {
+      if (!broken(img)) continue;
+      imageRetries.delete(img);
+      img.removeAttribute(IMAGE_SHOWN);
+      reloadImage(img);
+    }
+  }
+
+  function watchImages() {
+    document.addEventListener("load", onSizedImage, true);
+    document.addEventListener("error", onSizedImage, true);
+    document.addEventListener("animationstart", onSizedImage, true);
+    window.addEventListener("online", onOnline);
+    // уже загруженные до запуска плагина или до включения настройки
+    for (const img of document.querySelectorAll(`${SIZED_IMAGE}:not([${IMAGE_SHOWN}])`)) {
+      if (!img.complete) onLoading(img);
+      else if (!(broken(img) && retryImage(img))) img.setAttribute(IMAGE_SHOWN, "");
+    }
+  }
+
+  function unwatchImages() {
+    document.removeEventListener("load", onSizedImage, true);
+    document.removeEventListener("error", onSizedImage, true);
+    document.removeEventListener("animationstart", onSizedImage, true);
+    window.removeEventListener("online", onOnline);
+    for (const timer of imageTimers.values()) clearTimeout(timer);
+    imageTimers.clear();
+  }
+
   // ─────────────────────────── дата присоединения ───────────────────────────
   // Плитка «Joined» профиля (ProfileJoined.tsx for-web) — квадрат с крупным
   // заголовком, который по-русски («Присоединившиеся») не влезает в плитку, и
@@ -1662,6 +1822,17 @@ span.arachnid-joined-icon {
   //
   // Без плитки в ряду квадратных плиток может остаться одна — она
   // растягивается во всю ширину (LONE_MARK), чтобы рядом не было дыры.
+  //
+  // В баннере профиля (ProfileBanner.tsx for-web) — псевдоним, под ним одной
+  // строкой (Row) имя#тег и местоимения, прижатые вправо. Строка становится
+  // столбцом (NAMES_MARK): псевдоним, под ним имя#тег, под ним местоимения,
+  // как в Discord; пустые местоимения не занимают строку. Опора — Row из двух
+  // div: в первом через обёртку подсказки — имя (span), последний span в нём
+  // — «#» и четыре цифры тега; во втором через OverflowingText — span
+  // местоимений.
+
+  /** Строки баннера с именем и местоимениями, ставшие столбцом */
+  const profileNames = new Set();
 
   /** Плитки профиля, ставшие полосой: плитка → { observer, grid } */
   const joinedCards = new Map();
@@ -1722,7 +1893,7 @@ span.arachnid-joined-icon {
     const day = tokens.filter((token) => /^\d{1,2}$/.test(token));
     const words = tokens.filter((token) => !/^\d+$/.test(token));
     if (year.length !== 1 || day.length !== 1 || words.length !== 1) return null;
-    const locales = [...new Set([...(navigator.languages ?? []), navigator.language, "en"].filter(Boolean))];
+    const locales = [...new Set([i18n.intl(), ...(navigator.languages ?? []), navigator.language, "en"].filter(Boolean))];
     for (const locale of locales) {
       const months = monthNames(locale);
       if (!months) continue;
@@ -1739,15 +1910,10 @@ span.arachnid-joined-icon {
     return null;
   }
 
-  const dateFormat = new Intl.DateTimeFormat(russian ? "ru" : undefined, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-
   const showDate = (shown) => {
     const date = parseShownDate(shown);
-    return date ? dateFormat.format(date) : shown.trim();
+    if (!date) return shown.trim();
+    return new Intl.DateTimeFormat(i18n.intl(), { day: "numeric", month: "short", year: "numeric" }).format(date);
   };
 
   /** Значок Stoat — значок вкладки веб-клиента */
@@ -1868,15 +2034,33 @@ span.arachnid-joined-icon {
     if (restore) for (const marked of grid.querySelectorAll(`:scope > [${LONE_MARK}]`)) marked.removeAttribute(LONE_MARK);
   }
 
+  /** Строка баннера: имя#тег и местоимения (см. выше) */
+  function isProfileNames(element) {
+    const parts = element.children;
+    if (parts.length !== 2 || parts[0].localName !== "div" || parts[1].localName !== "div") return false;
+    const username = parts[0].firstElementChild?.firstElementChild;
+    if (username?.localName !== "span" || parts[0].children.length !== 1) return false;
+    const tag = username.lastElementChild;
+    if (tag?.localName !== "span" || !/^#\d{4}$/.test(tag.textContent.trim())) return false;
+    return parts[1].firstElementChild?.firstElementChild?.localName === "span";
+  }
+
   function scanProfiles() {
     for (const card of joinedCards.keys()) if (!card.isConnected) releaseJoined(card, { restore: false });
+    for (const row of profileNames) if (!row.isConnected) profileNames.delete(row);
     const roots = profileRoots;
     profileRoots = [];
     if (!interfaceOn) return;
     for (const root of roots) {
       if (!root.isConnected || root.nodeType !== Node.ELEMENT_NODE) continue;
-      if (root.localName === "div" && isJoinedCard(root)) adoptJoined(root);
-      for (const element of root.querySelectorAll("div")) if (isJoinedCard(element)) adoptJoined(element);
+      const elements = root.localName === "div" ? [root, ...root.querySelectorAll("div")] : root.querySelectorAll("div");
+      for (const element of elements) {
+        if (isJoinedCard(element)) adoptJoined(element);
+        else if (!profileNames.has(element) && isProfileNames(element)) {
+          element.setAttribute(NAMES_MARK, "");
+          profileNames.add(element);
+        }
+      }
     }
   }
 
@@ -1900,7 +2084,7 @@ span.arachnid-joined-icon {
     let node = record.target;
     for (let level = 0; node && node !== floating && level < PROFILE_DEPTH; level += 1) node = node.parentElement;
     if (node !== floating) return;
-    if (record.removedNodes.length > 0 && joinedCards.size > 0) queueProfiles(null);
+    if (record.removedNodes.length > 0 && (joinedCards.size > 0 || profileNames.size > 0)) queueProfiles(null);
     for (const node of record.addedNodes) if (node.nodeType === Node.ELEMENT_NODE) queueProfiles(node);
   }
 
@@ -1912,6 +2096,8 @@ span.arachnid-joined-icon {
   /** Вернуть профилям вид for-web */
   function unwatchProfiles() {
     for (const card of Array.from(joinedCards.keys())) releaseJoined(card, { restore: true });
+    for (const row of profileNames) row.removeAttribute(NAMES_MARK);
+    profileNames.clear();
     profileRoots = [];
   }
 
@@ -2004,6 +2190,7 @@ span.arachnid-joined-icon {
     if (wanted === interfaceOn) return;
     interfaceOn = wanted;
     if (wanted) {
+      watchImages();
       ensureStyle(INTERFACE_STYLE_ID, INTERFACE_STYLE);
       watchRoleIcons();
       watchProfiles();
@@ -2011,6 +2198,7 @@ span.arachnid-joined-icon {
     } else {
       document.getElementById(INTERFACE_STYLE_ID)?.remove();
       unwatchRoleIcons();
+      unwatchImages();
       unwatchProfiles();
       removeEventListener("contextmenu", onBrowserMenu);
     }

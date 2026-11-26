@@ -34,10 +34,10 @@
 //    результатах Gifbox избранного нет, а их видео не играют сами; меню
 //    избранного убирает GIF вместе с превью; раздел «Плагины» без «null»,
 //    у «Quality of Life» — шестерёнка и окно настроек, настройки действуют
-//    сразу (избранное в окне GIF, окно сразу на избранном, исправления
-//    интерфейса, в том числе подсветка md-ripple без перехода и меню
-//    браузера только в полях ввода и при выделенном тексте, пункт меню
-//    сообщения для эмодзи); вход
+//    сразу (улучшенный медиаплеер и панель воспроизведения, избранное в
+//    окне GIF, окно сразу на избранном, исправления интерфейса, в том числе
+//    подсветка md-ripple без перехода и меню браузера только в полях ввода и
+//    при выделенном тексте, пункт меню сообщения для эмодзи); вход
 //    создаёт сессию с именем «Arachnid Client» (имя, заданное не for-web,
 //    остаётся).
 //
@@ -541,15 +541,69 @@
       if (report) {
         await check(
           "plugin: id, версия API и манифест",
-          report.id === FOLDER && report.apiVersion === 1 && report.name === "E2E Folder",
+          report.id === FOLDER && report.apiVersion === 2 && report.name === "E2E Folder",
           report,
         );
         await check(
           "plugin.settings: значения по типам",
-          report.settings.flag === true && report.settings.size === 4,
+          report.settings.flag === true && report.settings.size === 4 && report.settings.mode === "one",
           report.settings,
         );
         await check("plugin.network: подтверждённые адреса", report.network.join() === "example.com", report.network);
+        const i18n = window.__arachnidI18n;
+        const russian = i18n?.pick(["ru"], report.language) === "ru";
+        await check(
+          "plugin.t: строка [strings] на языке интерфейса, неизвестный ключ — как есть",
+          report.language === i18n?.language() &&
+            report.hello === (russian ? "Привет, e2e!" : "Hello, e2e!") &&
+            report.unknown === "unknown",
+          { language: report.language, hello: report.hello, unknown: report.unknown },
+        );
+        const folderInfo = await pluginInfo(FOLDER);
+        const icon = folderInfo?.icon
+          ? await fetch(folderInfo.icon, { cache: "no-store" }).then(
+              (response) => ({ status: response.status, type: response.headers.get("content-type") }),
+              (error) => ({ error: String(error) }),
+            )
+          : null;
+        await check(
+          "значок и переводы плагина-папки из его файлов",
+          folderInfo?.icon?.endsWith(`/plugins/${FOLDER}/icon.svg`) &&
+            icon?.status === 200 &&
+            icon.type === "image/svg+xml" &&
+            folderInfo.locales?.ru?.settings?.flag?.label === "Флажок (перевод)" &&
+            folderInfo.settings.find((setting) => setting.name === "flag")?.hint === "Пояснение флажка.",
+          { icon: folderInfo?.icon, response: icon, locales: folderInfo?.locales },
+        );
+        const tray = i18n?.messages("tray");
+        await check(
+          "переводы клиента: словарь языка интерфейса",
+          typeof tray?.show === "string" && tray.show.length > 0 && typeof i18n.text("settings").pluginSettings === "function",
+          { locale: i18n?.locale(), tray },
+        );
+
+        // язык сменили на странице «Язык» for-web: подписи клиента меняются,
+        // как только for-web запишет язык в хранилище, без других событий
+        const auth = localStorage.getItem("auth");
+        localStorage.setItem("auth", JSON.stringify({ session: { token: "e2e-language", userId: "E2ELANGUAGE" } }));
+        const userStore = localforage.createInstance({ name: "localforage", storeName: "@E2ELANGUAGE" });
+        const before = i18n.language();
+        const wanted = before.startsWith("de") ? "fr" : "de";
+        const seen = [];
+        const unsubscribe = i18n.onChange((language) => seen.push(language));
+        const showLabel = () => i18n.messages("tray").show;
+        await userStore.setItem("locale", { lang: wanted, options: {} });
+        const switched = await waitFor(() => i18n.language() === wanted, 1000, 20);
+        await check(
+          "смена языка for-web: подписи клиента сразу после записи в хранилище",
+          switched && seen.includes(wanted) && showLabel() === (wanted === "de" ? "App anzeigen" : "Afficher l’application"),
+          { before, wanted, now: i18n.language(), seen, label: showLabel() },
+        );
+        unsubscribe();
+        await userStore.dropInstance();
+        if (auth === null) localStorage.removeItem("auth");
+        else localStorage.setItem("auth", auth);
+        await i18n.refresh();
         await check(
           "plugin.storage: записано и прочитано",
           report.stored?.text === "привет",
@@ -1155,6 +1209,13 @@
       const favorites = async () => (await invoke("favorite_gifs_list")).favorites;
       const failed = (error) => ({ failed: error });
 
+      // по умолчанию превью загружаются из интернета; здесь проверяются
+      // превью на компьютере
+      const previewsDefault = (await pluginInfo("builtin:qol"))?.values.gif_previews;
+      await check("превью избранных GIF по умолчанию — из интернета", previewsDefault === "remote", previewsDefault);
+      await invoke("extensions_set_plugin_value", { file: "builtin:qol", name: "gif_previews", value: "local" });
+      await sleep(500); // значение доходит до страницы вызовом из клиента
+
       const listing = await invoke("favorite_gifs_list");
       await check(
         "избранные GIF: сначала пусто, превью — из файлов клиента",
@@ -1539,13 +1600,233 @@ ${sidebarGroup("", [
       const qolDialog = await waitFor(() => document.querySelector('[data-arachnid-plugin-settings="builtin:qol"]'), 3000, 50);
       const qolInputs = qolDialog ? [...qolDialog.querySelectorAll("[data-arachnid-setting]")] : [];
       const qolInput = (name) => qolInputs.find((input) => input.dataset.arachnidSetting === name);
+      const qolBoxes = qolInputs.filter((input) => !input.classList.contains("arachnid-select"));
       await check(
         "«Quality of Life»: шестерёнка открывает окно с настройкой каждой части",
-        qolInputs.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
-          "interface=true,emoji_picker=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
+        qolBoxes.map((input) => `${input.dataset.arachnidSetting}=${input.checked}`).join() ===
+          "interface=true,history=true,media_player=true,emoji_picker=true,format_menu=true,live_formatting=true,colored_text_font=true,favorite_gifs=true,gifs_open_favorites=false,hotkeys=false" &&
           !qolInput("gifs_open_favorites").disabled &&
-          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 5,
+          qolDialog.querySelectorAll(".arachnid-setting-hint").length === 10,
         qolInputs.map((input) => [input.dataset.arachnidSetting, input.checked, input.disabled]),
+      );
+
+      // превью избранных GIF: выбор и очистка папки (превью сделаны в шаге с
+      // избранным, там же выбрано «Хранить на компьютере»)
+      const previewsSelect = qolInput("gif_previews");
+      const clearPreviews = previewsSelect?.closest(".arachnid-column")?.nextElementSibling?.querySelector(".arachnid-button");
+      const usageBefore = await invoke("favorite_gifs_previews");
+      await waitFor(() => clearPreviews && !clearPreviews.disabled, 3000, 50);
+      const statusBefore = clearPreviews?.nextElementSibling?.textContent;
+      clearPreviews?.click();
+      // ответ очистки: папка пуста — кнопка недоступна, подпись другая (превью
+      // делаются заново сразу, поэтому пустую папку саму не поймать)
+      const cleared = await waitFor(
+        () => (clearPreviews.disabled && clearPreviews.nextElementSibling.textContent !== statusBefore ? true : null),
+        3000,
+        50,
+      );
+      // хранятся на компьютере — пропавшие превью делаются заново
+      const remade = await waitFor(async () => {
+        const usage = await invoke("favorite_gifs_previews");
+        const list = (await invoke("favorite_gifs_list")).favorites;
+        return usage.files > 0 && list.length > 0 && list.every((item) => item.preview > 0) ? list.length : null;
+      }, 15000);
+      await check(
+        "превью избранных GIF: «Очистить папку превью» удаляет их, затем они делаются заново",
+        Boolean(previewsSelect) &&
+          previewsSelect.querySelector(".arachnid-select-value")?.textContent !== "" &&
+          usageBefore.files > 0 &&
+          Boolean(cleared) &&
+          remade > 0,
+        { usageBefore, cleared, remade },
+      );
+
+      // надёжная загрузка истории: повисший запрос и ответ 429 for-web не
+      // видит — получает ответ после повтора (сервер считает запросы)
+      const runId = Date.now();
+      const historyCount = async (channel) => (await (await fetch("/e2e/history")).json())[channel] ?? 0;
+      const fetchHistory = async (channel) => {
+        const started = performance.now();
+        try {
+          const response = await fetch(`/api/channels/${channel}/messages?limit=50`, { method: "GET", headers: {} });
+          return { status: response.status, body: await response.json(), ms: Math.round(performance.now() - started) };
+        } catch (error) {
+          return { error: String(error), ms: Math.round(performance.now() - started) };
+        }
+      };
+      const [stalled, limited] = await Promise.all([
+        fetchHistory(`E2ESTALL${runId}`),
+        fetchHistory(`E2ELIMIT${runId}`),
+      ]);
+      await check(
+        "история чата: без ответа 5 с запрос отправляется ещё раз, берётся первый ответ",
+        stalled.status === 200 && stalled.body?.request === 2 && stalled.ms >= 4900 && stalled.ms < 9000,
+        stalled,
+      );
+      await check(
+        "история чата: после 429 запрос ждёт освобождения корзины и повторяется",
+        limited.status === 200 && limited.body?.request === 2 && limited.ms >= 650 && limited.ms < 5000,
+        limited,
+      );
+      qolInput("history")?.click();
+      await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "0", 3000, 50);
+      await sleep(500); // значение доходит до страницы вызовом из клиента
+      const unguarded = await fetchHistory(`E2ELIMITOFF${runId}`);
+      await check(
+        "история чата: выключенная настройка — ответ 429 приходит как есть",
+        unguarded.status === 429 && (await historyCount(`E2ELIMITOFF${runId}`)) === 1,
+        unguarded,
+      );
+      qolInput("history")?.click();
+      await waitFor(async () => (await pluginInfo("builtin:qol"))?.values.history === "1", 3000, 50);
+      await sleep(500); // значение доходит до страницы вызовом из клиента
+
+      // свой плеер: у видео (сетка SizedContent) и аудио (карточка под
+      // FileInfo) вместо кнопок браузера — полоса плеера, у аудио обложка на
+      // месте значка; GIF (видео без controls) не трогается; выключенная
+      // настройка возвращает элементы for-web как были
+      const mediaMock = document.createElement("div");
+      const videoBox = document.createElement("div");
+      videoBox.style.cssText = "display:grid;width:320px;aspect-ratio:16/9";
+      const mockVideo = document.createElement("video");
+      mockVideo.controls = true;
+      videoBox.append(mockVideo);
+      const gifBox = document.createElement("div");
+      gifBox.style.cssText = "display:grid;width:160px;aspect-ratio:16/9";
+      const mockGif = document.createElement("video");
+      mockGif.loop = mockGif.muted = true;
+      gifBox.append(mockGif);
+      const audioCard = document.createElement("div");
+      const fileInfo = document.createElement("div");
+      fileInfo.append(document.createElementNS("http://www.w3.org/2000/svg", "svg"), document.createElement("div"));
+      const mockAudio = document.createElement("audio");
+      mockAudio.controls = true;
+      audioCard.append(fileInfo, mockAudio);
+      mediaMock.append(videoBox, gifBox, audioCard);
+      document.body.append(mediaMock);
+      const playerShown = () =>
+        !mockVideo.controls &&
+        !mockAudio.controls &&
+        videoBox.querySelector(".ap-video .ap-bottom .ap-progress") &&
+        videoBox.querySelector(".ap-corner") &&
+        audioCard.querySelector(".ap-audio .ap-speed-button") &&
+        fileInfo.firstElementChild?.classList.contains("ap-cover") &&
+        !gifBox.querySelector(".ap-video");
+      const playerOn = Boolean(await waitFor(playerShown, 3000, 50));
+      qolInput("media_player")?.click();
+      const playerOff = await waitFor(
+        () => mockVideo.controls && mockAudio.controls && !mediaMock.querySelector("[class*=ap-]") && !document.getElementById("arachnid-player-style"),
+        3000,
+        50,
+      );
+      qolInput("media_player")?.click();
+      const playerBack = Boolean(await waitFor(playerShown, 3000, 50));
+      mediaMock.remove();
+      await check("«Улучшенный медиаплеер»: встаёт вместо кнопок браузера, выключается и включается сразу", playerOn && playerOff && playerBack, {
+        playerOn,
+        playerOff,
+        playerBack,
+      });
+
+      // панель воспроизведения: играющее аудио — панель поверх ленты чата
+      // (main for-web), не над списком участников и не сдвигая сообщения, с
+      // названием трека из тегов (LIST INFO у WAV); for-web убрал сообщение
+      // (сменили канал) — элемент играет дальше вне чата; сообщение вернулось
+      // — на место нового элемента for-web встаёт играющий; ✕ останавливает
+      // воспроизведение и убирает панель
+      const silence = (() => {
+        const rate = 8000;
+        const length = rate * 4;
+        const buffer = new ArrayBuffer(68 + length);
+        const view = new DataView(buffer);
+        const ascii = (offset, value) => [...value].forEach((c, i) => view.setUint8(offset + i, c.charCodeAt(0)));
+        ascii(0, "RIFF");
+        view.setUint32(4, 60 + length, true);
+        ascii(8, "WAVEfmt ");
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, rate, true);
+        view.setUint32(28, rate, true);
+        view.setUint16(32, 1, true);
+        view.setUint16(34, 8, true);
+        ascii(36, "LIST");
+        view.setUint32(40, 16, true);
+        ascii(44, "INFOINAM");
+        view.setUint32(52, 4, true);
+        ascii(56, "e2e\0");
+        ascii(60, "data");
+        view.setUint32(64, length, true);
+        new Uint8Array(buffer, 68).fill(128);
+        return URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+      })();
+      const appBody = document.createElement("div");
+      appBody.className = "app_body";
+      const barPage = document.createElement("div");
+      const barHeader = document.createElement("div");
+      barHeader.textContent = "# e2e";
+      // как TextChannel for-web: Content > main (лента) + список участников
+      const barContent = document.createElement("div");
+      barContent.style.display = "flex";
+      const barMain = document.createElement("main");
+      barMain.style.cssText = "flex-grow:1;display:flex;flex-direction:column";
+      const chatList = document.createElement("div");
+      chatList.style.minHeight = "200px";
+      barMain.append(chatList);
+      const barMembers = document.createElement("div");
+      barMembers.style.cssText = "flex-shrink:0;width:200px";
+      barContent.append(barMain, barMembers);
+      barPage.append(barHeader, barContent);
+      appBody.append(barPage);
+      document.body.append(appBody);
+      const audioMessage = () => {
+        const message = document.createElement("div");
+        message.id = "01E2EAUDIOMESSAGE000000000";
+        const card = document.createElement("div");
+        const info = document.createElement("div");
+        info.append(document.createElementNS("http://www.w3.org/2000/svg", "svg"), document.createElement("div"));
+        const audio = document.createElement("audio");
+        audio.controls = true;
+        audio.src = silence;
+        card.append(info, audio);
+        message.append(card);
+        chatList.append(message);
+        return { message, audio };
+      };
+      const nowBar = () => barMain.querySelector(".ap-now");
+      const firstTrack = audioMessage();
+      const listTop = chatList.getBoundingClientRect().top;
+      (await waitFor(() => firstTrack.message.querySelector(".ap-cover"), 3000, 50))?.click();
+      const barState = {
+        shown: Boolean(await waitFor(() => nowBar() && !firstTrack.audio.paused, 5000, 50)),
+        title: await waitFor(() => (nowBar()?.querySelector(".ap-now-title")?.textContent === "e2e" ? "e2e" : null), 3000, 50),
+      };
+      const barBox = nowBar()?.getBoundingClientRect();
+      const mainBox = barMain.getBoundingClientRect();
+      barState.inChat = Boolean(barBox && barBox.left >= mainBox.left - 0.5 && barBox.right <= mainBox.right + 0.5 && barBox.width > 0);
+      barState.notShifted = Math.abs(chatList.getBoundingClientRect().top - listTop) < 0.5;
+      chatList.replaceChildren();
+      barState.kept = Boolean(
+        await waitFor(() => firstTrack.audio.parentElement?.classList.contains("ap-keep") && !firstTrack.audio.paused && nowBar(), 3000, 50),
+      );
+      const secondTrack = audioMessage();
+      barState.returned = Boolean(
+        await waitFor(() => secondTrack.message.contains(firstTrack.audio) && !secondTrack.audio.isConnected && !firstTrack.audio.paused, 3000, 50),
+      );
+      nowBar()?.querySelector(":scope > .ap-edge")?.click();
+      barState.closed = Boolean(await waitFor(() => !document.querySelector(".ap-now") && firstTrack.audio.paused, 3000, 50));
+      appBody.remove();
+      URL.revokeObjectURL(silence);
+      await check(
+        "панель воспроизведения: поверх ленты чата, название трека, звук не прерывается при смене канала, элемент возвращается в сообщение, ✕ закрывает",
+        barState.shown &&
+          barState.title === "e2e" &&
+          barState.inChat &&
+          barState.notShifted &&
+          barState.kept &&
+          barState.returned &&
+          barState.closed,
+        barState,
       );
 
       // настройки действуют сразу: избранное в открытом окне GIF
@@ -1648,15 +1929,36 @@ ${sidebarGroup("", [
       const profileTile = (title) =>
         `<div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>${title}</span></div>`;
       const profilePortal = document.createElement("div");
+      // шапка (ProfileBanner): псевдоним, строка «имя#тег — местоимения»;
+      // стили строки — классами, как у for-web (Panda CSS), а не в атрибуте
+      // style, который важнее любых правил
+      const bannerStyle = document.createElement("style");
+      bannerStyle.textContent =
+        ".e2e-names { display: flex; gap: 8px; } .e2e-pronouns { min-width: 0; flex-grow: 1; text-align: right; }";
+      document.head.append(bannerStyle);
+      const profileBanner = (pronouns) => `<div style="grid-column:1/3;height:120px;display:flex;flex-direction:column;justify-content:end">
+          <div style="display:flex;align-items:center;gap:16px"><div style="width:48px;height:48px"></div>
+            <div style="flex-grow:1;display:flex;flex-direction:column;gap:4px;line-height:1rem">
+              <span>Псевдоним</span>
+              <div class="e2e-names">
+                <div style="flex-shrink:0"><div><span>e2e<span>#1234</span></span></div></div>
+                <div class="e2e-pronouns"><div style="overflow:hidden;white-space:nowrap"><span>${pronouns}</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>`;
       profilePortal.innerHTML = `<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;width:340px">
-        <div style="grid-column:1/3;height:120px"></div>
+        ${profileBanner("он/его")}
         ${profileTile("Roles")}${profileTile("Badges")}${profileTile("Status")}
         <div style="aspect-ratio:1/1;overflow:hidden;display:flex;flex-direction:column"><span>Joined</span><span><div>Stoat</div></span><span>12 Mar 2023</span><span><div>Тестовый сервер</div></span><span>05 Jan 2024</span></div>
         <div style="grid-column:1/3;height:60px"></div>
       </div>`;
-      document.getElementById("floating").append(profilePortal);
+      // та же шапка без местоимений (карточка по щелчку на ник)
+      const bareBanner = document.createElement("div");
+      bareBanner.innerHTML = profileBanner("");
+      document.getElementById("floating").append(profilePortal, bareBanner);
       const profileGrid = profilePortal.firstElementChild;
-      const [, , , statusTile, joinedTile, bioTile] = profileGrid.children;
+      const [bannerTile, , , statusTile, joinedTile, bioTile] = profileGrid.children;
       const joinedFormat = new Intl.DateTimeFormat(/^ru\b/i.test(navigator.language) ? "ru" : undefined, {
         day: "numeric",
         month: "short",
@@ -1697,6 +1999,26 @@ ${sidebarGroup("", [
       );
       await check("профиль: полоса «Участник с» следует за датой for-web", joinedUpdated, joinedDates());
 
+      const bannerNames = (banner) => banner.querySelector("span").nextElementSibling;
+      const namesRow = bannerNames(bannerTile);
+      const bareRow = bannerNames(bareBanner.firstElementChild);
+      await waitFor(() => namesRow.hasAttribute("data-arachnid-profile-names"), 3000, 50);
+      const rect = (element) => element.getBoundingClientRect();
+      const [nameBox, pronounsBox] = namesRow.children;
+      const nicknameBox = bannerTile.querySelector("span");
+      const namesSeen = {
+        marked: namesRow.hasAttribute("data-arachnid-profile-names") && bareRow.hasAttribute("data-arachnid-profile-names"),
+        nameBelowNickname: rect(nameBox).top >= rect(nicknameBox).bottom,
+        pronounsBelowName: rect(pronounsBox).top >= rect(nameBox).bottom,
+        pronounsLeft: Math.round(rect(pronounsBox.querySelector("span")).left - rect(nameBox).left),
+        bareHidden: getComputedStyle(bareRow.lastElementChild).display === "none",
+      };
+      await check(
+        "профиль: псевдоним, имя#тег и местоимения — друг под другом, пустые местоимения не занимают строку",
+        namesSeen.marked && namesSeen.nameBelowNickname && namesSeen.pronounsBelowName && namesSeen.pronounsLeft === 0 && namesSeen.bareHidden,
+        namesSeen,
+      );
+
       qolInput("interface")?.click();
       const interfaceOff = await waitFor(
         () =>
@@ -1705,7 +2027,9 @@ ${sidebarGroup("", [
           rightClick(plainText) &&
           !joinedTile.hasAttribute("data-arachnid-joined") &&
           !joinedTile.querySelector(".arachnid-joined") &&
-          !statusTile.hasAttribute("data-arachnid-lone"),
+          !statusTile.hasAttribute("data-arachnid-lone") &&
+          !namesRow.hasAttribute("data-arachnid-profile-names") &&
+          getComputedStyle(namesRow).flexDirection === "row",
         3000,
         50,
       );
@@ -1716,12 +2040,15 @@ ${sidebarGroup("", [
           rippleTransition(earlyRipple) === "0s" &&
           !rightClick(plainText) &&
           joinedTile.querySelector(".arachnid-joined") &&
-          statusTile.hasAttribute("data-arachnid-lone"),
+          statusTile.hasAttribute("data-arachnid-lone") &&
+          namesRow.hasAttribute("data-arachnid-profile-names"),
         3000,
         50,
       );
       menuArea.remove();
       profilePortal.remove();
+      bareBanner.remove();
+      bannerStyle.remove();
       profileServer.remove();
       await check("«Исправление деталей интерфейса» выключается и включается сразу", interfaceOff && interfaceOn, {
         ripple: rippleTransition(earlyRipple),
@@ -1835,6 +2162,48 @@ ${sidebarGroup("", [
 
       qolDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
       await invoke("extensions_reset_plugin", { file: "builtin:qol" });
+
+      // выбор в окне настроек плагина-папки виден сразу, без повторного открытия
+      // перед этим открыт раздел «Горячие клавиши» — вернуться в «Плагины»
+      settingsPage.querySelector('a.button[data-arachnid-entry="plugins"]')?.click();
+      const folderRow = await waitFor(
+        () =>
+          [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
+            (item) => item.querySelector(".arachnid-item-title")?.textContent === "E2E Folder",
+          ),
+        3000,
+        50,
+      );
+      const folderGear = folderRow && [...folderRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
+      folderGear?.click();
+      const folderDialog = await waitFor(() => document.querySelector(`[data-arachnid-plugin-settings="${FOLDER}"]`), 3000, 50);
+      const russianUi = window.__arachnidI18n.pick(["ru"]) === "ru";
+      const flagHint = folderDialog?.querySelector(".arachnid-setting-hint")?.textContent;
+      await check(
+        "раздел «Плагины»: значок плагина-папки и пояснение настройки на языке интерфейса",
+        Boolean(folderRow?.querySelector("span.arachnid-plugin-icon")) &&
+          flagHint === (russianUi ? "Пояснение флажка (перевод)." : "Пояснение флажка."),
+        { icon: Boolean(folderRow?.querySelector(".arachnid-plugin-icon")), flagHint },
+      );
+      const modeSelect = folderDialog?.querySelector(".arachnid-select");
+      const modeShown = () => modeSelect?.querySelector(".arachnid-select-value")?.textContent;
+      const modeBefore = modeShown();
+      modeSelect?.click();
+      const modeOption = await waitFor(
+        () => [...document.querySelectorAll(".arachnid-select-menu .arachnid-select-item")].find((item) => item.textContent === "Второй"),
+        3000,
+        50,
+      );
+      modeOption?.click();
+      const modeAfter = modeShown();
+      const modeSaved = await waitFor(async () => (await pluginInfo(FOLDER))?.values.mode === "two", 3000, 50);
+      await check(
+        "настройки плагина: выбранный вариант виден сразу и сохранён",
+        modeBefore === "Первый" && modeAfter === "Второй" && modeSelect.isConnected && modeSaved,
+        { row: Boolean(folderRow), dialog: Boolean(folderDialog), modeBefore, modeAfter, connected: modeSelect?.isConnected, modeSaved },
+      );
+      folderDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
+      await invoke("extensions_reset_plugin", { file: FOLDER });
       settingsPage.remove();
 
       picker.base.remove();

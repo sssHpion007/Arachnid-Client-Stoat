@@ -67,13 +67,14 @@ windows-core = "0.61"
 # чёткие значки окна и трея из ресурса exe (те же версии, что у Tauri)
 tray-icon = { version = "0.24", default-features = false }
 # WinHTTP (src/http.rs), окно «Сохранить как» для картинок эмодзи
-# (src/image_save.rs), хуки горячих клавиш (src/hotkeys.rs) и прочие
-# вызовы Windows
+# (src/image_save.rs), хуки горячих клавиш (src/hotkeys.rs), объект задания
+# для ffmpeg (src/transcode.rs) и прочие вызовы Windows
 windows = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_Networking_WinHttp",
   "Win32_Security",
   "Win32_System_Com",
+  "Win32_System_JobObjects",
   "Win32_System_LibraryLoader",
   "Win32_System_Memory",
   "Win32_System_Threading",

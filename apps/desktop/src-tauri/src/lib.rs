@@ -33,6 +33,7 @@ mod media;
 mod memory;
 mod plugin_host;
 mod system_emoji;
+mod transcode;
 mod usercss;
 
 /// Проблема, которую нужно сообщить странице.
@@ -42,6 +43,13 @@ pub struct CommandError {
     pub kind: String,
     /// Текст для человека
     pub message: String,
+    /// Ключ перевода в разделе `errors` словарей клиента (`locales/*.json`):
+    /// страница показывает текст на языке интерфейса
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
+    /// Подстановки `{0}`, `{1}`… перевода
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
 }
 
 impl CommandError {
@@ -49,6 +57,23 @@ impl CommandError {
         Self {
             kind: kind.into(),
             message: message.into(),
+            code: None,
+            args: Vec::new(),
+        }
+    }
+
+    /// Ошибка с переводом: `message` остаётся для журнала и на случай,
+    /// если перевода нет.
+    fn translated(
+        kind: impl Into<String>,
+        code: &'static str,
+        args: Vec<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: Some(code),
+            args,
+            ..Self::new(kind, message)
         }
     }
 }
@@ -100,11 +125,15 @@ const BRIDGE_PERMISSIONS: &[&str] = &[
     "allow-favorite-gifs-set-preview",
     "allow-favorite-gifs-resolve",
     "allow-favorite-gifs-download",
+    "allow-favorite-gifs-previews",
+    "allow-favorite-gifs-clear-previews",
     "allow-image-save",
     "allow-hotkeys-overview",
     "allow-hotkeys-activate",
     "allow-hotkeys-set",
     "allow-hotkeys-record",
+    "allow-media-transcode",
+    "allow-media-report",
     // перетаскивание за рамку for-web вне Windows (см. bridge.js)
     "core:window:allow-start-dragging",
 ];
@@ -329,6 +358,8 @@ pub fn run() {
             // горячие клавиши «Quality of Life»: до создания окна, оно
             // подключает к ним WebView2
             app.manage(hotkeys::start(app.handle(), &data_dir));
+            // перекодирование видео, которые WebView2 не показывает (плеер)
+            app.manage(Arc::new(transcode::Transcoder::in_temp_dir()));
 
             // окно создаётся здесь, а не по tauri.conf.json: адрес, рамка,
             // аппаратное ускорение и запуск в трее берутся из настроек
@@ -381,11 +412,15 @@ pub fn run() {
             favorite_gifs::favorite_gifs_set_preview,
             favorite_gifs::favorite_gifs_resolve,
             favorite_gifs::favorite_gifs_download,
+            favorite_gifs::favorite_gifs_previews,
+            favorite_gifs::favorite_gifs_clear_previews,
             image_save::image_save,
             hotkeys::hotkeys_overview,
             hotkeys::hotkeys_activate,
             hotkeys::hotkeys_set,
             hotkeys::hotkeys_record,
+            transcode::media_transcode,
+            transcode::media_report,
         ])
         .run(context)
         .expect("ошибка запуска Tauri-приложения");

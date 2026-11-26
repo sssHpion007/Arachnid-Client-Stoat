@@ -79,8 +79,49 @@ fn trimmed(text: &str) -> &str {
     text.trim_matches(|c: char| c == '.' || c.is_whitespace())
 }
 
-fn error(message: impl Into<String>) -> CommandError {
-    CommandError::new("image-save", message)
+/// Почему картинка не сохранена. Страница показывает текст по коду на
+/// языке интерфейса (`errors` в `locales/*.json`), `Display` — для журнала.
+#[derive(Debug)]
+enum SaveError {
+    TooLarge,
+    NotImage,
+    /// Файл не записан: путь и ошибка
+    #[cfg_attr(not(windows), allow(dead_code))]
+    NotWritten(String, String),
+    /// Поток окна сохранения упал
+    #[cfg_attr(not(windows), allow(dead_code))]
+    DialogFailed,
+    /// Ошибка окна сохранения
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Dialog(String),
+    /// Сохранение есть только в Windows
+    #[cfg_attr(windows, allow(dead_code))]
+    Unsupported,
+}
+
+impl std::fmt::Display for SaveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TooLarge => f.write_str("картинка больше 32 МБ"),
+            Self::NotImage => f.write_str("это не картинка"),
+            Self::NotWritten(path, error) => write!(f, "файл не записан ({path}): {error}"),
+            Self::DialogFailed => f.write_str("окно сохранения завершилось с ошибкой"),
+            Self::Dialog(error) => write!(f, "окно сохранения: {error}"),
+            Self::Unsupported => f.write_str("сохранение картинок есть только в Windows"),
+        }
+    }
+}
+
+fn error(error: SaveError) -> CommandError {
+    let (code, args) = match &error {
+        SaveError::TooLarge => ("imageTooLarge", Vec::new()),
+        SaveError::NotImage => ("notImage", Vec::new()),
+        SaveError::NotWritten(path, detail) => ("notWritten", vec![path.clone(), detail.clone()]),
+        SaveError::DialogFailed => ("dialogFailed", Vec::new()),
+        SaveError::Dialog(detail) => ("dialog", vec![detail.clone()]),
+        SaveError::Unsupported => ("saveUnsupported", Vec::new()),
+    };
+    CommandError::translated("image-save", code, args, error.to_string())
 }
 
 /// Спросить, куда сохранить картинку, и записать её. Возвращает путь к
@@ -92,9 +133,9 @@ pub async fn image_save(
     data: Vec<u8>,
 ) -> CmdResult<Option<String>> {
     if data.len() > MAX_IMAGE {
-        return Err(error("картинка больше 32 МБ"));
+        return Err(error(SaveError::TooLarge));
     }
-    let extension = extension(&data).ok_or_else(|| error("это не картинка"))?;
+    let extension = extension(&data).ok_or_else(|| error(SaveError::NotImage))?;
     let name = file_name(&name, extension);
     save(&window, name, extension, data).await
 }
@@ -111,15 +152,16 @@ async fn save(
     let saved = tauri::async_runtime::spawn_blocking(move || {
         // свой поток: квартира COM в потоках пула может быть уже другой
         std::thread::spawn(move || {
-            let Some(path) = dialog::choose(owner, &name, extension)? else {
+            let chosen = dialog::choose(owner, &name, extension).map_err(SaveError::Dialog)?;
+            let Some(path) = chosen else {
                 return Ok(None);
             };
             std::fs::write(&path, &data)
-                .map_err(|e| format!("файл не записан ({}): {e}", path.display()))?;
-            Ok::<_, String>(Some(path.display().to_string()))
+                .map_err(|e| SaveError::NotWritten(path.display().to_string(), e.to_string()))?;
+            Ok::<_, SaveError>(Some(path.display().to_string()))
         })
         .join()
-        .unwrap_or_else(|_| Err("окно сохранения завершилось с ошибкой".into()))
+        .unwrap_or(Err(SaveError::DialogFailed))
     })
     .await?;
     saved.map_err(error)
@@ -132,7 +174,7 @@ async fn save(
     _extension: &'static str,
     _data: Vec<u8>,
 ) -> CmdResult<Option<String>> {
-    Err(error("сохранение картинок есть только в Windows"))
+    Err(error(SaveError::Unsupported))
 }
 
 #[cfg(windows)]
@@ -164,7 +206,7 @@ mod dialog {
             if init.is_ok() {
                 CoUninitialize();
             }
-            result.map_err(|e| format!("окно сохранения: {}", e.message()))
+            result.map_err(|e| e.message().to_string())
         }
     }
 

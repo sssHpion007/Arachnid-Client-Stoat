@@ -61,6 +61,7 @@ use crate::favorite_gifs::{self, FavoriteGifs};
 use crate::instance::Instance;
 use crate::manifest::{self, PluginManifest};
 use crate::plugin_host::{self, FetchRequest, FetchResponse, NativeHost, Storage};
+use crate::transcode::{self, Transcoder};
 use crate::{CmdResult, CommandError, usercss};
 
 /// Каталог тем в каталоге данных.
@@ -92,7 +93,7 @@ const MAX_WATCHED_FILES: usize = 256;
 const MAX_WATCH_DEPTH: usize = 4;
 
 /// Версия API плагинов (`plugin` в коде плагина-папки, `plugin.toml`).
-pub const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 2;
 
 /// Автор клиента (`authors` в Cargo.toml): подпись клиента и встроенных
 /// плагинов в настройках
@@ -262,20 +263,63 @@ fn checkbox(name: &str, label: &str, default: bool) -> usercss::Setting {
         max: None,
         step: None,
         unit: None,
+        hint: None,
+    }
+}
+
+/// Выбор встроенного плагина: варианты — (имя, подпись), первый — по умолчанию.
+fn choice(name: &str, label: &str, options: &[(&str, &str)]) -> usercss::Setting {
+    usercss::Setting {
+        name: name.to_owned(),
+        label: label.to_owned(),
+        kind: usercss::Kind::Select,
+        default: options.first().map_or("", |(name, _)| *name).to_owned(),
+        options: options
+            .iter()
+            .map(|(name, label)| usercss::SelectOption {
+                name: (*name).to_owned(),
+                label: (*label).to_owned(),
+                value: (*name).to_owned(),
+            })
+            .collect(),
+        min: None,
+        max: None,
+        step: None,
+        unit: None,
+        hint: None,
     }
 }
 
 /// Настройки «Quality of Life»: каждая часть включается отдельно
-/// (`emoji.js`, `gifs.js`, `hotkeys.js`). Подписи на странице переводит `settings.js`.
+/// (`emoji.js`, `gifs.js`, `hotkeys.js`, `history.js`, `player.js`,
+/// `formatting.js`). Подписи
+/// на странице переводит `settings.js`.
 fn qol_settings() -> Vec<usercss::Setting> {
     vec![
         checkbox("interface", "Исправление деталей интерфейса", true),
+        checkbox("history", "Надёжная загрузка истории чата", true),
+        checkbox("media_player", "Улучшенный медиаплеер", true),
         checkbox("emoji_picker", "Улучшенное меню эмодзи", true),
+        checkbox("format_menu", "Меню форматирования", true),
+        checkbox("live_formatting", "Форматирование в поле ввода", true),
+        checkbox(
+            "colored_text_font",
+            "Исправление шрифтов цветного текста",
+            true,
+        ),
         checkbox("favorite_gifs", "Меню избранного для GIF", true),
         checkbox(
             "gifs_open_favorites",
             "Открывать окно GIF сразу на избранном",
             false,
+        ),
+        choice(
+            "gif_previews",
+            "Превью избранных GIF",
+            &[
+                ("remote", "Загружать из интернета"),
+                ("local", "Хранить на компьютере"),
+            ],
         ),
         checkbox("hotkeys", "Горячие клавиши", false),
     ]
@@ -452,6 +496,12 @@ pub struct PluginInfo {
     settings: Vec<usercss::Setting>,
     /// Их действующие значения
     values: BTreeMap<String, String>,
+    /// Адрес значка плагина-папки
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<String>,
+    /// Переводы плагина-папки (`locales/<язык>.toml`)
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    locales: BTreeMap<String, manifest::PluginLocale>,
     /// Почему плагин-папка не читается
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -918,6 +968,8 @@ impl Extensions {
                     "assetBase": "",
                     "native": false,
                     "network": [],
+                    "strings": {},
+                    "locales": {},
                 });
                 let code = (builtin.code)();
                 Some(folder_plugin_script(&plugin.id, "main.js", &code, &info))
@@ -947,6 +999,8 @@ impl Extensions {
                     "assetBase": format!("{ASSET_BASE}{PLUGINS_DIR}/{}/", plugin.id),
                     "native": manifest.native.is_some(),
                     "network": saved.network(&plugin.id, manifest),
+                    "strings": manifest.strings,
+                    "locales": manifest.locales,
                 });
                 let main = manifest
                     .main
@@ -1020,6 +1074,12 @@ impl Extensions {
                         .unwrap_or_default(),
                     settings,
                     values,
+                    icon: manifest
+                        .as_ref()
+                        .and_then(|manifest| manifest.icon.as_deref())
+                        .and_then(|icon| asset_url(Kind::Plugin, &plugin.id, icon))
+                        .map(String::from),
+                    locales: manifest.map_or_else(BTreeMap::new, |manifest| manifest.locales),
                     error,
                     file: plugin.id,
                     name: plugin.about.name,
@@ -1108,8 +1168,10 @@ impl Extensions {
         }
         // пустой текст в редакторе стёр бы файл при сохранении: лучше ошибка
         let Some(css) = read_limited(&path) else {
-            return Err(CommandError::new(
+            return Err(CommandError::translated(
                 "quickCss",
+                "quickCssUnreadable",
+                Vec::new(),
                 "quickcss.css не читается или больше 8 МБ — откройте его в редакторе",
             ));
         };
@@ -1119,11 +1181,21 @@ impl Extensions {
     /// Сохранить `quickcss.css` из редактора в настройках.
     fn set_quick_css(&self, css: &str) -> CmdResult<()> {
         if css.len() as u64 > MAX_FILE_SIZE {
-            return Err(CommandError::new("quickCss", "QuickCSS больше 8 МБ"));
+            return Err(CommandError::translated(
+                "quickCss",
+                "quickCssTooLarge",
+                Vec::new(),
+                "QuickCSS больше 8 МБ",
+            ));
         }
         write_text_atomically(&self.dir.join(QUICK_CSS), css).map_err(|error| {
             tracing::warn!(%error, "не удалось сохранить quickcss.css");
-            CommandError::new("quickCss", error.to_string())
+            CommandError::translated(
+                "quickCss",
+                "quickCssNotSaved",
+                vec![error.to_string()],
+                error.to_string(),
+            )
         })
     }
 
@@ -1460,7 +1532,8 @@ fn asset_response(status: u16, mime: &str, body: Vec<u8>) -> tauri::http::Respon
         .unwrap_or_default()
 }
 
-/// Файлы из папок тем и плагинов (схема [`ASSET_SCHEME`]).
+/// Файлы из папок тем и плагинов, превью избранных GIF и перекодированные
+/// видео (схема [`ASSET_SCHEME`]).
 pub fn asset_protocol(
     context: tauri::UriSchemeContext<'_, tauri::Wry>,
     request: tauri::http::Request<Vec<u8>>,
@@ -1468,14 +1541,25 @@ pub fn asset_protocol(
 ) {
     let app = context.app_handle().clone();
     let path = request.uri().path().to_owned();
+    let range = request
+        .headers()
+        .get("range")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned);
     // чтение с диска — не в главном потоке
     tauri::async_runtime::spawn_blocking(move || {
-        let response = match path.strip_prefix(favorite_gifs::ASSET_PREFIX) {
-            Some(file) => favorite_gif_preview(&app, file),
-            None => match app.try_state::<Arc<Extensions>>() {
+        let response = if let Some(file) = path.strip_prefix(favorite_gifs::ASSET_PREFIX) {
+            favorite_gif_preview(&app, file)
+        } else if let Some(file) = path.strip_prefix(transcode::ASSET_PREFIX) {
+            match app.try_state::<Arc<Transcoder>>() {
+                Some(transcoder) => transcode::asset(&transcoder, file, range.as_deref()),
+                None => asset_response(503, "text/plain", Vec::new()),
+            }
+        } else {
+            match app.try_state::<Arc<Extensions>>() {
                 Some(extensions) => extensions.asset(&path),
                 None => asset_response(503, "text/plain", Vec::new()),
-            },
+            }
         };
         responder.respond(response);
     });
@@ -2410,8 +2494,15 @@ mod tests {
         let names: Vec<&str> = qol.settings.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(
             names.join(","),
-            "interface,emoji_picker,favorite_gifs,gifs_open_favorites,hotkeys"
+            "interface,history,media_player,emoji_picker,format_menu,live_formatting,\
+             colored_text_font,favorite_gifs,gifs_open_favorites,gif_previews,hotkeys"
         );
+        assert_eq!(qol.values["gif_previews"], "remote");
+        assert_eq!(qol.values["history"], "1");
+        assert_eq!(qol.values["media_player"], "1");
+        assert_eq!(qol.values["format_menu"], "1");
+        assert_eq!(qol.values["live_formatting"], "1");
+        assert_eq!(qol.values["colored_text_font"], "1");
         assert_eq!(qol.values["favorite_gifs"], "1");
         assert_eq!(qol.values["gifs_open_favorites"], "0");
         assert_eq!(qol.values["hotkeys"], "0");
@@ -2423,8 +2514,11 @@ mod tests {
 
         assert!(extensions.set_plugin_value("builtin:qol", "gifs_open_favorites", Some("1")));
         assert!(!extensions.set_plugin_value("builtin:qol", "nothing", Some("1")));
+        assert!(extensions.set_plugin_value("builtin:qol", "gif_previews", Some("local")));
+        assert!(!extensions.set_plugin_value("builtin:qol", "gif_previews", Some("cloud")));
         let values = extensions.plugin_values("builtin:qol").unwrap();
         assert_eq!(values["gifs_open_favorites"], true);
+        assert_eq!(values["gif_previews"], "local");
         assert_eq!(values["interface"], true);
         let script = extensions.plugins().remove(0).1;
         assert!(script.contains("\"gifs_open_favorites\":true"));
@@ -2452,6 +2546,29 @@ mod tests {
         .unwrap();
         std::fs::write(folder.join("img").join("flag.png"), "png").unwrap();
         folder
+    }
+
+    #[test]
+    fn folder_plugin_icon_and_locales() {
+        let dir = temp_dir("plugin-locales");
+        let folder = translate_plugin(&dir);
+        let manifest = format!("icon = \"icon.svg\"\n{TRANSLATE_MANIFEST}");
+        std::fs::write(folder.join("plugin.toml"), manifest).unwrap();
+        std::fs::write(folder.join("icon.svg"), "<svg/>").unwrap();
+        let locales = folder.join(manifest::LOCALES_DIR);
+        std::fs::create_dir_all(&locales).unwrap();
+        std::fs::write(locales.join("en.toml"), "name = \"Translator\"").unwrap();
+        let extensions = extensions(&dir);
+        let info = extensions
+            .overview()
+            .plugins
+            .into_iter()
+            .find(|plugin| plugin.folder)
+            .unwrap();
+        let icon = info.icon.unwrap();
+        assert!(icon.ends_with("/plugins/translate/icon.svg"), "{icon}");
+        assert_eq!(info.locales["en"].name.as_deref(), Some("Translator"));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

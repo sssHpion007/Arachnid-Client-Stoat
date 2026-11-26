@@ -54,6 +54,10 @@ jobs:
         with:
           key: release-${{ matrix.os }}
 
+      # встраивается в exe: перекодирование видео, которые WebView2 не играет
+      - if: runner.os == 'Windows'
+        uses: ./.github/actions/ffmpeg
+
       - name: Тесты приложения
         run: cargo test -p arachnid-client
 
