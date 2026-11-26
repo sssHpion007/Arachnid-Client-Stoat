@@ -5,8 +5,12 @@
 //
 // * Над выделенным текстом в поле сообщения (и в поле правки сообщения)
 //   появляется меню: жирный, курсив, зачёркнутый, спойлер, код, заголовок
-//   (окно с уровнями), цитата и цвет текста. Включённое у выделения форматирование подсвечено; нажатие
-//   снимает его.
+//   (окно с уровнями 1–6), цитата и цвет текста. Включённое у выделения
+//   форматирование подсвечено; нажатие снимает его.
+// * Стрелка в конце меню раскрывает остальное (состояние — в localStorage):
+//   выделение цветом (\colorbox), подчёркнутый (\underline), размер, ссылка
+//   [текст](адрес), время <t:…:f>, блок кода с языком, списки (маркированный,
+//   нумерованный, задачи), разделитель *** и таблица GFM.
 // * Кнопки пишут разметку for-web: **жирный**, *курсив*, ~~зачёркнутый~~,
 //   ||спойлер||, `код`, «> » в начале строк — цитата. Разметка не переходит
 //   через строки, поэтому многострочное выделение размечается построчно.
@@ -40,7 +44,7 @@
   /** Отступ меню от выделения и от краёв окна, px */
   const GAP = 8;
 
-  /** Кнопки меню; "|" — разделитель */
+  /** Кнопки меню; "|" — разделитель; extra — видны, когда меню развёрнуто стрелкой */
   const BUTTONS = [
     { kind: "bold", icon: "format_bold" },
     { kind: "italic", icon: "format_italic" },
@@ -53,21 +57,87 @@
     { kind: "quote", icon: "format_quote" },
     "|",
     { kind: "color", icon: "palette" },
+    { kind: "highlight", icon: "format_ink_highlighter", extra: true },
+    { kind: "underline", icon: "format_underlined", extra: true },
+    { kind: "size", icon: "format_size", extra: true },
+    { separator: true, extra: true },
+    { kind: "link", icon: "link", extra: true },
+    { kind: "time", icon: "schedule", extra: true },
+    { separator: true, extra: true },
+    { kind: "codeblock", icon: "code_blocks", extra: true },
+    { kind: "bullets", icon: "format_list_bulleted", extra: true },
+    { kind: "numbers", icon: "format_list_numbered", extra: true },
+    { kind: "tasks", icon: "checklist", extra: true },
+    { kind: "divider", icon: "horizontal_rule", extra: true },
+    { kind: "table", icon: "table", extra: true },
+    { kind: "more", icon: "chevron_right" },
   ];
+  /** Кнопки, которые открывают окно под собой */
+  const POPUP_KINDS = ["color", "highlight", "size", "heading", "link", "time", "codeblock"];
 
   /** Цвета палитры: читаются и на тёмной, и на светлой теме */
   const SWATCHES = [
     "#e5534b", "#f0883e", "#e3b341", "#57ab5a", "#39c5cf", "#539bf5", "#b083f0", "#e275ad",
     "#ff938a", "#ffb77c", "#f8e3a1", "#8ddb8c", "#96d0ff", "#c9d1ff", "#dcbdfb", "#adbac7",
   ];
+  /**
+   * Цвета выделения (фона): яркие и тёмные. KaTeX у for-web (0.16.22) не
+   * принимает полупрозрачные цвета, поэтому цвет текста на фоне без своего
+   * цвета подбирается сам — светлый или тёмный (см. contrastText).
+   */
+  const HIGHLIGHTS = [
+    "#e5534b", "#f0883e", "#e3b341", "#57ab5a", "#39c5cf", "#539bf5", "#b083f0", "#e275ad",
+    "#6e2622", "#6b3a14", "#5f4a12", "#24502a", "#14535a", "#1f4273", "#47307a", "#6a2850",
+  ];
+  /** Размеры текста KaTeX: \small — обычный (как текст чата) */
+  const SIZES = ["footnotesize", "small", "large", "Large", "huge"];
+  const BASE_SIZE = "small";
+  const SIZE_LABELS = {
+    footnotesize: "sizeSmaller",
+    small: "sizeNormal",
+    large: "sizeLarge",
+    Large: "sizeLarger",
+    huge: "sizeHuge",
+  };
+  /** Размер относительно текста чата: в поле ввода и при «обычном шрифте» */
+  const SIZE_EM = { footnotesize: 0.8, small: 1, large: 1.2, Large: 1.44, huge: 2.07 };
+  /** Языки в окне «Блок кода» (имена highlight.js, которым подсвечивает for-web) */
+  const LANGUAGES = [
+    "js", "ts", "python", "rust", "json", "html", "css", "bash",
+    "csharp", "cpp", "java", "go", "sql", "yaml", "diff", "lua",
+  ];
+  /** Форматы времени <t:…:f> for-web ("" — без буквы: дата и время) */
+  const TIME_FORMATS = [
+    { format: "t", label: "formatTime", options: { hour: "2-digit", minute: "2-digit" } },
+    { format: "T", label: "formatTimeSeconds", options: { hour: "2-digit", minute: "2-digit", second: "2-digit" } },
+    { format: "D", label: "formatDate", options: { day: "numeric", month: "long", year: "numeric" } },
+    {
+      format: "",
+      label: "formatDateTime",
+      options: { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" },
+    },
+    {
+      format: "F",
+      label: "formatFull",
+      options: { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" },
+    },
+    { format: "R", label: "formatRelative" },
+  ];
 
   const MARKS = { bold: "**", italic: "*", strike: "~~", spoiler: "||", code: "`" };
-  /** Уровни заголовков в окне «Заголовок» (# … ###) */
-  const HEADINGS = [1, 2, 3];
-  /** Начало строки: цитата «> », затем заголовок «# » ($1 — цитата, $2 — решётки) */
-  const HEADING = /^((?:[ \t]*>[ \t]?)*)(#{1,6})[ \t]+/;
-  /** Разметка начала строки — цитата, заголовок, пункт списка: остаётся вне формулы */
-  const LINE_PREFIX = /^(?:[ \t]*>[ \t]?)*(?:#{1,6}[ \t]+)?(?:[ \t]*(?:[-*]|\d+[.)])[ \t]+)?/;
+  /** Уровни заголовков в окне «Заголовок» (# … ######) */
+  const HEADINGS = [1, 2, 3, 4, 5, 6];
+  const QUOTE_PREFIX = "(?:[ \\t]*>[ \\t]?)*";
+  const LIST_PREFIX = "(?:[ \\t]*(?:[-*][ \\t]+\\[[ xX]\\]|[-*]|\\d+[.)])[ \\t]+)";
+  /** Начало строки: цитата «> », пункт списка, затем заголовок «# » ($1 — до решёток, $2 — решётки) */
+  const HEADING = new RegExp(`^(${QUOTE_PREFIX}${LIST_PREFIX}?)(#{1,6})[ \\t]+`);
+  /** Разметка начала строки — цитата, пункт списка, заголовок: остаётся вне формулы */
+  const LINE_PREFIX = new RegExp(`^${QUOTE_PREFIX}${LIST_PREFIX}?(?:#{1,6}[ \\t]+)?`);
+  const LIST_MARKERS = {
+    bullets: /^[ \t]*[-*][ \t]+(?!\[[ xX]\][ \t])/,
+    tasks: /^[ \t]*[-*][ \t]+\[[ xX]\][ \t]+/,
+    numbers: /^[ \t]*\d+[.)][ \t]+/,
+  };
 
   // ─────────────────────────────── KaTeX ───────────────────────────────
 
@@ -85,12 +155,34 @@
   };
   const escapeTex = (value) => value.replace(/[\\{}$%&#_^~]/g, (char) => TEX_ESCAPES[char]);
 
-  /** Стили, которые бывают у слова внутри цветного куска, — в порядке вложенности */
-  const STYLES = ["bold", "italic", "strike"];
-  const STYLE_TEX = { bold: "textbf", italic: "textit", strike: "sout" };
-  const TEX_STYLE = { textbf: "bold", textit: "italic", sout: "strike", texttt: "code" };
+  /**
+   * Стили слова в формуле. Жирный, курсив и подчёркнутый — внутри \textsf,
+   * выделение — \colorbox вокруг него, зачёркнутый — \sout снаружи всего:
+   * KaTeX у for-web (0.16.22) не пускает \sout в текст (\textsf, \colorbox).
+   * Выделение хранится стилем "bg:#rrggbb".
+   */
+  const STYLES = ["bold", "italic", "underline", "strike"];
+  const STYLE_TEX = { bold: "textbf", italic: "textit", underline: "underline", strike: "sout" };
+  const TEX_STYLE = { textbf: "bold", textit: "italic", underline: "underline", sout: "strike", texttt: "code" };
   const STYLE_MARK = { bold: "**", italic: "*", strike: "~~", code: "`" };
   const TEX_SYMBOLS = { textbackslash: "\\", textasciicircum: "^", textasciitilde: "~" };
+  /** Стили, которых нет в разметке Stoat: с ними текст остаётся формулой */
+  const TEX_ONLY = (style) => style === "underline" || style.startsWith("bg:");
+
+  const backgroundOf = (styles) => styles.find((style) => style.startsWith("bg:"))?.slice(3) ?? null;
+  const withBackground = (styles, color) => [
+    ...styles.filter((style) => !style.startsWith("bg:")),
+    ...(color ? [`bg:${color}`] : []),
+  ];
+
+  /** Цвет текста на фоне color (#rgb / #rrggbb), когда своего цвета нет */
+  function contrastText(color) {
+    let hex = color.replace("#", "");
+    if (hex.length === 3) hex = [...hex].map((char) => char + char).join("");
+    const [r, g, b] = [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
+    if ([r, g, b].some(Number.isNaN)) return "#ffffff";
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.55 ? "#1b1b21" : "#ffffff";
+  }
 
   const sameStyles = (a, b) => a.length === b.length && a.every((style) => b.includes(style));
 
@@ -120,8 +212,11 @@
     return merge(out);
   }
 
-  /** Куски → тело формулы: слово с пробелом после него — свой \textsf */
-  function segmentsTex(segments) {
+  /**
+   * Куски → тело формулы: слово с пробелом после него — свой \textsf.
+   * color — цвет всего куска: без него текст на фоне получает свой цвет.
+   */
+  function segmentsTex(segments, color) {
     const words = [];
     for (const { text: value, styles } of segments) {
       for (const word of value.match(/\S+\s*|\s+/g) ?? []) {
@@ -131,10 +226,17 @@
           continue;
         }
         let tex = escapeTex(word);
-        for (const style of STYLES.filter((style) => styles.includes(style)).reverse()) {
-          tex = `\\${STYLE_TEX[style]}{${tex}}`;
+        for (const style of ["underline", "italic", "bold"]) {
+          if (styles.includes(style)) tex = `\\${STYLE_TEX[style]}{${tex}}`;
         }
-        words.push(`\\${styles.includes("code") ? "texttt" : "textsf"}{${tex}}`);
+        tex = `\\${styles.includes("code") ? "texttt" : "textsf"}{${tex}}`;
+        const background = backgroundOf(styles);
+        if (background) {
+          if (!color) tex = `\\textcolor{${contrastText(background)}}{${tex}}`;
+          tex = `\\colorbox{${background}}{${tex}}`;
+        }
+        if (styles.includes("strike")) tex = `\\sout{${tex}}`;
+        words.push(tex);
       }
     }
     return words.join("\\allowbreak");
@@ -171,13 +273,23 @@
           if (tex.startsWith("{}", index)) index += 2;
           continue;
         }
-        if (tex[index] === "{") {
+        if (tex[index] !== "{") continue;
+        let inner = styles;
+        if (name === "colorbox" || name === "textcolor") {
+          // первый аргумент — цвет: фон куска или цвет текста на фоне
           const end = closingBrace(tex, index);
-          const close = end < 0 ? tex.length : end;
-          const style = TEX_STYLE[name];
-          out.push(...texSegments(tex.slice(index + 1, close), style ? [...styles, style] : styles));
-          index = close + 1;
+          if (end < 0) break;
+          if (name === "colorbox") inner = withBackground(styles, tex.slice(index + 1, end).trim());
+          index = end + 1;
+          while (tex[index] === " ") index += 1;
+          if (tex[index] !== "{") continue;
+        } else if (TEX_STYLE[name]) {
+          inner = [...styles, TEX_STYLE[name]];
         }
+        const end = closingBrace(tex, index);
+        const close = end < 0 ? tex.length : end;
+        out.push(...texSegments(tex.slice(index + 1, close), inner));
+        index = close + 1;
         continue;
       }
       if (char !== "{" && char !== "}") out.push({ text: char, styles });
@@ -190,7 +302,9 @@
   function segmentsMarkdown(segments) {
     return segments
       .map(({ text: value, styles }) => {
-        const marks = (styles.includes("code") ? ["code"] : styles).map((style) => STYLE_MARK[style]).join("");
+        const marks = (styles.includes("code") ? ["code"] : styles)
+          .map((style) => STYLE_MARK[style] ?? "")
+          .join("");
         if (!marks || !value.trim()) return value;
         const lead = /^\s*/.exec(value)[0];
         const trail = /\s*$/.exec(value)[0];
@@ -199,29 +313,58 @@
       .join("");
   }
 
-  const colorTex = (color, segments) => `$$\\color{${color}}\\small${segmentsTex(segments)}$$`;
+  /**
+   * Кусок { color, size } с текстом segments: формула, если есть что-то,
+   * чего нет в разметке Stoat (цвет, размер, подчёркнутый, выделение), иначе
+   * обычная разметка.
+   */
+  function spanText({ color, size }, segments) {
+    const tex = color || size !== BASE_SIZE || segments.some((segment) => segment.styles.some(TEX_ONLY));
+    if (!tex) return segmentsMarkdown(segments);
+    return `$$${color ? `\\color{${color}}` : ""}\\${size}${segmentsTex(segments, color)}$$`;
+  }
 
-  /** Цветные куски текста: [{ from, to, color, contentFrom, contentTo }] */
-  function colorSpans(doc) {
+  /**
+   * Формулы, которые пишет меню: [{ from, to, color, size, contentFrom, contentTo }].
+   * Начало — \color и/или размер, за ними слова (\textsf, \texttt, \colorbox,
+   * \sout); цветной текст первых версий меню — \color без размера.
+   */
+  function texSpans(doc) {
     const spans = [];
-    const start = /\$\$\\color\{([^{}$]+)\}(?:\\small)?/g;
+    const start = new RegExp(
+      `\\$\\$(?:\\\\color\\{([^{}$]+)\\})?(?:\\\\(${SIZES.join("|")})(?![a-zA-Z]))?(?=\\\\(?:textsf|texttt|colorbox|sout)\\{)`,
+      "g",
+    );
     for (let match; (match = start.exec(doc)); ) {
+      if (match[0] === "$$") {
+        start.lastIndex = match.index + 2;
+        continue;
+      }
       const contentFrom = match.index + match[0].length;
       const close = doc.indexOf("$$", contentFrom);
       if (close < 0) break;
-      spans.push({ from: match.index, to: close + 2, color: match[1], contentFrom, contentTo: close });
+      spans.push({
+        from: match.index,
+        to: close + 2,
+        color: match[1] ?? null,
+        size: match[2] ?? BASE_SIZE,
+        contentFrom,
+        contentTo: close,
+      });
       start.lastIndex = close + 2;
     }
     return spans;
   }
 
-  const spanAt = (doc, from, to) => colorSpans(doc).find((span) => span.from <= from && to <= span.to);
+  const spanAt = (doc, from, to) => texSpans(doc).find((span) => span.from <= from && to <= span.to);
   const spanSegments = (doc, span) => texSegments(doc.slice(span.contentFrom, span.contentTo));
+  const spanProps = (span) => ({ color: span.color, size: span.size });
 
   /** То, что в формуле не работает: упоминания, каналы, свои эмодзи, ссылки */
-  const KEEP_OUT = /<[@#%][^>\s]+>|:[A-Za-z0-9_]+:|https?:\/\/\S+/g;
+  const KEEP_OUT = /<[@#%][^>\s]+>|<t:\d+(?::\w)?>|:[A-Za-z0-9_]+:|\[[^\]\n]*\]\([^)\s]*\)|https?:\/\/\S+/g;
 
-  function colorLine(line, color) {
+  /** Строка текста → формулы с change(props, segments) → [props, segments] */
+  function texLine(line, change) {
     const parts = [];
     let last = 0;
     for (const match of line.matchAll(KEEP_OUT)) {
@@ -230,11 +373,12 @@
     }
     parts.push([line.slice(last), true]);
     return parts
-      .map(([part, colored]) => {
-        if (!colored || !part.trim()) return part;
+      .map(([part, styled]) => {
+        if (!styled || !part.trim()) return part;
         const lead = /^\s*/.exec(part)[0];
         const trail = /\s*$/.exec(part)[0];
-        return `${lead}${colorTex(color, markdownSegments(part.trim()))}${trail}`;
+        const [props, segments] = change({ color: null, size: BASE_SIZE }, markdownSegments(part.trim()));
+        return `${lead}${spanText(props, merge(segments))}${trail}`;
       })
       .join("");
   }
@@ -262,22 +406,76 @@
     const end = doc.indexOf("\n", at);
     return end < 0 ? doc.length : end;
   };
+  /** Строки выделения целиком: { start, end, lines } */
+  function linesOf(doc, from, to) {
+    const start = lineStart(doc, from);
+    const end = lineEnd(doc, Math.max(from, to - 1));
+    return { start, end, lines: doc.slice(start, end).split("\n") };
+  }
+  /** Правка строк выделения: выделение — все строки */
+  const lineChange = (start, end, insert) => ({ from: start, to: end, insert, anchor: start, head: start + insert.length });
+  const quoteOf = (line) => new RegExp(`^${QUOTE_PREFIX}`).exec(line)[0];
+  const hasText = (line) => Boolean(line.slice(quoteOf(line).length).trim());
+
+  /** Ссылка [текст](адрес), в которой выделение: { from, to, label, url } */
+  function linkAt(doc, from, to) {
+    for (const match of doc.matchAll(/\[([^\]\n]*)\]\(([^)\s]*)\)/g)) {
+      const end = match.index + match[0].length;
+      if (match.index <= from && to <= end) return { from: match.index, to: end, label: match[1], url: match[2] };
+    }
+    return null;
+  }
+
+  /** Время <t:…>, в котором выделение: { from, to, seconds, format } */
+  function timeAt(doc, from, to) {
+    for (const match of doc.matchAll(/<t:(\d+)(?::(\w))?>/g)) {
+      const end = match.index + match[0].length;
+      if (match.index <= from && to <= end) {
+        return { from: match.index, to: end, seconds: Number(match[1]), format: match[2] ?? "" };
+      }
+    }
+    return null;
+  }
+
+  /** Блок кода, внутри которого выделение: { start, end, language } (строки ``` включительно) */
+  function codeBlockAt(doc, from, to) {
+    let open = null;
+    let at = 0;
+    for (const line of doc.split("\n")) {
+      const end = at + line.length;
+      if (!open) {
+        const fence = /^```([\w#+.-]*)[ \t]*$/.exec(line);
+        if (fence) open = { start: at, contentFrom: end + 1, language: fence[1] };
+      } else if (/^```[ \t]*$/.test(line)) {
+        if (open.contentFrom <= from && to <= at) return { start: open.start, end, language: open.language };
+        open = null;
+      }
+      at = end + 1;
+    }
+    return null;
+  }
 
   /** Включено ли форматирование kind у выделения */
   function isActive(doc, from, to, kind) {
     [from, to] = trimmed(doc, from, to);
-    if (kind === "quote") {
-      return doc
-        .slice(lineStart(doc, from), lineEnd(doc, Math.max(from, to - 1)))
-        .split("\n")
-        .every((line) => line.startsWith(">"));
-    }
+    if (kind === "quote") return linesOf(doc, from, to).lines.every((line) => line.startsWith(">"));
     if (kind === "heading") return headingLevels(doc, from, to).some(Boolean);
+    if (kind in LIST_MARKERS) {
+      const lines = linesOf(doc, from, to).lines.filter(hasText);
+      return lines.length > 0 && lines.every((line) => LIST_MARKERS[kind].test(line.slice(quoteOf(line).length)));
+    }
+    if (kind === "codeblock") return Boolean(codeBlockAt(doc, from, to));
+    if (kind === "link") return Boolean(linkAt(doc, from, to));
+    if (kind === "time") return Boolean(timeAt(doc, from, to));
+    if (kind === "divider" || kind === "table" || kind === "more") return false;
     const span = spanAt(doc, from, to);
-    if (kind === "color") return Boolean(span);
+    if (kind === "color") return Boolean(span?.color);
+    if (kind === "size") return Boolean(span) && span.size !== BASE_SIZE;
+    if (kind === "highlight") return Boolean(span) && spanSegments(doc, span).some((segment) => backgroundOf(segment.styles));
     if (span && STYLES.includes(kind)) {
       return spanSegments(doc, span).every((segment) => !segment.text.trim() || segment.styles.includes(kind));
     }
+    if (kind === "underline") return false;
     const mark = MARKS[kind];
     const selected = doc.slice(from, to);
     if (kind === "italic") {
@@ -300,6 +498,13 @@
    */
   function toggle(doc, from, to, kind) {
     if (kind === "quote") return toggleQuote(doc, from, to);
+    if (kind in LIST_MARKERS) return toggleList(doc, from, to, kind);
+    if (kind === "divider") return insertDivider(doc, from, to);
+    if (kind === "table") return makeTable(doc, from, to);
+    if (kind === "underline") {
+      const on = isActive(doc, from, to, "underline");
+      return restyle(doc, from, to, (props, segments) => [props, toggleStyle(segments, "underline", on)], !on);
+    }
     [from, to] = trimmed(doc, from, to);
     const span = spanAt(doc, from, to);
     if (span) {
@@ -343,10 +548,8 @@
 
   /** Уровни заголовков у непустых строк выделения (0 — не заголовок) */
   function headingLevels(doc, from, to) {
-    return doc
-      .slice(lineStart(doc, from), lineEnd(doc, Math.max(from, to - 1)))
-      .split("\n")
-      .filter((line) => line.replace(/^(?:[ \t]*>[ \t]?)*/, "").trim())
+    return linesOf(doc, from, to)
+      .lines.filter(hasText)
       .map((line) => HEADING.exec(line)?.[2].length ?? 0);
   }
 
@@ -358,87 +561,187 @@
 
   /**
    * Заголовок уровня level у строк выделения; тот же уровень ещё раз или
-   * level = 0 — обычный текст. Цитата «> » остаётся перед решётками.
+   * level = 0 — обычный текст. Цитата «> » и пункт списка остаются перед решётками.
    */
   function toggleHeading(doc, from, to, level) {
     [from, to] = trimmed(doc, from, to);
     if (level && headingLevel(doc, from, to) === level) level = 0;
-    const start = lineStart(doc, from);
-    const end = lineEnd(doc, Math.max(from, to - 1));
-    const insert = doc
-      .slice(start, end)
-      .split("\n")
+    const { start, end, lines } = linesOf(doc, from, to);
+    const insert = lines
       .map((line) => {
-        const quote = /^(?:[ \t]*>[ \t]?)*/.exec(line)[0];
-        const rest = line.slice(quote.length).replace(/^#{1,6}[ \t]+/, "");
-        return rest.trim() && level ? `${quote}${"#".repeat(level)} ${rest}` : quote + rest;
+        const prefix = new RegExp(`^${QUOTE_PREFIX}${LIST_PREFIX}?`).exec(line)[0];
+        const rest = line.slice(prefix.length).replace(/^#{1,6}[ \t]+/, "");
+        return rest.trim() && level ? `${prefix}${"#".repeat(level)} ${rest}` : prefix + rest;
       })
       .join("\n");
     if (insert === doc.slice(start, end)) return null;
-    return { from: start, to: end, insert, anchor: start, head: start + insert.length };
+    return lineChange(start, end, insert);
   }
 
   function toggleQuote(doc, from, to) {
-    const start = lineStart(doc, from);
-    const end = lineEnd(doc, Math.max(from, to - 1));
-    const lines = doc.slice(start, end).split("\n");
+    const { start, end, lines } = linesOf(doc, from, to);
     const quoted = lines.every((line) => line.startsWith(">"));
     const insert = lines.map((line) => (quoted ? line.replace(/^> ?/, "") : `> ${line}`)).join("\n");
-    return { from: start, to: end, insert, anchor: start, head: start + insert.length };
+    return lineChange(start, end, insert);
   }
 
-  /** Жирный, курсив, зачёркнутый у цветного куска — командами KaTeX у всех слов */
-  function toggleTex(doc, span, kind) {
-    const segments = spanSegments(doc, span);
-    const on = segments.every((segment) => !segment.text.trim() || segment.styles.includes(kind));
-    const next = segments.map(({ text: value, styles }) => ({
+  /** Список kind (bullets, numbers, tasks) у строк выделения; включённый — снимается */
+  function toggleList(doc, from, to, kind) {
+    [from, to] = trimmed(doc, from, to);
+    const on = isActive(doc, from, to, kind);
+    const { start, end, lines } = linesOf(doc, from, to);
+    let number = 0;
+    const insert = lines
+      .map((line) => {
+        if (!hasText(line)) return line;
+        const quote = quoteOf(line);
+        const rest = line.slice(quote.length).replace(new RegExp(`^${LIST_PREFIX}`), "");
+        if (on) return quote + rest;
+        number += 1;
+        const marker = kind === "bullets" ? "- " : kind === "tasks" ? "- [ ] " : `${number}. `;
+        return `${quote}${marker}${rest}`;
+      })
+      .join("\n");
+    return lineChange(start, end, insert);
+  }
+
+  /** Разделитель (***) строкой после строк выделения; --- под текстом стал бы заголовком */
+  function insertDivider(doc, from, to) {
+    const { end, lines } = linesOf(doc, from, to);
+    const insert = `\n${quoteOf(lines.at(-1))}***`;
+    return { from: end, to: end, insert, anchor: from, head: to };
+  }
+
+  /**
+   * Строки выделения → таблица: первая строка — заголовки, ячейки делятся
+   * табуляцией (как при вставке из таблиц), «;» или «|».
+   */
+  function makeTable(doc, from, to) {
+    [from, to] = trimmed(doc, from, to);
+    if (from === to) return null;
+    const { start, end, lines } = linesOf(doc, from, to);
+    const quote = quoteOf(lines[0]);
+    const rows = lines
+      .filter(hasText)
+      .map((line) => line.slice(quoteOf(line).length).trim().replace(/^\||\|$/g, "").split(/\t|;|\|/).map((cell) => cell.trim()));
+    const columns = Math.max(...rows.map((row) => row.length));
+    if (rows.length === 1) rows.push([]);
+    const row = (cells) => `${quote}| ${Array.from({ length: columns }, (_, at) => cells[at] ?? "").join(" | ")} |`;
+    const insert = [row(rows[0]), `${quote}|${" --- |".repeat(columns)}`, ...rows.slice(1).map(row)].join("\n");
+    return lineChange(start, end, insert);
+  }
+
+  /** Блок кода на языке language вокруг строк выделения; null — убрать блок */
+  function toggleCodeBlock(doc, from, to, language) {
+    [from, to] = trimmed(doc, from, to);
+    const block = codeBlockAt(doc, from, to);
+    if (block) {
+      const inner = doc.slice(lineEnd(doc, block.start) + 1, lineStart(doc, block.end));
+      const body = inner.endsWith("\n") ? inner.slice(0, -1) : inner;
+      const insert = language == null ? body : `\`\`\`${language}\n${body}\n\`\`\``;
+      return lineChange(block.start, block.end, insert);
+    }
+    if (language == null) return null;
+    const { start, end } = linesOf(doc, from, to);
+    return lineChange(start, end, `\`\`\`${language}\n${doc.slice(start, end)}\n\`\`\``);
+  }
+
+  /** Ссылка на url у выделения; пустой url — убрать ссылку, оставить текст */
+  function setLink(doc, from, to, url) {
+    [from, to] = trimmed(doc, from, to);
+    const link = linkAt(doc, from, to);
+    if (link) {
+      const insert = url ? `[${link.label}](${url})` : link.label;
+      return { from: link.from, to: link.to, insert, anchor: link.from, head: link.from + insert.length };
+    }
+    if (!url || from === to) return null;
+    const label = doc.slice(from, to).replace(/[[\]]/g, "\\$&");
+    const insert = `[${label}](${url})`;
+    return { from, to, insert, anchor: from, head: from + insert.length };
+  }
+
+  /** Время <t:секунды:формат> вместо выделения (или вместо прежнего времени) */
+  function setTime(doc, from, to, seconds, format) {
+    [from, to] = trimmed(doc, from, to);
+    const time = timeAt(doc, from, to);
+    if (time) [from, to] = [time.from, time.to];
+    const insert = `<t:${seconds}${format ? `:${format}` : ""}>`;
+    return { from, to, insert, anchor: from, head: from + insert.length };
+  }
+
+  /** Стиль kind у всех кусков: on — снять, иначе добавить */
+  const toggleStyle = (segments, kind, on) =>
+    segments.map(({ text: value, styles }) => ({
       text: value,
       styles: on ? styles.filter((style) => style !== kind) : styles.includes(kind) ? styles : [...styles, kind],
     }));
-    const insert = colorTex(span.color, merge(next));
+
+  /** Жирный, курсив, зачёркнутый у формулы — командами KaTeX у всех слов */
+  function toggleTex(doc, span, kind) {
+    const segments = spanSegments(doc, span);
+    const on = segments.every((segment) => !segment.text.trim() || segment.styles.includes(kind));
+    const insert = spanText(spanProps(span), merge(toggleStyle(segments, kind, on)));
     return { from: span.from, to: span.to, insert, anchor: span.from, head: span.from + insert.length };
   }
 
-  /** Правка, которая красит выделение в color (`#rrggbb`) или снимает цвет (null) */
-  function paint(doc, from, to, color) {
+  /**
+   * Правка формул у выделения: change(props, segments) → [props, segments].
+   * Затронутые формулы меняются целиком; если формул нет и create — текст
+   * выделения становится формулой (разметка вокруг — тоже: снаружи формулы
+   * она на неё не действует).
+   */
+  function restyle(doc, from, to, change, create) {
     [from, to] = trimmed(doc, from, to);
-    // разметка вокруг выделения (**…**, *…*, ~~…~~) уходит в формулу: снаружи
-    // формулы она на цвет не действует
-    for (let mark; color; from -= mark.length, to += mark.length) {
+    for (let mark; create; from -= mark.length, to += mark.length) {
       mark = ["**", "~~", "*"].find((m) => doc.slice(from - m.length, from) === m && doc.slice(to, to + m.length) === m);
       if (!mark) break;
     }
-    const touched = colorSpans(doc).filter((span) => span.from < Math.max(to, from + 1) && span.to > from);
+    const touched = texSpans(doc).filter((span) => span.from < Math.max(to, from + 1) && span.to > from);
     if (touched.length) {
-      // затронутые цветные куски перекрашиваются или теряют цвет целиком
       const start = Math.min(from, touched[0].from);
       const end = Math.max(to, touched.at(-1).to);
       let insert = "";
       let at = start;
       for (const span of touched) {
         insert += doc.slice(at, span.from);
-        insert += color
-          ? `$$\\color{${color}}${doc.slice(span.from, span.to).replace(/^\$\$\\color\{[^{}$]+\}/, "")}`
-          : segmentsMarkdown(spanSegments(doc, span));
+        const [props, segments] = change(spanProps(span), spanSegments(doc, span));
+        insert += spanText(props, merge(segments));
         at = span.to;
       }
       insert += doc.slice(at, end);
       return { from: start, to: end, insert, anchor: start, head: start + insert.length };
     }
-    if (!color || from === to) return null;
+    if (!create || from === to) return null;
     let at = from;
     const insert = doc
       .slice(from, to)
       .split("\n")
       .map((line) => {
-        // «> », «# », «- » в начале строки — разметка строки, не текст
+        // «> », «- », «# » в начале строки — разметка строки, не текст
         const prefix = at === lineStart(doc, at) ? LINE_PREFIX.exec(line)[0] : "";
         at += line.length + 1;
-        return prefix + colorLine(line.slice(prefix.length), color);
+        return prefix + texLine(line.slice(prefix.length), change);
       })
       .join("\n");
     return { from, to, insert, anchor: from, head: from + insert.length };
   }
+
+  /** Цвет текста color (`#rrggbb`) у выделения; null — снять цвет */
+  const paint = (doc, from, to, color) => restyle(doc, from, to, (props, segments) => [{ ...props, color }, segments], Boolean(color));
+
+  /** Выделение цветом (фон) у выделения; null — снять */
+  const highlight = (doc, from, to, color) =>
+    restyle(
+      doc,
+      from,
+      to,
+      (props, segments) => [props, segments.map((segment) => ({ ...segment, styles: withBackground(segment.styles, color) }))],
+      Boolean(color),
+    );
+
+  /** Размер текста у выделения; \small — обычный */
+  const resize = (doc, from, to, size) =>
+    restyle(doc, from, to, (props, segments) => [{ ...props, size }, segments], size !== BASE_SIZE);
 
   // ─────────────────────────────── редактор ───────────────────────────────
 
@@ -658,8 +961,17 @@
     const mask = (from, to) => {
       masked = masked.slice(0, from) + "\0".repeat(to - from) + masked.slice(to);
     };
-    // ссылки, упоминания, каналы и время — без разметки (https://a.b/_c_)
-    for (const match of doc.matchAll(/https?:\/\/\S+|<[@#%:a-zA-Z][^\s>]*>/g)) {
+    // ссылка [текст](адрес): видна текстом ссылки
+    for (const match of doc.matchAll(/\[([^\]\n]+)\]\(([^)\s]+)\)/g)) {
+      const from = match.index;
+      const to = from + match[0].length;
+      const labelEnd = from + 1 + match[1].length;
+      pieces.push({ from, to, hide: [[from, from + 1], [labelEnd, to]], marks: [] });
+      mask(from, from + 1);
+      mask(labelEnd, to);
+    }
+    // адреса, упоминания, каналы и время — без разметки (https://a.b/_c_)
+    for (const match of masked.matchAll(/https?:\/\/\S+|<[@#%:a-zA-Z][^\s>]*>/g)) {
       mask(match.index, match.index + match[0].length);
     }
     for (const match of masked.matchAll(/(?<!\\)`([^`\n]+)`/g)) {
@@ -668,8 +980,8 @@
       pieces.push({ from, to, hide: [[from, from + 1], [to - 1, to]], marks: [] });
       mask(from, to);
     }
-    for (const span of colorSpans(masked)) {
-      pieces.push(colorPiece(doc, span));
+    for (const span of texSpans(masked)) {
+      pieces.push(texPiece(doc, span));
       mask(span.from, span.to);
     }
     // прочие формулы KaTeX — как есть
@@ -685,8 +997,8 @@
         mask(to - size, to);
       }
     }
-    // заголовок: «# » в начале строки (после цитаты)
-    for (const match of masked.matchAll(/^((?:[ \t]*>[ \t]?)*)(#{1,6}[ \t]+)(?=\S)/gm)) {
+    // заголовок: «# » в начале строки (после цитаты и пункта списка)
+    for (const match of masked.matchAll(new RegExp(`^(${QUOTE_PREFIX}${LIST_PREFIX}?)(#{1,6}[ \\t]+)(?=\\S)`, "gm"))) {
       const from = match.index + match[1].length;
       const end = lineEnd(doc, match.index);
       pieces.push({ from, to: end, hide: [[from, from + match[2].length]], marks: [] });
@@ -701,20 +1013,33 @@
 
   /** Цвет KaTeX → безопасный для CSS (имя или #hex) */
   const cssColor = (color) => (/^(#[0-9a-f]{3,8}|[a-z]+)$/i.test(color) ? color : "inherit");
-  const LIVE_STYLES = {
-    bold: "font-weight:bold",
-    italic: "font-style:italic",
-    strike: "text-decoration:line-through",
-    code: "font-family:var(--fonts-monospace,monospace)",
-  };
 
-  /** Цветной кусок: команды KaTeX прячутся, текст красится */
-  function colorPiece(doc, span) {
+  /** Стиль текста формулы в поле: цвет и размер куска, стили слова */
+  function liveStyle(span, styles) {
+    const set = new Set(styles);
+    const rules = [];
+    if (span.color) rules.push(`color:${cssColor(span.color)}`);
+    if (span.size !== BASE_SIZE) rules.push(`font-size:${SIZE_EM[span.size] ?? 1}em`);
+    if (set.has("bold")) rules.push("font-weight:bold");
+    if (set.has("italic")) rules.push("font-style:italic");
+    if (set.has("code")) rules.push("font-family:var(--fonts-monospace,monospace)");
+    const lines = [set.has("underline") && "underline", set.has("strike") && "line-through"].filter(Boolean);
+    if (lines.length) rules.push(`text-decoration:${lines.join(" ")}`);
+    const background = backgroundOf([...set]);
+    if (background) {
+      rules.push(`background-color:${cssColor(background)}`);
+      if (!span.color) rules.push(`color:${contrastText(background)}`);
+    }
+    return rules.join(";");
+  }
+
+  /** Формула меню: команды KaTeX прячутся, текст виден со своим цветом и стилем */
+  function texPiece(doc, span) {
     const hide = [[span.from, span.contentFrom], [span.contentTo, span.to]];
     const marks = [];
+    // стили открытых скобок: имя стиля, "bg:#…" или null
     const stack = [];
-    const base = `color:${cssColor(span.color)}`;
-    const style = () => [base, ...[...new Set(stack.filter(Boolean))].map((name) => LIVE_STYLES[name])].join(";");
+    const style = () => liveStyle(span, stack.filter(Boolean));
     const visible = (from, to) => {
       const current = style();
       const last = marks.at(-1);
@@ -738,6 +1063,19 @@
           const close = doc.startsWith("{}", end) ? end + 2 : end;
           marks.push([index, close, style(), TEX_SYMBOLS[command[1]]]);
           index = close;
+          continue;
+        }
+        if ((command[1] === "colorbox" || command[1] === "textcolor") && doc[end] === "{") {
+          // \colorbox{#цвет}{ — прячется вместе с цветом, текст внутри — на фоне
+          const argEnd = closingBrace(doc, end);
+          if (argEnd < 0 || argEnd >= span.contentTo || doc[argEnd + 1] !== "{") {
+            hide.push([index, end]);
+            index = end;
+            continue;
+          }
+          hide.push([index, argEnd + 2]);
+          stack.push(command[1] === "colorbox" ? `bg:${doc.slice(end + 1, argEnd).trim()}` : null);
+          index = argEnd + 2;
           continue;
         }
         if (doc[end] === "{") {
@@ -824,9 +1162,9 @@
 
   // ─────────────────── цветной текст обычным шрифтом ───────────────────
   // Настройка `colored_text_font`: формула KaTeX, в которой только текст
-  // (цветной текст: \color + \textsf, \text…), в сообщениях рисуется
-  // шрифтом и размером чата, а не шрифтом KaTeX. Только в этом клиенте —
-  // у остальных она как была.
+  // (текст из меню: цвет, выделение, размер, подчёркнутый), в сообщениях
+  // рисуется шрифтом и размером чата, а не шрифтом KaTeX; размеры меню —
+  // относительно текста чата. Только в этом клиенте — у остальных она как была.
 
   const PLAIN_STYLE_ID = "arachnid-plain-katex-style";
   const PLAIN_CLASS = "arachnid-plain-katex";
@@ -842,7 +1180,7 @@
 }
 /* подпорки высоты формулы раздвигают строки, а тексту они не нужны */
 .katex.${PLAIN_CLASS} .strut { display: none; }
-/* \\sout — строка текста вместо столбика KaTeX с чертой поверх */
+/* \\sout, \\underline, \\colorbox — строка текста вместо столбика KaTeX с чертой или фоном */
 .katex.${PLAIN_CLASS} :is(.vlist-t, .vlist-r, .vlist, .vlist > span, .vlist > span > span) {
   display: inline !important;
   position: static !important;
@@ -850,8 +1188,19 @@
   margin: 0 !important;
   vertical-align: baseline !important;
 }
-.katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s) { display: none !important; }
+.katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s, .underline-line) { display: none !important; }
 .katex.${PLAIN_CLASS} .vlist:has(> span > .sout) { text-decoration: line-through; }
+.katex.${PLAIN_CLASS} .vlist:has(> span > .underline-line) { text-decoration: underline; }
+/* фон \\colorbox — у текста (цвет из --arachnid-plain-bg, см. markFormulas) */
+.katex.${PLAIN_CLASS} .vlist:has(> span > .colorbox) {
+  padding: 0 0.1em;
+  border-radius: 3px;
+  background: var(--arachnid-plain-bg);
+  -webkit-box-decoration-break: clone;
+}
+${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
+  .map(([size, index]) => `.katex.${PLAIN_CLASS} .katex-html .sizing.size${index} { font-size: ${SIZE_EM[size]}em !important; }`)
+  .join("\n")}
 .katex.${PLAIN_CLASS} .katex-html .texttt { font-family: var(--fonts-monospace, monospace) !important; }
 .katex.${PLAIN_CLASS} .textbf { font-weight: 600; }
 .katex.${PLAIN_CLASS} .textit { font-style: italic; }
@@ -859,22 +1208,41 @@
 
   let plainOn = plugin.settings.colored_text_font !== false;
 
-  /** В формуле только текст: части строки — текст, пробелы и подпорки KaTeX */
+  /** Признаки математики в формуле: буквы-переменные, знаки, индексы, дроби… */
+  const MATH = [
+    ".mathnormal", ".mathit", ".mathbf", ".boldsymbol", ".amsrm", ".mbin", ".mrel", ".mop", ".mopen",
+    ".mclose", ".mpunct", ".minner", ".msupsub", ".mfrac", ".sqrt", ".delimsizing", ".accent", ".overline",
+  ].join(", ");
+
+  /**
+   * В формуле только текст: части строки — пробелы, подпорки KaTeX и текст
+   * (\textsf…, в том числе внутри \sout, \underline, \colorbox) без математики.
+   */
   function textOnly(formula) {
     const bases = formula.querySelectorAll(":scope > .katex-html > .base");
+    const textPart = (part) =>
+      part.classList.contains("mord") &&
+      !part.matches(MATH) &&
+      !part.querySelector(MATH) &&
+      Boolean(part.matches(".text") || part.querySelector(".text"));
     return (
       bases.length > 0 &&
       [...bases].every((base) =>
-        [...base.children].every(
-          (part) => part.classList.contains("strut") || part.classList.contains("mspace") || part.matches(".mord.text"),
-        ),
+        [...base.children].every((part) => part.classList.contains("strut") || part.classList.contains("mspace") || textPart(part)),
       )
     );
   }
 
   function markFormulas(root) {
     const formulas = root.matches?.(".katex") ? [root] : root.querySelectorAll?.(".katex") ?? [];
-    for (const formula of formulas) if (textOnly(formula)) formula.classList.add(PLAIN_CLASS);
+    for (const formula of formulas) {
+      if (!textOnly(formula)) continue;
+      formula.classList.add(PLAIN_CLASS);
+      // фон \colorbox рисует отдельный элемент; без столбика KaTeX — фон у текста
+      for (const box of formula.querySelectorAll(".stretchy.colorbox")) {
+        box.closest(".vlist")?.style.setProperty("--arachnid-plain-bg", box.style.backgroundColor);
+      }
+    }
   }
 
   const formulaWatcher = new MutationObserver((records) => {
@@ -894,7 +1262,10 @@
 
   function stopPlain() {
     formulaWatcher.disconnect();
-    for (const formula of document.querySelectorAll(`.${PLAIN_CLASS}`)) formula.classList.remove(PLAIN_CLASS);
+    for (const formula of document.querySelectorAll(`.${PLAIN_CLASS}`)) {
+      formula.classList.remove(PLAIN_CLASS);
+      for (const list of formula.querySelectorAll(".vlist")) list.style.removeProperty("--arachnid-plain-bg");
+    }
     document.getElementById(PLAIN_STYLE_ID)?.remove();
   }
 
@@ -910,8 +1281,12 @@
 @keyframes arachnid-format-in { from { opacity: 0; transform: translateY(4px); } }
 .${MENU_CLASS} {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
   gap: 2px;
+  max-width: calc(100vw - ${GAP * 2}px);
+  box-sizing: border-box;
   padding: 4px;
   border-radius: 999px;
   background: var(--md-sys-color-surface-container-high);
@@ -951,6 +1326,21 @@
   align-self: stretch;
   margin: 8px 4px;
   background: var(--md-sys-color-outline-variant);
+}
+.${MENU_CLASS}[data-wrapped] { border-radius: 24px; }
+.${MENU_CLASS}:not([data-expanded]) [data-extra] { display: none; }
+.${MENU_CLASS} [data-kind="more"] .material-symbols-outlined { transition: transform 0.15s; }
+.${MENU_CLASS}[data-expanded] [data-kind="more"] .material-symbols-outlined { transform: rotate(180deg); }
+.${MENU_CLASS} [data-kind="highlight"]::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  transform: translateX(-50%);
+  background: var(--arachnid-format-highlight);
 }
 .${MENU_CLASS} [data-kind="color"]::after {
   content: "";
@@ -1027,29 +1417,61 @@
 }
 .${PALETTE_CLASS} [data-action]:disabled { opacity: 0.38; cursor: default; }
 .${PALETTE_CLASS} [data-action] .material-symbols-outlined { font-size: 18px; line-height: 1; }
-.${PALETTE_CLASS} [data-headings] {
+.${PALETTE_CLASS} [data-options] {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 200px;
 }
-.${PALETTE_CLASS} [data-heading] {
+.${PALETTE_CLASS} [data-option] {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
   padding: 6px 10px;
   border-radius: 8px;
   text-align: start;
-  font-weight: 600;
   line-height: 1.25;
 }
-.${PALETTE_CLASS} [data-heading="1"] { font-size: 20px; }
-.${PALETTE_CLASS} [data-heading="2"] { font-size: 17px; }
-.${PALETTE_CLASS} [data-heading="3"] { font-size: 15px; }
-.${PALETTE_CLASS} [data-heading]:hover {
+.${PALETTE_CLASS} [data-option]:hover,
+.${PALETTE_CLASS} [data-chip]:hover {
   background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
 }
-.${PALETTE_CLASS} [data-heading][aria-pressed="true"] {
+.${PALETTE_CLASS} :is([data-option], [data-chip])[aria-pressed="true"] {
   color: var(--md-sys-color-on-secondary-container);
   background: var(--md-sys-color-secondary-container);
 }
+.${PALETTE_CLASS} [data-name] {
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant);
+}
+.${PALETTE_CLASS} [data-preview] { font-size: 14px; }
+.${PALETTE_CLASS} [data-field] {
+  min-width: 260px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  color: inherit;
+  background: var(--md-sys-color-surface-container-low, transparent);
+  color-scheme: dark light;
+  outline: none;
+}
+.${PALETTE_CLASS} [data-field]:focus { border-color: var(--md-sys-color-primary, currentColor); }
+.${PALETTE_CLASS} [data-chips] {
+  display: grid;
+  grid-template-columns: repeat(4, auto);
+  gap: 4px;
+}
+.${PALETTE_CLASS} [data-chip] {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-family: var(--fonts-monospace, monospace);
+  font-size: 12px;
+}
+.${PALETTE_CLASS} [data-chip=""] { grid-column: 1 / -1; font-family: inherit; }
 .${PALETTE_CLASS} input[type="color"] {
   position: absolute;
   width: 0;
@@ -1060,13 +1482,24 @@
 `;
 
   let active = plugin.settings.format_menu !== false;
-  /** Редактор, у которого открыто меню (фокус может уйти в окно цвета) */
+  /** Редактор, у которого открыто меню (фокус может уйти в окно под кнопкой) */
   let editor = null;
   let menu = null;
-  /** Открытое окно под кнопкой меню: палитра или заголовки (data-for) */
+  /** Открытое окно под кнопкой меню (палитра, заголовки, ссылка…); data-for — кнопка */
   let palette = null;
   /** Последний выбранный цвет — полоска под значком палитры */
   let lastColor = SWATCHES[0];
+  let lastHighlight = HIGHLIGHTS[2];
+  /** Меню развёрнуто стрелкой — помнится и в следующих запусках */
+  const EXPANDED_KEY = "arachnid-format-expanded";
+  const remembered = () => {
+    try {
+      return localStorage.getItem(EXPANDED_KEY) === "1";
+    } catch {
+      return false; // хранилище недоступно (страница без своего адреса)
+    }
+  };
+  let expanded = remembered();
   /** Кнопка мыши нажата в редакторе: выделение ещё тянут — меню ждёт */
   let selecting = false;
   let frame = 0;
@@ -1084,28 +1517,44 @@
     element.className = MENU_CLASS;
     element.setAttribute("role", "toolbar");
     for (const button of BUTTONS) {
-      if (button === "|") {
+      if (button === "|" || button.separator) {
         const separator = document.createElement("span");
         separator.dataset.separator = "";
+        if (button.extra) separator.dataset.extra = "";
         element.append(separator);
         continue;
       }
       const control = document.createElement("button");
       control.type = "button";
       control.dataset.kind = button.kind;
+      if (button.extra) control.dataset.extra = "";
       control.append(icon(button.icon));
       element.append(control);
     }
+    element.toggleAttribute("data-expanded", expanded);
     // кнопки не забирают фокус у поля — выделение остаётся
     element.addEventListener("mousedown", (event) => event.preventDefault());
     element.addEventListener("click", (event) => {
       const control = event.target.closest("button[data-kind]");
       if (!control) return;
       const kind = control.dataset.kind;
-      if (kind === "color" || kind === "heading") {
+      if (kind === "more") {
+        expanded = !expanded;
+        try {
+          localStorage.setItem(EXPANDED_KEY, expanded ? "1" : "0");
+        } catch {
+          // не запомнится — только до перезапуска
+        }
+        closePalette();
+        menu.toggleAttribute("data-expanded", expanded);
+        label();
+        place();
+        return;
+      }
+      if (POPUP_KINDS.includes(kind)) {
         const open = palette?.dataset.for;
         closePalette();
-        if (open !== kind) (kind === "color" ? openPalette : openHeadings)(control);
+        if (open !== kind) POPUPS[kind](control);
         return;
       }
       closePalette();
@@ -1117,7 +1566,8 @@
   /** Подписи — на языке интерфейса при каждом показе */
   function label() {
     for (const control of menu.querySelectorAll("button[data-kind]")) {
-      const tip = text[control.dataset.kind];
+      const kind = control.dataset.kind;
+      const tip = kind === "more" ? text[expanded ? "less" : "more"] : text[kind];
       control.dataset.tip = tip;
       control.setAttribute("aria-label", tip);
     }
@@ -1132,6 +1582,7 @@
     editor = current.view;
     label();
     menu.style.setProperty("--arachnid-format-color", lastColor);
+    menu.style.setProperty("--arachnid-format-highlight", lastHighlight);
     for (const control of menu.querySelectorAll("button[data-kind]")) {
       const on = isActive(current.doc, current.from, current.to, control.dataset.kind);
       control.setAttribute("aria-pressed", String(on));
@@ -1142,12 +1593,15 @@
   /** Меню над выделением (под ним, если сверху нет места) */
   function place() {
     const range = getSelection()?.rangeCount ? getSelection().getRangeAt(0) : null;
-    const rects = range ? [...range.getClientRects()].filter((rect) => rect.width || rect.height) : [];
+    const inEditor = range && editor.contentDOM.contains(range.commonAncestorContainer);
+    const rects = inEditor ? [...range.getClientRects()].filter((rect) => rect.width || rect.height) : [];
     const area = editor.contentDOM.getBoundingClientRect();
     const first = rects[0] ?? area;
     const last = rects.at(-1) ?? area;
     const left = Math.min(...rects.map((rect) => rect.left), first.left);
     const right = Math.max(...rects.map((rect) => rect.right), first.right);
+    // узкое окно — меню переносится на вторую строку
+    menu.toggleAttribute("data-wrapped", menu.offsetHeight > 52);
     const width = menu.offsetWidth;
     const height = menu.offsetHeight;
     const x = Math.max(GAP, Math.min(innerWidth - width - GAP, (left + right) / 2 - width / 2));
@@ -1180,18 +1634,33 @@
     });
   }
 
-  // ─────────────────────────────── палитра ───────────────────────────────
+  // ─────────────────────────── окна под кнопками ───────────────────────────
 
-  function selectedColor() {
-    const current = selection();
-    const span = current && spanAt(current.doc, ...trimmed(current.doc, current.from, current.to));
-    return span?.color.toLowerCase() ?? null;
+  /** Окно под кнопкой kind меню с подписью сверху */
+  function popup(kind, caption) {
+    const element = document.createElement("div");
+    element.className = PALETTE_CLASS;
+    element.dataset.for = kind;
+    const title = document.createElement("div");
+    title.dataset.title = "";
+    title.textContent = caption;
+    element.append(title);
+    // щелчок по окну не забирает фокус у поля — кроме полей ввода в окне
+    element.addEventListener("mousedown", (event) => {
+      if (!event.target.closest("input")) event.preventDefault();
+    });
+    // клавиши в полях окна — только им (не горячим клавишам страницы)
+    element.addEventListener("keydown", (event) => {
+      if (event.target.closest("input")) event.stopPropagation();
+    });
+    return element;
   }
 
-  function choose(color) {
-    if (color) lastColor = color;
-    closePalette();
-    edit((doc, from, to) => paint(doc, from, to, color));
+  function openPopup(element, anchor) {
+    palette = element;
+    document.body.append(palette);
+    menu.dataset.palette = "";
+    placePalette(anchor);
   }
 
   function action(iconName, caption, onClick) {
@@ -1203,84 +1672,255 @@
     return button;
   }
 
-  function openPalette(anchor) {
+  function actionsRow(...buttons) {
+    const row = document.createElement("div");
+    row.dataset.actions = "";
+    row.append(...buttons);
+    return row;
+  }
+
+  /** Применить правку из окна: окно закрывается, фокус — в поле */
+  function apply(make) {
+    closePalette();
+    edit(make);
+  }
+
+  /** Список вариантов: [{ value, label, pressed, style? }] */
+  function optionList(options, onChoose) {
+    const list = document.createElement("div");
+    list.dataset.options = "";
+    for (const option of options) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.dataset.option = String(option.value);
+      if (option.style) button.style.cssText = option.style;
+      button.append(...[option.label].flat());
+      button.setAttribute("aria-pressed", String(Boolean(option.pressed)));
+      button.addEventListener("click", () => onChoose(option.value));
+      list.append(button);
+    }
+    return list;
+  }
+
+  /** Цвет первой формулы у выделения (getter — color или фон) */
+  function selectedSpan() {
     const current = selection();
-    if (!current) return;
-    palette = popup("color", text.color);
+    return current && spanAt(current.doc, ...trimmed(current.doc, current.from, current.to));
+  }
+
+  /** Сетка цветов: swatches, chosen, onChoose(color); «Свой цвет» — системное окно */
+  function swatchGrid(element, colors, chosen, fallback, onChoose) {
     const swatches = document.createElement("div");
     swatches.dataset.swatches = "";
-    const chosen = selectedColor();
-    for (const color of SWATCHES) {
+    for (const color of colors) {
       const swatch = document.createElement("button");
       swatch.type = "button";
       swatch.dataset.swatch = "";
       swatch.title = color;
       swatch.style.setProperty("--swatch", color);
       swatch.setAttribute("aria-pressed", String(color === chosen));
-      swatch.addEventListener("click", () => choose(color));
+      swatch.addEventListener("click", () => onChoose(color));
       swatches.append(swatch);
     }
-    // свой цвет — системное окно выбора цвета
     const native = document.createElement("input");
     native.type = "color";
-    native.value = chosen && /^#[0-9a-f]{6}$/.test(chosen) ? chosen : lastColor;
-    native.addEventListener("change", () => choose(native.value));
-    const custom = action("colorize", text.customColor, () => native.click());
+    native.value = chosen && /^#[0-9a-f]{6}$/.test(chosen) ? chosen : fallback;
+    native.addEventListener("change", () => onChoose(native.value));
+    element.append(swatches);
+    return [action("colorize", text.customColor, () => native.click()), native];
+  }
+
+  function openPalette(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("color", text.color);
+    const chosen = selectedSpan()?.color?.toLowerCase() ?? null;
+    const choose = (color) => {
+      if (color) lastColor = color;
+      apply((doc, from, to) => paint(doc, from, to, color));
+    };
+    const [custom, native] = swatchGrid(element, SWATCHES, chosen, lastColor, choose);
     const none = action("format_color_reset", text.noColor, () => choose(null));
     none.disabled = !isActive(current.doc, current.from, current.to, "color");
-    const actions = document.createElement("div");
-    actions.dataset.actions = "";
-    actions.append(custom, none, native);
-    palette.append(swatches, actions);
-    document.body.append(palette);
-    menu.dataset.palette = "";
-    placePalette(anchor);
+    element.append(actionsRow(custom, none, native));
+    openPopup(element, anchor);
   }
 
-  /** Окно под кнопкой kind меню (палитра, заголовки) с подписью сверху */
-  function popup(kind, caption) {
-    const element = document.createElement("div");
-    element.className = PALETTE_CLASS;
-    element.dataset.for = kind;
-    const title = document.createElement("div");
-    title.dataset.title = "";
-    title.textContent = caption;
-    element.append(title);
-    element.addEventListener("mousedown", (event) => event.preventDefault());
-    return element;
+  function openHighlight(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("highlight", text.highlight);
+    const span = selectedSpan();
+    const backgrounds = span ? spanSegments(current.doc, span).map((segment) => backgroundOf(segment.styles)) : [];
+    const chosen = backgrounds.find(Boolean)?.toLowerCase() ?? null;
+    const choose = (color) => {
+      if (color) lastHighlight = color;
+      apply((doc, from, to) => highlight(doc, from, to, color));
+    };
+    const [custom, native] = swatchGrid(element, HIGHLIGHTS, chosen, lastHighlight, choose);
+    const none = action("format_color_reset", text.noHighlight, () => choose(null));
+    none.disabled = !isActive(current.doc, current.from, current.to, "highlight");
+    element.append(actionsRow(custom, none, native));
+    openPopup(element, anchor);
   }
 
-  function chooseHeading(level) {
-    closePalette();
-    edit((doc, from, to) => toggleHeading(doc, from, to, level));
+  function openSizes(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("size", text.size);
+    const chosen = selectedSpan()?.size ?? BASE_SIZE;
+    const options = SIZES.map((size) => ({
+      value: size,
+      label: text[SIZE_LABELS[size]],
+      pressed: size === chosen,
+      style: `font-size:${Math.round(14 * SIZE_EM[size])}px`,
+    }));
+    element.append(optionList(options, (size) => apply((doc, from, to) => resize(doc, from, to, size))));
+    openPopup(element, anchor);
   }
 
   function openHeadings(anchor) {
     const current = selection();
     if (!current) return;
-    palette = popup("heading", text.heading);
+    const element = popup("heading", text.heading);
     const chosen = headingLevel(current.doc, current.from, current.to);
-    const list = document.createElement("div");
-    list.dataset.headings = "";
-    for (const level of HEADINGS) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.dataset.heading = String(level);
-      button.textContent = text[`heading${level}`];
-      button.setAttribute("aria-pressed", String(level === chosen));
-      button.addEventListener("click", () => chooseHeading(level));
-      list.append(button);
-    }
-    const none = action("format_clear", text.noHeading, () => chooseHeading(0));
+    const sizes = [20, 17, 15, 14, 13, 11];
+    const options = HEADINGS.map((level) => ({
+      value: level,
+      label: text[`heading${level}`],
+      pressed: level === chosen,
+      style: `font-size:${sizes[level - 1]}px;font-weight:600`,
+    }));
+    const choose = (level) => apply((doc, from, to) => toggleHeading(doc, from, to, level));
+    element.append(optionList(options, choose));
+    const none = action("format_clear", text.noHeading, () => choose(0));
     none.disabled = !isActive(current.doc, current.from, current.to, "heading");
-    const actions = document.createElement("div");
-    actions.dataset.actions = "";
-    actions.append(none);
-    palette.append(list, actions);
-    document.body.append(palette);
-    menu.dataset.palette = "";
-    placePalette(anchor);
+    element.append(actionsRow(none));
+    openPopup(element, anchor);
   }
+
+  function openLink(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("link", text.link);
+    const link = linkAt(current.doc, ...trimmed(current.doc, current.from, current.to));
+    const input = document.createElement("input");
+    input.type = "url";
+    input.dataset.field = "";
+    input.placeholder = "https://";
+    input.spellcheck = false;
+    input.value = link?.url ?? "";
+    const submit = () => {
+      let url = input.value.trim();
+      if (url && !/^[a-z][\w+.-]*:/i.test(url)) url = `https://${url}`;
+      if (!url && !link) return closePalette();
+      apply((doc, from, to) => setLink(doc, from, to, url.replace(/[\s)]/g, encodeURIComponent)));
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        submit();
+      }
+    });
+    const done = action("check", text.linkApply, submit);
+    const remove = action("link_off", text.noLink, () => apply((doc, from, to) => setLink(doc, from, to, "")));
+    remove.disabled = !link;
+    element.append(input, actionsRow(done, remove));
+    openPopup(element, anchor);
+    input.focus();
+    input.select();
+  }
+
+  /** Как for-web покажет время в формате format (на языке интерфейса) */
+  function timePreview(date, format) {
+    const language = i18n.language?.() || navigator.language;
+    if (format.format !== "R") return new Intl.DateTimeFormat(language, format.options).format(date);
+    const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+    const units = [
+      ["year", 31536000],
+      ["month", 2592000],
+      ["day", 86400],
+      ["hour", 3600],
+      ["minute", 60],
+      ["second", 1],
+    ];
+    const [unit, size] = units.find(([, length]) => Math.abs(seconds) >= length) ?? ["second", 1];
+    return new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(Math.round(seconds / size), unit);
+  }
+
+  /** Значение для <input type="datetime-local"> — местное время */
+  const localValue = (date) =>
+    new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+  function openTime(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("time", text.time);
+    const time = timeAt(current.doc, ...trimmed(current.doc, current.from, current.to));
+    // по умолчанию — начало следующего часа
+    const start = time ? new Date(time.seconds * 1000) : new Date(Math.ceil(Date.now() / 3600000) * 3600000);
+    const input = document.createElement("input");
+    input.type = "datetime-local";
+    input.dataset.field = "";
+    input.value = localValue(start);
+    const date = () => (input.value ? new Date(input.value) : start);
+    const options = () =>
+      TIME_FORMATS.map((format) => {
+        const name = document.createElement("span");
+        name.dataset.name = "";
+        name.textContent = text[format.label];
+        const preview = document.createElement("span");
+        preview.dataset.preview = "";
+        preview.textContent = timePreview(date(), format);
+        return { value: format.format, label: [name, preview], pressed: time?.format === format.format };
+      });
+    const choose = (format) => {
+      const seconds = Math.floor(date().getTime() / 1000);
+      if (Number.isFinite(seconds)) apply((doc, from, to) => setTime(doc, from, to, seconds, format));
+    };
+    let list = optionList(options(), choose);
+    input.addEventListener("input", () => {
+      const next = optionList(options(), choose);
+      list.replaceWith(next);
+      list = next;
+    });
+    element.append(input, list);
+    openPopup(element, anchor);
+  }
+
+  function openCodeBlock(anchor) {
+    const current = selection();
+    if (!current) return;
+    const element = popup("codeblock", text.codeblock);
+    const block = codeBlockAt(current.doc, ...trimmed(current.doc, current.from, current.to));
+    const chips = document.createElement("div");
+    chips.dataset.chips = "";
+    for (const language of ["", ...LANGUAGES]) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.dataset.chip = language;
+      chip.textContent = language || text.noLanguage;
+      chip.setAttribute("aria-pressed", String(block?.language === language));
+      chip.addEventListener("click", () => apply((doc, from, to) => toggleCodeBlock(doc, from, to, language)));
+      chips.append(chip);
+    }
+    const remove = action("format_clear", text.noCodeblock, () =>
+      apply((doc, from, to) => toggleCodeBlock(doc, from, to, null)),
+    );
+    remove.disabled = !block;
+    element.append(chips, actionsRow(remove));
+    openPopup(element, anchor);
+  }
+
+  const POPUPS = {
+    color: openPalette,
+    highlight: openHighlight,
+    size: openSizes,
+    heading: openHeadings,
+    link: openLink,
+    time: openTime,
+    codeblock: openCodeBlock,
+  };
 
   function placePalette(anchor = menu?.querySelector(`[data-kind="${palette?.dataset.for}"]`)) {
     if (!palette || !anchor) return;
@@ -1296,9 +1936,13 @@
   }
 
   function closePalette() {
-    palette?.remove();
+    if (!palette) return;
+    // фокус был в поле окна (ссылка, время) — обратно в редактор
+    const refocus = palette.contains(document.activeElement);
+    palette.remove();
     palette = null;
     if (menu) delete menu.dataset.palette;
+    if (refocus) editor?.focus();
   }
 
   // ─────────────────────────────── события ───────────────────────────────
