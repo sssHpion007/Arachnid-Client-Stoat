@@ -29,7 +29,8 @@
 // * Видео и аудио, которые не загрузились (оборвался ответ, загрузка встала),
 //   незаметно загружаются заново — см. «надёжная загрузка». Видео по ссылке,
 //   которое не отдал прокси встраиваний Stoat (January), грузится с сайта
-//   напрямую; с CDN Discord — сразу напрямую (см. «прокси встраиваний»).
+//   напрямую; с Discord — сразу с cdn.discordapp.com (см. «прокси
+//   встраиваний»).
 // * Видео, которое WebView2 не показывает (HEVC из TikTok и с телефона,
 //   AVI, WMV…), клиент по нажатию ▶ незаметно перекодирует в H.264
 //   (transcode.rs): пока идёт перекодирование — обычный значок загрузки.
@@ -715,43 +716,48 @@
   // for-web показывает ошибку, а повтор в ту же минуту получает её же.
   // Помогало переключить канал — элемент создавался заново позже.
   //
-  // Поэтому файл, который прокси не отдал (ошибка или ни байта за STALL_MS),
-  // грузится с сайта напрямую — как и GIF for-web. Файлы с CDN Discord —
-  // сразу напрямую: он отдаёт файл частями, видео начинается сразу и
-  // перематывается, не дожидаясь всего файла. Ссылки Discord подписаны
-  // (`ex`, `is`, `hm`) — адрес берётся из ссылки как есть.
+  // Поэтому у такого файла несколько адресов, и не загрузился с одного
+  // (ошибка или ни байта за STALL_MS) — плеер берёт следующий:
+  //
+  // * файл с Discord — сначала напрямую с cdn.discordapp.com: он отдаёт файл
+  //   частями, видео начинается сразу и перематывается, не дожидаясь всего
+  //   файла. Ссылку на media.discordapp.net (медиапрокси Discord, видео он
+  //   отдаёт не всегда) — тоже с cdn.discordapp.com, с той же подписью
+  //   (`ex`, `is`, `hm` годятся для обоих); затем ссылка как есть, затем
+  //   прокси Stoat;
+  // * файл с другого сайта — сначала через прокси Stoat, затем напрямую.
+  //
+  // Адрес, который не отдал файл, до перезапуска клиента пропускается.
 
-  /** Сайты, файлы с которых грузятся напрямую, без прокси */
-  const DIRECT_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
-  /** Исходные адреса, которые прокси не отдал: дальше — напрямую */
-  const unproxied = new Set();
+  /** Сайты Discord, с которых файлы грузятся напрямую */
+  const DISCORD_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
+  /** Адреса, которые не отдали файл: дальше пропускаются */
+  const failedSources = new Set();
 
-  /** Исходный адрес файла за прокси January или null */
-  function proxiedOriginal(src) {
-    let url;
+  function parseUrl(value) {
     try {
-      url = new URL(src, location.href);
-    } catch {
-      return null;
-    }
-    const original = url.pathname.endsWith("/proxy") ? url.searchParams.get("url") : null;
-    if (!original) return null;
-    try {
-      const parsed = new URL(original);
-      return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.href : null;
+      return new URL(value, location.href);
     } catch {
       return null;
     }
   }
 
-  /** Загружать ли файл сразу напрямую: CDN Discord или прокси его уже не отдал */
-  function wantsDirect(original) {
-    if (unproxied.has(original)) return true;
-    try {
-      return DIRECT_HOSTS.has(new URL(original).hostname);
-    } catch {
-      return false;
-    }
+  /** Исходный адрес файла за прокси January или null */
+  function proxiedOriginal(src) {
+    const url = parseUrl(src);
+    const original = url?.pathname.endsWith("/proxy") ? parseUrl(url.searchParams.get("url") ?? "") : null;
+    return original && (original.protocol === "https:" || original.protocol === "http:") ? original.href : null;
+  }
+
+  /** Адреса, с которых можно загрузить файл, по порядку; не через прокси — пусто */
+  function sourcesOf(src) {
+    const original = proxiedOriginal(src);
+    if (!original) return [];
+    const url = new URL(original);
+    if (!DISCORD_HOSTS.has(url.hostname)) return [src, original];
+    const cdn = new URL(original);
+    if (/^\/(?:ephemeral-)?attachments\//.test(cdn.pathname)) cdn.hostname = "cdn.discordapp.com";
+    return [...new Set([cdn.href, original, src])];
   }
 
   // ─────────────────────────── надёжная загрузка ───────────────────────────
@@ -768,8 +774,8 @@
   //   — сразу. Файла нет (4xx) или формат не тот — дальше решает плеер;
   // * загрузка (до метаданных) или воспроизведение стоят дольше STALL_MS, не
   //   получив ни байта, — тоже заново;
-  // * файл через прокси January после ошибки или не получив ни байта за
-  //   STALL_MS — сразу с сайта напрямую (см. «прокси встраиваний»).
+  // * у файла по ссылке несколько адресов (см. «прокси встраиваний»): после
+  //   ошибки или если загрузка стоит, не получив ни байта, — сразу следующий.
   //
   // Каждый сбой с текстом ошибки Chromium записывается в журнал клиента
   // (media_report): по нему видно, почему файл не загрузился.
@@ -837,31 +843,42 @@
       timer = setTimeout(reload, delay);
     }
 
-    /** Файл через прокси January — с сайта напрямую; `true` — адрес сменился */
-    function bypass(event, force) {
-      const original = proxiedOriginal(media.currentSrc || media.src);
-      if (!original || (!force && !wantsDirect(original))) return false;
-      unproxied.add(original);
+    /** Адреса файла по ссылке (см. «прокси встраиваний») */
+    const sources = sourcesOf(media.currentSrc || media.src);
+
+    /** Загрузить файл с другого адреса; `true` — адрес сменился */
+    function useSource(next, event) {
+      if (!next || next === (media.currentSrc || media.src)) return false;
       if (event) report(event);
       clearTimeout(timer);
       timer = 0;
       const position = media.currentTime;
       const resume = wanted();
-      [src, attempts] = [original, 0];
+      [src, attempts] = [next, 0];
       touch();
       if (event) onRetry(resume);
       // новый адрес — загрузка начинается заново сама
-      media.src = original;
+      media.src = next;
       if (position > 0) media.currentTime = position;
       if (resume) void media.play().catch(() => {});
       return true;
+    }
+
+    /** Текущий адрес не отдал файл — следующий; `true` — адрес сменился */
+    function nextSource(event) {
+      const current = media.currentSrc || media.src;
+      const index = sources.indexOf(current);
+      if (index === -1) return false;
+      failedSources.add(current);
+      const next = sources.slice(index + 1).find((source) => !failedSources.has(source));
+      return useSource(next, `${event}, next source`);
     }
 
     function onError() {
       const current = media.currentSrc || media.src;
       if (current !== src) [src, attempts] = [current, 0];
       report("error");
-      if (bypass("proxy failed", true)) return;
+      if (nextSource("error")) return;
       if (attempts < QUICK_RETRIES_MS.length) return later(QUICK_RETRIES_MS[attempts]);
       const failed = media.error;
       void failureOf(media).then((reason) => {
@@ -887,7 +904,7 @@
         media.readyState === HTMLMediaElement.HAVE_NOTHING && media.networkState === HTMLMediaElement.NETWORK_LOADING;
       const stuck = wanted() && !media.paused && media.readyState < HTMLMediaElement.HAVE_FUTURE_DATA;
       if (!loading && !stuck) return;
-      if (loading && bypass("proxy stalled", true)) return;
+      if (loading && nextSource("stalled loading")) return;
       report(loading ? "stalled loading" : "stalled playback");
       reload();
     }
@@ -908,9 +925,10 @@
       const now = performance.now();
       for (const check of stallWatches) check(now);
     }, WATCH_MS);
-    // CDN Discord и файлы, которые прокси уже не отдал, — сразу напрямую;
+    // первый адрес, который ещё не подводил (у файла с Discord — CDN Discord);
     // иначе ошибка могла случиться до плеера
-    if (!bypass(null, false) && media.error) onError();
+    const first = sources.find((source) => !failedSources.has(source));
+    if (!useSource(first, null) && media.error) onError();
 
     return {
       /** Пользователь ждёт (нажал ▶): назначенный повтор — сейчас; false — повтора нет */
