@@ -38,6 +38,10 @@
           "label": "Uzlabots emocijzīmju atlasītājs",
           "hint": "Ērtas sadaļas un citi emocijzīmju atlasītāja uzlabojumi."
         },
+        "format_menu": {
+          "label": "Formatēšanas izvēlne",
+          "hint": "Treknraksts, slīpraksts, spoileris, teksta krāsa un cits virs atlasītā teksta."
+        },
         "favorite_gifs": {
           "label": "Izlases GIF",
           "hint": "Saglabā iecienītākos GIF un ātri tos atrodi."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Lūdzu, uzgaidiet, ziņas tiek ielādētas…",
     "retry": "Lūdzu, uzgaidiet, atkārtots mēģinājums pēc {0} s…"
+  },
+  "formatting": {
+    "bold": "Treknraksts",
+    "italic": "Slīpraksts",
+    "strike": "Pārsvītrots",
+    "spoiler": "Spoileris",
+    "code": "Kods",
+    "quote": "Citāts",
+    "color": "Teksta krāsa",
+    "customColor": "Sava krāsa",
+    "noColor": "Bez krāsas"
   }
 }

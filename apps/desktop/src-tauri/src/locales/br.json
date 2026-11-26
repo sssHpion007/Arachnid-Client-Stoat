@@ -38,6 +38,10 @@
           "label": "Dibaber fromlunioù gwellaet",
           "hint": "Rannoù talvoudus ha gwellaennoù all evit an dibaber fromlunioù."
         },
+        "format_menu": {
+          "label": "Lañser furmadiñ",
+          "hint": "Tev, stouet, spoiler, liv an destenn ha muioc’h a-us d’an destenn diuzet."
+        },
         "favorite_gifs": {
           "label": "GIFoù muiañ-karet",
           "hint": "Enrollit ho GIFoù muiañ-karet ha kavit anezho buan."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Gortozit, o kargañ ar c'hemennadennoù…",
     "retry": "Gortozit, klask en-dro a-benn {0} eil…"
+  },
+  "formatting": {
+    "bold": "Tev",
+    "italic": "Stouet",
+    "strike": "Barrennet",
+    "spoiler": "Spoiler",
+    "code": "Kod",
+    "quote": "Arroudenn",
+    "color": "Liv an destenn",
+    "customColor": "Liv personel",
+    "noColor": "Hep liv"
   }
 }

@@ -38,6 +38,10 @@
           "label": "Verbesserte Emoji-Auswahl",
           "hint": "Praktische Bereiche und weitere Verbesserungen der Emoji-Auswahl."
         },
+        "format_menu": {
+          "label": "Formatierungsmenü",
+          "hint": "Fett, kursiv, Spoiler, Textfarbe und mehr über markiertem Text."
+        },
         "favorite_gifs": {
           "label": "Favorisierte GIFs",
           "hint": "Speichere deine Lieblings-GIFs und finde sie schnell wieder."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Bitte warten, Nachrichten werden geladen…",
     "retry": "Bitte warten, neuer Versuch in {0} s…"
+  },
+  "formatting": {
+    "bold": "Fett",
+    "italic": "Kursiv",
+    "strike": "Durchgestrichen",
+    "spoiler": "Spoiler",
+    "code": "Code",
+    "quote": "Zitat",
+    "color": "Textfarbe",
+    "customColor": "Eigene Farbe",
+    "noColor": "Keine Farbe"
   }
 }

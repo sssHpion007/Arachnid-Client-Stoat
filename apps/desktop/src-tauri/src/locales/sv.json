@@ -38,6 +38,10 @@
           "label": "Förbättrad emojiväljare",
           "hint": "Praktiska avsnitt och andra förbättringar av emojiväljaren."
         },
+        "format_menu": {
+          "label": "Formateringsmeny",
+          "hint": "Fetstil, kursiv, spoiler, textfärg och mer ovanför markerad text."
+        },
         "favorite_gifs": {
           "label": "Favorit-GIF:ar",
           "hint": "Spara dina favorit-GIF:ar och hitta dem snabbt."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Vänta, meddelanden läses in…",
     "retry": "Vänta, nytt försök om {0} s…"
+  },
+  "formatting": {
+    "bold": "Fetstil",
+    "italic": "Kursiv",
+    "strike": "Genomstruken",
+    "spoiler": "Spoiler",
+    "code": "Kod",
+    "quote": "Citat",
+    "color": "Textfärg",
+    "customColor": "Egen färg",
+    "noColor": "Ingen färg"
   }
 }

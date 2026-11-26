@@ -38,6 +38,10 @@
           "label": "Täiustatud emojivalija",
           "hint": "Mugavad jaotised ja muud emojivalija täiustused."
         },
+        "format_menu": {
+          "label": "Vormindusmenüü",
+          "hint": "Paks, kaldkiri, spoiler, teksti värv ja muu valitud teksti kohal."
+        },
         "favorite_gifs": {
           "label": "Lemmik-GIF-id",
           "hint": "Salvesta oma lemmik-GIF-id ja leia need kiiresti üles."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Palun oota, sõnumeid laaditakse…",
     "retry": "Palun oota, uus katse {0} s pärast…"
+  },
+  "formatting": {
+    "bold": "Paks",
+    "italic": "Kaldkiri",
+    "strike": "Läbikriipsutatud",
+    "spoiler": "Spoiler",
+    "code": "Kood",
+    "quote": "Tsitaat",
+    "color": "Teksti värv",
+    "customColor": "Oma värv",
+    "noColor": "Värvita"
   }
 }

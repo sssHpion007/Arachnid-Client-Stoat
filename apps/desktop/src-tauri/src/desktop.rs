@@ -98,6 +98,10 @@ const HISTORY_SCRIPT: &str = include_str!("history.js");
 /// for-web: полоса в духе YouTube, скорость, повтор, обложки аудио.
 const PLAYER_SCRIPT: &str = include_str!("player.js");
 
+/// Меню форматирования той же «Quality of Life» над выделенным текстом поля
+/// сообщения: разметка for-web и цветной текст формулой KaTeX.
+const FORMATTING_SCRIPT: &str = include_str!("formatting.js");
+
 /// Список стандартных эмодзи for-web (`emojiMapping.json`, stoat-for-web
 /// 0.16.3) для `emoji.js`.
 const EMOJI_MAPPING: &str = include_str!("emoji_mapping.json");
@@ -432,12 +436,13 @@ fn emoji_script() -> String {
 /// Код встроенного плагина «Quality of Life»: окно эмодзи, реакции и значки
 /// ролей (`emoji.js`), избранные GIF (`gifs.js`), горячие клавиши
 /// (`hotkeys.js`), загрузка истории чата (`history.js`), видео- и аудиоплеер
-/// (`player.js`). Выполняется телом
+/// (`player.js`), меню форматирования (`formatting.js`). Выполняется телом
 /// функции с объектом `plugin`, как плагин-папка: по `plugin.settings`
 /// включается каждая часть.
 pub(crate) fn qol_script() -> String {
     format!(
-        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}\n{PLAYER_SCRIPT}",
+        "{}\n{GIFS_SCRIPT}\n{HOTKEYS_SCRIPT}\n{HISTORY_SCRIPT}\n{PLAYER_SCRIPT}\n\
+         {FORMATTING_SCRIPT}",
         emoji_script()
     )
 }
@@ -1061,6 +1066,7 @@ mod tests {
             HOTKEYS_SCRIPT,
             HISTORY_SCRIPT,
             PLAYER_SCRIPT,
+            FORMATTING_SCRIPT,
         ] {
             assert!(!script.contains("__ARACHNID_"));
         }

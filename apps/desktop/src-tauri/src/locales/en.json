@@ -38,6 +38,10 @@
           "label": "Enhanced Emoji Picker",
           "hint": "Handy sections and other improvements for the emoji picker."
         },
+        "format_menu": {
+          "label": "Formatting Menu",
+          "hint": "Bold, italic, spoiler, text color and more above selected text."
+        },
         "favorite_gifs": {
           "label": "Favorite GIFs",
           "hint": "Save your favorite GIFs and get to them quickly."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Please wait, loading messages…",
     "retry": "Please wait, retrying in {0} s…"
+  },
+  "formatting": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "strike": "Strikethrough",
+    "spoiler": "Spoiler",
+    "code": "Code",
+    "quote": "Quote",
+    "color": "Text color",
+    "customColor": "Custom color",
+    "noColor": "No color"
   }
 }

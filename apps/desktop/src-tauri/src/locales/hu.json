@@ -38,6 +38,10 @@
           "label": "Továbbfejlesztett emojiválasztó",
           "hint": "Hasznos szakaszok és más fejlesztések az emojiválasztóban."
         },
+        "format_menu": {
+          "label": "Formázási menü",
+          "hint": "Félkövér, dőlt, spoiler, szövegszín és más a kijelölt szöveg fölött."
+        },
         "favorite_gifs": {
           "label": "Kedvenc GIF-ek",
           "hint": "Mentsd el a kedvenc GIF-jeidet, és érd el őket gyorsan."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Kérjük, várjon, az üzenetek betöltése folyamatban…",
     "retry": "Kérjük, várjon, újrapróbálás {0} mp múlva…"
+  },
+  "formatting": {
+    "bold": "Félkövér",
+    "italic": "Dőlt",
+    "strike": "Áthúzott",
+    "spoiler": "Spoiler",
+    "code": "Kód",
+    "quote": "Idézet",
+    "color": "Szövegszín",
+    "customColor": "Egyéni szín",
+    "noColor": "Nincs szín"
   }
 }

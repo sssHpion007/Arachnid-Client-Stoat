@@ -38,6 +38,10 @@
           "label": "Sélecteur d’emojis amélioré",
           "hint": "Des sections pratiques et d’autres améliorations du sélecteur d’emojis."
         },
+        "format_menu": {
+          "label": "Menu de mise en forme",
+          "hint": "Gras, italique, spoiler, couleur du texte et plus au-dessus du texte sélectionné."
+        },
         "favorite_gifs": {
           "label": "GIF favoris",
           "hint": "Enregistrez vos GIF préférés et retrouvez-les rapidement."
@@ -269,5 +273,16 @@
   "history": {
     "loading": "Veuillez patienter, chargement des messages…",
     "retry": "Veuillez patienter, nouvel essai dans {0} s…"
+  },
+  "formatting": {
+    "bold": "Gras",
+    "italic": "Italique",
+    "strike": "Barré",
+    "spoiler": "Spoiler",
+    "code": "Code",
+    "quote": "Citation",
+    "color": "Couleur du texte",
+    "customColor": "Couleur personnalisée",
+    "noColor": "Sans couleur"
   }
 }
