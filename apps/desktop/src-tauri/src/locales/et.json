@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Täiustatud meediapleier",
-          "hint": "Funktsionaalne pleier video- ja helimanustele Stoati stiilis: kiirus, kordus, lugude kaanepildid."
+          "hint": "Funktsionaalne video/heli manuste pleier Stoati stiilis: kiirus, kordus, kaanepildid ja riba „Praegu mängib“, lugu jätkub ka teise vestlusesse minnes."
         },
         "emoji_picker": {
           "label": "Täiustatud emojivalija",

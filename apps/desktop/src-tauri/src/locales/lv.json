@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Uzlabots multivides atskaņotājs",
-          "hint": "Funkcionāls atskaņotājs video un audio pielikumiem Stoat stilā: ātrums, atkārtošana, ierakstu vāciņi."
+          "hint": "Funkcionāls video/audio pielikumu atskaņotājs Stoat stilā: ātrums, atkārtošana, vāciņi un josla „Tagad skan”, ieraksts turpina skanēt, pārejot uz citu tērzēšanu."
         },
         "emoji_picker": {
           "label": "Uzlabots emocijzīmju atlasītājs",

@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Verbesserter Mediaplayer",
-          "hint": "Funktionsreicher Player für Video- und Audioanhänge im Stil von Stoat: Geschwindigkeit, Wiederholen, Track-Cover."
+          "hint": "Funktionsreicher Player für Video-/Audioanhänge im Stil von Stoat: Geschwindigkeit, Wiederholen, Cover und eine „Läuft gerade“-Leiste – der Titel spielt beim Chatwechsel weiter."
         },
         "emoji_picker": {
           "label": "Verbesserte Emoji-Auswahl",

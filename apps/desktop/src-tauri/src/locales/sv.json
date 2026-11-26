@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Förbättrad mediaspelare",
-          "hint": "Funktionsrik spelare för video- och ljudbilagor i Stoats stil: hastighet, upprepning, omslag."
+          "hint": "Funktionsrik spelare för video-/ljudbilagor i Stoats stil: hastighet, upprepning, omslag och en ”Spelas nu”-list, och spåret fortsätter när du byter chatt."
         },
         "emoji_picker": {
           "label": "Förbättrad emojiväljare",

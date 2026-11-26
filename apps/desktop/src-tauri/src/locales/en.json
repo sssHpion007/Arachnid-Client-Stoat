@@ -32,7 +32,7 @@
         },
         "media_player": {
           "label": "Enhanced Media Player",
-          "hint": "A feature-rich player for video and audio attachments, styled like Stoat: speed, looping, track covers."
+          "hint": "A feature-rich video/audio attachment player styled like Stoat: speed, looping, covers and a “Now playing” bar, and tracks keep playing when you switch chats."
         },
         "emoji_picker": {
           "label": "Enhanced Emoji Picker",
