@@ -443,14 +443,16 @@
 
   const LIVE_STYLE_ID = "arachnid-live-format-style";
   const LIVE_CSS = `
+/* цветной текст в поле — без оформления кода, которым for-web выделяет
+   формулы (.md-code со своим цветом и фоном): цвет и стиль — у декорации */
 .cm-content .arachnid-live-color,
-.cm-content .arachnid-live-color .md-code,
+.cm-content .arachnid-live-color :is(.md-code, *),
 .cm-content .md-code:has(.arachnid-live-color) {
   font-family: inherit;
+  color: inherit;
   padding: 0;
   background: none;
 }
-.cm-content .md-code:has(.arachnid-live-color) { color: inherit; }
 /* команда KaTeX вроде \\textasciitilde{} видна символом: свой текст скрыт
    нулевым размером, символ — размером шрифта поля */
 @property --arachnid-live-size {
