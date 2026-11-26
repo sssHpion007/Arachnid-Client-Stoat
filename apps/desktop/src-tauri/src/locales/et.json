@@ -302,6 +302,7 @@
     "errorHint": "Seda vormingut ei toetata, kuid faili saab alla laadida.",
     "networkError": "Faili ei laaditud — kontrolli ühendust.",
     "hevcError": "See video on HEVC-vormingus (H.265): selle esitamiseks installi Microsoft Store’ist „HEVC-videolaiendid“.",
+    "expiredError": "Discordi link on aegunud: Discordi faililingid kehtivad umbes ööpäeva, seda faili enam laadida ei saa.",
     "hevcStore": "Ava Microsoft Store",
     "nowPlaying": "Taasesitusriba",
     "previous": "Eelmine",

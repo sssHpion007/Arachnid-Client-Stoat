@@ -302,6 +302,7 @@
     "errorHint": "Šis formāts netiek atbalstīts, bet failu var lejupielādēt.",
     "networkError": "Fails netika ielādēts — pārbaudiet savienojumu.",
     "hevcError": "Šis video ir HEVC (H.265) formātā: lai to atskaņotu, instalējiet „HEVC video paplašinājumi” no Microsoft Store.",
+    "expiredError": "Discord saites derīgums ir beidzies: Discord failu saites derīgas apmēram dienu, šo failu vairs nevar ielādēt.",
     "hevcStore": "Atvērt Microsoft Store",
     "nowPlaying": "Atskaņošanas josla",
     "previous": "Iepriekšējais",

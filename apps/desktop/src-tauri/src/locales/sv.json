@@ -302,6 +302,7 @@
     "errorHint": "Formatet stöds inte, men filen kan laddas ned.",
     "networkError": "Filen lästes inte in – kontrollera anslutningen.",
     "hevcError": "Videon är i HEVC-format (H.265): installera ”HEVC-videotillägg” från Microsoft Store för att spela upp den.",
+    "expiredError": "Discord-länken har gått ut: Discords fillänkar gäller bara ungefär ett dygn, så filen kan inte längre laddas.",
     "hevcStore": "Öppna Microsoft Store",
     "nowPlaying": "Uppspelningsfält",
     "previous": "Föregående",

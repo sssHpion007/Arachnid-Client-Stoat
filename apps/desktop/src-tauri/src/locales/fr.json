@@ -302,6 +302,7 @@
     "errorHint": "Ce format n’est pas pris en charge, mais le fichier peut être téléchargé.",
     "networkError": "Le fichier ne s’est pas chargé — vérifiez la connexion.",
     "hevcError": "Cette vidéo est au format HEVC (H.265) : pour la lire, installez « Extensions vidéo HEVC » depuis le Microsoft Store.",
+    "expiredError": "Le lien Discord a expiré : les liens de fichiers Discord ne sont valables qu’environ un jour, ce fichier ne peut plus être chargé.",
     "hevcStore": "Ouvrir le Microsoft Store",
     "nowPlaying": "Barre de lecture",
     "previous": "Précédent",

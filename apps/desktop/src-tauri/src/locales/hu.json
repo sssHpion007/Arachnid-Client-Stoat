@@ -302,6 +302,7 @@
     "errorHint": "Ez a formátum nem támogatott, de a fájl letölthető.",
     "networkError": "A fájl nem töltődött be – ellenőrizd a kapcsolatot.",
     "hevcError": "Ez a videó HEVC (H.265) formátumú: a lejátszásához telepítsd a Microsoft Store-ból a „HEVC-videobővítmények” csomagot.",
+    "expiredError": "A Discord-hivatkozás lejárt: a Discord fájlhivatkozásai csak nagyjából egy napig érvényesek, ez a fájl már nem tölthető be.",
     "hevcStore": "Microsoft Store megnyitása",
     "nowPlaying": "Lejátszósáv",
     "previous": "Előző",

@@ -302,6 +302,7 @@
     "errorHint": "N’eo ket skoret ar mentrezh-mañ, met gallout a rit pellgargañ ar restr.",
     "networkError": "N’eo ket bet karget ar restr, gwiriit ar c’hennask.",
     "hevcError": "E mentrezh HEVC (H.265) emañ ar video-mañ: evit he lenn, staliit « HEVC Video Extensions » eus ar Microsoft Store.",
+    "expiredError": "Dic’hwezhet eo al liamm Discord: un devezh bennak hepken e talvez liammoù ar restroù e Discord, ne vo ket karget ar restr-mañ ken.",
     "hevcStore": "Digeriñ ar Microsoft Store",
     "nowPlaying": "Barrenn lenn",
     "previous": "Kent",

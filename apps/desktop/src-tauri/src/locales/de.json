@@ -302,6 +302,7 @@
     "errorHint": "Dieses Format wird nicht unterstützt – die Datei kann heruntergeladen werden.",
     "networkError": "Die Datei wurde nicht geladen – prüfe die Verbindung.",
     "hevcError": "Dieses Video ist im HEVC-Format (H.265): Zum Abspielen „HEVC-Videoerweiterungen“ aus dem Microsoft Store installieren.",
+    "expiredError": "Der Discord-Link ist abgelaufen: Discord-Dateilinks gelten nur etwa einen Tag, diese Datei lässt sich nicht mehr laden.",
     "hevcStore": "Microsoft Store öffnen",
     "nowPlaying": "Wiedergabeleiste",
     "previous": "Zurück",

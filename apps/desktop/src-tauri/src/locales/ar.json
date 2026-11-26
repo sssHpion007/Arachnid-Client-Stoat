@@ -302,6 +302,7 @@
     "errorHint": "هذا التنسيق غير مدعوم، ولكن يمكنك تنزيل الملف.",
     "networkError": "لم يُحمَّل الملف، تحقّق من الاتصال.",
     "hevcError": "هذا الفيديو بتنسيق HEVC ‏(H.265): لتشغيله، ثبّت «ملحقات فيديو HEVC» من Microsoft Store.",
+    "expiredError": "انتهت صلاحية رابط Discord: يمنح Discord روابط الملفات نحو يوم واحد، ولن يُحمَّل هذا الملف بعد الآن.",
     "hevcStore": "فتح Microsoft Store",
     "nowPlaying": "شريط التشغيل",
     "previous": "السابق",

@@ -743,6 +743,27 @@
   /** Столько прокси встраиваний Stoat помнит ошибку — с запасом, мс */
   const PROXY_FORGETS_MS = 62000;
 
+  /**
+   * Ссылка на вложение Discord, срок которой истёк. Discord подписывает
+   * ссылки на вложения (`ex` — до какого времени ссылка действует, секунды в
+   * шестнадцатеричной записи, `is`, `hm`) примерно на сутки; потом CDN
+   * отвечает 404, и прокси Stoat — ошибкой. Видео из Discord, которым больше
+   * суток, так не откроются ни через прокси, ни напрямую — повторять незачем.
+   */
+  function expiredDiscord(src) {
+    try {
+      let url = new URL(src, location.href);
+      const inner = url.pathname.endsWith("/proxy") ? url.searchParams.get("url") : null;
+      if (inner) url = new URL(inner);
+      if (!/^(cdn\.discordapp\.com|media\.discordapp\.net)$/i.test(url.hostname)) return false;
+      if (!/^\/(ephemeral-)?attachments\//.test(url.pathname)) return false;
+      const ex = url.searchParams.get("ex");
+      return Boolean(ex && /^[0-9a-f]{1,12}$/i.test(ex) && parseInt(ex, 16) * 1000 < Date.now());
+    } catch {
+      return false;
+    }
+  }
+
   /** Адрес через прокси встраиваний Stoat (January): …/proxy?url=… */
   function viaProxy(src) {
     try {
@@ -778,7 +799,7 @@
   /**
    * Самовосстановление загрузки media. wanted() — пользователь хочет, чтобы
    * оно играло; onRetry(resume) — загрузка началась заново; onGiveUp(reason)
-   * — повторять бесполезно ("missing" | "hevc" | "format").
+   * — повторять бесполезно ("missing" | "expired" | "hevc" | "format").
    */
   function keepLoading(media, { wanted, onRetry, onGiveUp }) {
     /** Повторы для адреса src (новый адрес — повторы заново) */
@@ -816,6 +837,10 @@
       const current = media.currentSrc || media.src;
       if (current !== src) [src, attempts, firstError, proxyRetried] = [current, 0, 0, false];
       report("error");
+      if (expiredDiscord(current)) {
+        report("give-up expired");
+        return onGiveUp("expired");
+      }
       firstError ||= performance.now();
       if (attempts < QUICK_RETRIES_MS.length) return later(QUICK_RETRIES_MS[attempts]);
       // прокси Stoat отвечает запомненной ошибкой — повтор, когда он её забудет
@@ -1377,7 +1402,8 @@
       full.setIcon(fullscreen ? "fullscreenExit" : "fullscreen");
       full.setTip(withKey(fullscreen ? text.exitFullscreen : text.fullscreen, "f"));
       errorTitle.textContent = text.videoError;
-      errorHint.textContent = { network: text.networkError, hevc: text.hevcError }[failure] ?? text.errorHint;
+      errorHint.textContent =
+        { network: text.networkError, hevc: text.hevcError, expired: text.expiredError }[failure] ?? text.errorHint;
       storeLink.hidden = failure !== "hevc";
       storeLink.textContent = text.hevcStore;
       vol.sync();
@@ -1421,7 +1447,7 @@
     // ▶ уже нажат — сразу; на вид это обычная загрузка.
     async function cannotPlay(reason) {
       failure = reason === "missing" ? "network" : reason;
-      if (reason === "missing" || original) return showError();
+      if (reason === "missing" || reason === "expired" || original) return showError();
       const src = currentSrc();
       const status = await transcode(src, false).catch(() => ({ state: "unavailable" }));
       if (currentSrc() !== src) return;
@@ -1636,6 +1662,8 @@
     const repeat = button("repeat", "ap-toggle");
     const speedButton = h("button", { type: "button", class: "ap-button ap-speed-button ap-edge" });
     const errorLine = h("div", { class: "ap-audio-error", hidden: true }, icon("error"), h("span"));
+    /** Ссылка Discord устарела (см. expiredDiscord) — сказать об этом */
+    let expired = false;
     const bar = h("div", { class: "ap-audio" }, current, seek.root, total, vol.root, repeat, speedButton);
 
     if (headphones) {
@@ -1687,7 +1715,7 @@
       repeat.setTip(audio.loop ? text.repeatOn : text.repeatOff);
       speedButton.dataset.tip = text.speed;
       speedButton.setAttribute("aria-label", text.speed);
-      errorLine.lastChild.textContent = text.audioError;
+      errorLine.lastChild.textContent = expired ? `${text.audioError}. ${text.expiredError}` : text.audioError;
       vol.sync();
       paintTime();
     }
@@ -1736,7 +1764,9 @@
     const healing = keepLoading(audio, {
       wanted: () => intent,
       onRetry: (resume) => resume && loading(),
-      onGiveUp: () => {
+      onGiveUp: (reason) => {
+        expired = reason === "expired";
+        sync();
         errorLine.hidden = false;
         card.classList.add("ap-failed");
         loaded();
