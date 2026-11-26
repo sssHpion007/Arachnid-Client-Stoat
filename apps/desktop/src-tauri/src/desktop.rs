@@ -29,7 +29,7 @@ use crate::emoji_packs::{self, EmojiPacks};
 use crate::hotkeys::{self, Hotkeys};
 use crate::instance::Instance;
 use crate::memory::MemorySaver;
-use crate::{CmdResult, CommandError, extensions, icon, media};
+use crate::{CmdResult, CommandError, context_menu, extensions, icon, media};
 
 /// Метка главного окна (как в `tauri.conf.json`).
 pub const MAIN_WINDOW: &str = "main";
@@ -549,6 +549,7 @@ pub fn create_main_window(
     let window = builder.build()?;
     icon::apply_window(&window);
     media::allow_for_client(&window, instance);
+    context_menu::install(&window);
     emoji_packs::serve(&window, Arc::clone(&app.state::<Arc<EmojiPacks>>()));
     hotkeys::guard_browser_keys(&window, Arc::clone(&app.state::<Arc<Hotkeys>>()));
     // обработчики выше подключаются в главном потоке по очереди, переход —

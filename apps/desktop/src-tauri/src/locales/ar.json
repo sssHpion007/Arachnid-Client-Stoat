@@ -311,6 +311,7 @@
     "sizeHuge": "ضخم",
     "link": "رابط",
     "linkApply": "تم",
+    "linkText": "نص الرابط",
     "noLink": "إزالة الرابط",
     "time": "الوقت",
     "formatTime": "الوقت",
@@ -327,7 +328,11 @@
     "tasks": "قائمة مهام",
     "divider": "فاصل",
     "table": "جدول",
+    "tableColumn": "عمود",
     "more": "المزيد",
-    "less": "أقل"
+    "less": "أقل",
+    "insertLink": "إدراج رابط…",
+    "insertTime": "إدراج وقت…",
+    "insertTable": "إدراج جدول…"
   }
 }

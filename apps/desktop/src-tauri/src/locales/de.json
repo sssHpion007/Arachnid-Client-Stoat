@@ -311,6 +311,7 @@
     "sizeHuge": "Riesig",
     "link": "Link",
     "linkApply": "Fertig",
+    "linkText": "Linktext",
     "noLink": "Link entfernen",
     "time": "Zeit",
     "formatTime": "Uhrzeit",
@@ -327,7 +328,11 @@
     "tasks": "Aufgabenliste",
     "divider": "Trennlinie",
     "table": "Tabelle",
+    "tableColumn": "Spalte",
     "more": "Mehr",
-    "less": "Weniger"
+    "less": "Weniger",
+    "insertLink": "Link einfügen…",
+    "insertTime": "Zeit einfügen…",
+    "insertTable": "Tabelle einfügen…"
   }
 }

@@ -8,9 +8,11 @@
 //   (окно с уровнями 1–6), цитата и цвет текста. Включённое у выделения
 //   форматирование подсвечено; нажатие снимает его.
 // * Стрелка в конце меню раскрывает остальное (состояние — в localStorage):
-//   выделение цветом (\colorbox), подчёркнутый (\underline), размер, ссылка
-//   [текст](адрес), время <t:…:f>, блок кода с языком, списки (маркированный,
-//   нумерованный, задачи), разделитель *** и таблица GFM.
+//   выделение цветом (\colorbox), подчёркнутый (\underline), размер, блок
+//   кода с языком, списки (маркированный, нумерованный, задачи), разделитель.
+// * Контекстное меню поля ввода (WebView2, см. context_menu.rs): «Вставить
+//   ссылку…» [текст](адрес), «Вставить время…» <t:…:f> и «Вставить
+//   таблицу…» (GFM) — окно у точки щелчка, работает и без выделения.
 // * Кнопки пишут разметку for-web: **жирный**, *курсив*, ~~зачёркнутый~~,
 //   ||спойлер||, `код`, «> » в начале строк — цитата. Разметка не переходит
 //   через строки, поэтому многострочное выделение размечается построчно.
@@ -61,19 +63,23 @@
     { kind: "underline", icon: "format_underlined", extra: true },
     { kind: "size", icon: "format_size", extra: true },
     { separator: true, extra: true },
-    { kind: "link", icon: "link", extra: true },
-    { kind: "time", icon: "schedule", extra: true },
-    { separator: true, extra: true },
     { kind: "codeblock", icon: "code_blocks", extra: true },
     { kind: "bullets", icon: "format_list_bulleted", extra: true },
     { kind: "numbers", icon: "format_list_numbered", extra: true },
     { kind: "tasks", icon: "checklist", extra: true },
     { kind: "divider", icon: "horizontal_rule", extra: true },
-    { kind: "table", icon: "table", extra: true },
     { kind: "more", icon: "chevron_right" },
   ];
   /** Кнопки, которые открывают окно под собой */
-  const POPUP_KINDS = ["color", "highlight", "size", "heading", "link", "time", "codeblock"];
+  const POPUP_KINDS = ["color", "highlight", "size", "heading", "codeblock"];
+  /** Пункты контекстного меню поля ввода (см. context_menu.rs): окно у точки щелчка */
+  const CONTEXT_ITEMS = [
+    { id: "link", label: "insertLink" },
+    { id: "time", label: "insertTime" },
+    { id: "table", label: "insertTable" },
+  ];
+  /** Размер таблицы, которую можно выбрать в окне «Таблица»: столбцы × строки */
+  const TABLE_GRID = { columns: 6, rows: 5 };
 
   /** Цвета палитры: читаются и на тёмной, и на светлой теме */
   const SWATCHES = [
@@ -166,6 +172,38 @@
   const TEX_STYLE = { textbf: "bold", textit: "italic", underline: "underline", sout: "strike", texttt: "code" };
   const STYLE_MARK = { bold: "**", italic: "*", strike: "~~", code: "`" };
   const TEX_SYMBOLS = { textbackslash: "\\", textasciicircum: "^", textasciitilde: "~" };
+  /**
+   * Подпорка в слове с фоном или подчёркнутым: одна высота и глубина у всех
+   * слов — фон одной полосой, черта на одной линии. Соседние слова с фоном
+   * заходят друг на друга на отступы \colorbox (по 0.3em), иначе между
+   * словами щель.
+   */
+  const STRUT = "\\rule[-0.25em]{0em}{1.05em}";
+  const BOX_JOIN = "\\kern-0.6em";
+
+  /** Конец аргументов \rule[…]{…}{…} и \kern-0.6em с index после имени команды */
+  function commandArgsEnd(name, tex, index, limit = tex.length) {
+    if (name === "kern") {
+      const size = /^\s*-?(?:\d+\.?\d*|\.\d+)\s*(?:em|ex|pt|mu)/.exec(tex.slice(index, limit));
+      return size ? index + size[0].length : index;
+    }
+    if (name !== "rule") return index;
+    let at = index;
+    if (tex[at] === "[") {
+      const close = tex.indexOf("]", at);
+      if (close < 0 || close >= limit) return index;
+      at = close + 1;
+    }
+    for (let group = 0; group < 2; group++) {
+      while (tex[at] === " ") at += 1;
+      if (tex[at] !== "{") break;
+      const close = closingBrace(tex, at);
+      if (close < 0 || close >= limit) break;
+      at = close + 1;
+    }
+    return at;
+  }
+
   /** Стили, которых нет в разметке Stoat: с ними текст остаётся формулой */
   const TEX_ONLY = (style) => style === "underline" || style.startsWith("bg:");
 
@@ -218,6 +256,7 @@
    */
   function segmentsTex(segments, color) {
     const words = [];
+    let boxed = false;
     for (const { text: value, styles } of segments) {
       for (const word of value.match(/\S+\s*|\s+/g) ?? []) {
         // пробел в начале куска — к предыдущему слову
@@ -225,21 +264,24 @@
           words[words.length - 1] = words.at(-1).replace(/\}+$/, (end) => word + end);
           continue;
         }
+        const background = backgroundOf(styles);
         let tex = escapeTex(word);
+        if (background || styles.includes("underline")) tex = STRUT + tex;
         for (const style of ["underline", "italic", "bold"]) {
           if (styles.includes(style)) tex = `\\${STYLE_TEX[style]}{${tex}}`;
         }
         tex = `\\${styles.includes("code") ? "texttt" : "textsf"}{${tex}}`;
-        const background = backgroundOf(styles);
         if (background) {
           if (!color) tex = `\\textcolor{${contrastText(background)}}{${tex}}`;
           tex = `\\colorbox{${background}}{${tex}}`;
         }
         if (styles.includes("strike")) tex = `\\sout{${tex}}`;
+        if (words.length) words[words.length - 1] += (boxed && background ? BOX_JOIN : "") + "\\allowbreak";
         words.push(tex);
+        boxed = Boolean(background);
       }
     }
-    return words.join("\\allowbreak");
+    return words.join("");
   }
 
   /** Индекс скобки, закрывающей `{` на месте open (\{ и \} не считаются) */
@@ -268,6 +310,10 @@
         }
         index += command[0].length;
         const name = command[1];
+        if (name === "rule" || name === "kern") {
+          index = commandArgsEnd(name, tex, index);
+          continue;
+        }
         if (name in TEX_SYMBOLS) {
           out.push({ text: TEX_SYMBOLS[name], styles });
           if (tex.startsWith("{}", index)) index += 2;
@@ -646,17 +692,26 @@
     return lineChange(start, end, `\`\`\`${language}\n${doc.slice(start, end)}\n\`\`\``);
   }
 
-  /** Ссылка на url у выделения; пустой url — убрать ссылку, оставить текст */
-  function setLink(doc, from, to, url) {
+  /**
+   * Ссылка на url у выделения; пустой url — убрать ссылку, оставить текст.
+   * Без выделения — новая ссылка с подписью label у курсора.
+   */
+  function setLink(doc, from, to, url, label) {
     [from, to] = trimmed(doc, from, to);
     const link = linkAt(doc, from, to);
     if (link) {
       const insert = url ? `[${link.label}](${url})` : link.label;
       return { from: link.from, to: link.to, insert, anchor: link.from, head: link.from + insert.length };
     }
-    if (!url || from === to) return null;
-    const label = doc.slice(from, to).replace(/[[\]]/g, "\\$&");
-    const insert = `[${label}](${url})`;
+    if (!url) return null;
+    if (from === to) {
+      // без выделения — ссылка с подписью label (или просто адрес) у курсора
+      const caption = (label ?? "").trim().replace(/[[\]]/g, "\\$&");
+      const insert = caption ? `[${caption}](${url})` : url;
+      return { from, to, insert, anchor: from + insert.length, head: from + insert.length };
+    }
+    const caption = doc.slice(from, to).replace(/[[\]]/g, "\\$&");
+    const insert = `[${caption}](${url})`;
     return { from, to, insert, anchor: from, head: from + insert.length };
   }
 
@@ -666,7 +721,35 @@
     const time = timeAt(doc, from, to);
     if (time) [from, to] = [time.from, time.to];
     const insert = `<t:${seconds}${format ? `:${format}` : ""}>`;
+    // вставка у курсора — курсор после времени, можно писать дальше
+    if (from === to) return { from, to, insert, anchor: from + insert.length, head: from + insert.length };
     return { from, to, insert, anchor: from, head: from + insert.length };
+  }
+
+  /**
+   * Пустая таблица у курсора (заголовки и rows строк по columns ячеек) — на
+   * месте пустой строки или после строки с текстом. Выделен первый заголовок —
+   * его можно сразу переписать.
+   */
+  function insertTable(doc, at, columns, rows) {
+    const start = lineStart(doc, at);
+    const end = lineEnd(doc, at);
+    const line = doc.slice(start, end);
+    const quote = quoteOf(line);
+    const header = Array.from({ length: columns }, (_, index) => `${text.tableColumn} ${index + 1}`);
+    const row = (cells) => `${quote}| ${cells.join(" | ")} |`;
+    const table = [
+      row(header),
+      `${quote}|${" --- |".repeat(columns)}`,
+      ...Array.from({ length: rows }, () => row(Array(columns).fill(""))),
+    ].join("\n");
+    // после текста — через пустую строку, иначе таблица прилипнет к абзацу
+    const empty = !line.slice(quote.length).trim();
+    const from = empty ? start : end;
+    const lead = empty ? "" : `\n${quote}\n`;
+    const insert = lead + table;
+    const anchor = from + lead.length + quote.length + 2;
+    return { from, to: end, insert, anchor, head: anchor + header[0].length };
   }
 
   /** Стиль kind у всех кусков: on — снять, иначе добавить */
@@ -754,19 +837,24 @@
   /** EditorView поля ввода, в котором стоит фокус; null — фокус не в редакторе */
   const focusedEditor = () => editorOf(document.activeElement?.closest?.(".cm-content"));
 
-  /** Выделение редактора: { view, from, to, doc } или null, если выделения нет */
-  function selection() {
+  /** Выделение редактора: { view, from, to, doc } или null, если выделения нет
+   *  (caret — подходит и курсор без выделения) */
+  /** Окно открыто из контекстного меню (у точки щелчка) */
+  const contextPopup = () => Boolean(palette && "context" in palette.dataset);
+
+  function selection(caret = contextPopup()) {
     // фокус может быть в окне цвета — тогда у редактора, где открыто меню
     const view = focusedEditor() ?? (palette ? editor : null);
     if (!view) return null;
     const { from, to } = view.state.selection.main;
-    if (from === to) return null;
+    // окно из контекстного меню работает и с курсором без выделения
+    if (from === to && !caret) return null;
     return { view, from, to, doc: view.state.doc.toString() };
   }
 
-  /** Применить правку к редактору одной транзакцией */
-  function edit(make) {
-    const current = selection();
+  /** Применить правку к редактору одной транзакцией (caret — и без выделения) */
+  function edit(make, caret) {
+    const current = selection(caret);
     if (!current) return;
     const change = make(current.doc, current.from, current.to);
     if (!change) return;
@@ -1058,6 +1146,12 @@
           continue;
         }
         const end = index + command[0].length;
+        if (command[1] === "rule" || command[1] === "kern") {
+          // подпорка и сдвиг слов с фоном — не текст
+          hide.push([index, commandArgsEnd(command[1], doc, end, span.contentTo)]);
+          index = hide.at(-1)[1];
+          continue;
+        }
         if (command[1] in TEX_SYMBOLS) {
           // \textbackslash{} и подобные — видны своим символом (через CSS)
           const close = doc.startsWith("{}", end) ? end + 2 : end;
@@ -1188,12 +1282,12 @@
   margin: 0 !important;
   vertical-align: baseline !important;
 }
-.katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s, .underline-line) { display: none !important; }
+.katex.${PLAIN_CLASS} :is(.pstrut, .stretchy, .vlist-s, .underline-line, .rule) { display: none !important; }
 .katex.${PLAIN_CLASS} .vlist:has(> span > .sout) { text-decoration: line-through; }
 .katex.${PLAIN_CLASS} .vlist:has(> span > .underline-line) { text-decoration: underline; }
-/* фон \\colorbox — у текста (цвет из --arachnid-plain-bg, см. markFormulas) */
+/* фон \\colorbox — у текста (цвет из --arachnid-plain-bg, см. markFormulas);
+   отступы по бокам — от .boxpad KaTeX, соседние слова заходят на них (\\kern) */
 .katex.${PLAIN_CLASS} .vlist:has(> span > .colorbox) {
-  padding: 0 0.1em;
   border-radius: 3px;
   background: var(--arachnid-plain-bg);
   -webkit-box-decoration-break: clone;
@@ -1472,6 +1566,21 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   font-size: 12px;
 }
 .${PALETTE_CLASS} [data-chip=""] { grid-column: 1 / -1; font-family: inherit; }
+.${PALETTE_CLASS} [data-grid] {
+  display: grid;
+  grid-template-columns: repeat(var(--columns), 22px);
+  gap: 4px;
+}
+.${PALETTE_CLASS} [data-grid] > button {
+  height: 22px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-outline-variant);
+}
+.${PALETTE_CLASS} [data-grid] > [data-on] {
+  background: color-mix(in srgb, var(--md-sys-color-primary, currentColor) 35%, transparent);
+  box-shadow: inset 0 0 0 1px var(--md-sys-color-primary, currentColor);
+}
+.${PALETTE_CLASS} [data-size] { font-size: 13px; text-align: center; }
 .${PALETTE_CLASS} input[type="color"] {
   position: absolute;
   width: 0;
@@ -1600,11 +1709,18 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     const last = rects.at(-1) ?? area;
     const left = Math.min(...rects.map((rect) => rect.left), first.left);
     const right = Math.max(...rects.map((rect) => rect.right), first.right);
+    // мерить у левого края: у правого края окна меню сжималось бы
+    menu.style.left = "0px";
+    // над выделением по центру — свёрнутое меню; кнопки за стрелкой
+    // добавляются справа, меню не сдвигается
+    menu.removeAttribute("data-expanded");
+    const base = menu.offsetWidth;
+    menu.toggleAttribute("data-expanded", expanded);
     // узкое окно — меню переносится на вторую строку
     menu.toggleAttribute("data-wrapped", menu.offsetHeight > 52);
     const width = menu.offsetWidth;
     const height = menu.offsetHeight;
-    const x = Math.max(GAP, Math.min(innerWidth - width - GAP, (left + right) / 2 - width / 2));
+    const x = Math.max(GAP, Math.min(innerWidth - width - GAP, (left + right) / 2 - base / 2));
     let y = first.top - height - GAP;
     if (y < GAP) y = last.bottom + GAP;
     menu.style.left = `${x}px`;
@@ -1625,7 +1741,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     cancelAnimationFrame(frame);
     frame = requestAnimationFrame(() => {
       if (!active || selecting) return;
-      const current = selection();
+      const current = selection(false);
       if (!current || (!palette && !current.view.hasFocus)) {
         if (!palette) hide();
         return;
@@ -1656,11 +1772,16 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     return element;
   }
 
+  /** Показать окно: у кнопки anchor меню или у точки { x, y } (контекстное меню) */
   function openPopup(element, anchor) {
     palette = element;
+    if (!(anchor instanceof Element)) {
+      palette.dataset.context = "";
+      contextPoint = anchor;
+    }
     document.body.append(palette);
-    menu.dataset.palette = "";
-    placePalette(anchor);
+    if (menu) menu.dataset.palette = "";
+    placePalette(anchor instanceof Element ? anchor : undefined);
   }
 
   function action(iconName, caption, onClick) {
@@ -1681,8 +1802,9 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
 
   /** Применить правку из окна: окно закрывается, фокус — в поле */
   function apply(make) {
+    const caret = contextPopup();
     closePalette();
-    edit(make);
+    edit(make, caret);
   }
 
   /** Список вариантов: [{ value, label, pressed, style? }] */
@@ -1800,35 +1922,45 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   }
 
   function openLink(anchor) {
-    const current = selection();
+    const current = selection(!(anchor instanceof Element));
     if (!current) return;
     const element = popup("link", text.link);
     const link = linkAt(current.doc, ...trimmed(current.doc, current.from, current.to));
-    const input = document.createElement("input");
-    input.type = "url";
-    input.dataset.field = "";
-    input.placeholder = "https://";
-    input.spellcheck = false;
-    input.value = link?.url ?? "";
-    const submit = () => {
+    const field = (type, placeholder, value) => {
+      const input = document.createElement("input");
+      input.type = type;
+      input.dataset.field = "";
+      input.placeholder = placeholder;
+      input.spellcheck = false;
+      input.value = value;
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        }
+      });
+      return input;
+    };
+    // без выделения (из контекстного меню) — ещё и подпись ссылки
+    const caption = !link && current.from === current.to ? field("text", text.linkText, "") : null;
+    const input = field("url", "https://", link?.url ?? "");
+    function submit() {
       let url = input.value.trim();
       if (url && !/^[a-z][\w+.-]*:/i.test(url)) url = `https://${url}`;
       if (!url && !link) return closePalette();
-      apply((doc, from, to) => setLink(doc, from, to, url.replace(/[\s)]/g, encodeURIComponent)));
-    };
-    input.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        submit();
-      }
-    });
+      const label = caption?.value ?? "";
+      apply((doc, from, to) => setLink(doc, from, to, url.replace(/[\s)]/g, encodeURIComponent), label));
+    }
     const done = action("check", text.linkApply, submit);
     const remove = action("link_off", text.noLink, () => apply((doc, from, to) => setLink(doc, from, to, "")));
     remove.disabled = !link;
-    element.append(input, actionsRow(done, remove));
+    element.append(...[caption, input].filter(Boolean), actionsRow(done, remove));
     openPopup(element, anchor);
-    input.focus();
-    input.select();
+    if (caption) caption.focus();
+    else {
+      input.focus();
+      input.select();
+    }
   }
 
   /** Как for-web покажет время в формате format (на языке интерфейса) */
@@ -1853,7 +1985,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
   function openTime(anchor) {
-    const current = selection();
+    const current = selection(!(anchor instanceof Element));
     if (!current) return;
     const element = popup("time", text.time);
     const time = timeAt(current.doc, ...trimmed(current.doc, current.from, current.to));
@@ -1912,6 +2044,43 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     openPopup(element, anchor);
   }
 
+  /** Таблица: выделенные строки — сразу в таблицу, без выделения — выбор размера */
+  function openTable(anchor) {
+    const current = selection(!(anchor instanceof Element));
+    if (!current) return;
+    if (current.from !== current.to) {
+      apply((doc, from, to) => makeTable(doc, from, to));
+      return;
+    }
+    const element = popup("table", text.table);
+    const grid = document.createElement("div");
+    grid.dataset.grid = "";
+    grid.style.setProperty("--columns", TABLE_GRID.columns);
+    const size = document.createElement("div");
+    size.dataset.size = "";
+    const mark = (columns, rows) => {
+      for (const cell of grid.children) {
+        cell.toggleAttribute("data-on", Number(cell.dataset.column) <= columns && Number(cell.dataset.row) <= rows);
+      }
+      size.textContent = `${columns} × ${rows}`;
+    };
+    for (let row = 1; row <= TABLE_GRID.rows; row++) {
+      for (let column = 1; column <= TABLE_GRID.columns; column++) {
+        const cell = document.createElement("button");
+        cell.type = "button";
+        cell.dataset.column = String(column);
+        cell.dataset.row = String(row);
+        cell.addEventListener("pointerenter", () => mark(column, row));
+        cell.addEventListener("focus", () => mark(column, row));
+        cell.addEventListener("click", () => apply((doc, from) => insertTable(doc, from, column, row)));
+        grid.append(cell);
+      }
+    }
+    mark(2, 2);
+    element.append(grid, size);
+    openPopup(element, anchor);
+  }
+
   const POPUPS = {
     color: openPalette,
     highlight: openHighlight,
@@ -1920,9 +2089,50 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     link: openLink,
     time: openTime,
     codeblock: openCodeBlock,
+    table: openTable,
+  };
+
+  /** Точка правого щелчка, у которой открыто окно из контекстного меню */
+  let contextPoint = null;
+  /** Последний правый щелчок по полю ввода: { view, x, y, at } */
+  let contextTarget = null;
+
+  function onContextMenu(event) {
+    const view = editorOf(event.target.closest?.(".cm-content"));
+    contextTarget = view ? { view, x: event.clientX, y: event.clientY, at: Date.now() } : null;
+  }
+
+  /** Для context_menu.rs: пункты меню после правого щелчка и их выбор */
+  window.__arachnidFormatContext = {
+    items() {
+      // щелчок по полю — только что (меню WebView2 спрашивает сразу после него)
+      if (!active || !contextTarget || Date.now() - contextTarget.at > 5000) return [];
+      return CONTEXT_ITEMS.map((item) => ({ id: item.id, label: text[item.label] }));
+    },
+    run(id) {
+      const target = contextTarget;
+      if (!active || !target?.view.dom.isConnected || !CONTEXT_ITEMS.some((item) => item.id === id)) return;
+      hide();
+      editor = target.view;
+      target.view.focus();
+      POPUPS[id]({ x: target.x, y: target.y });
+    },
   };
 
   function placePalette(anchor = menu?.querySelector(`[data-kind="${palette?.dataset.for}"]`)) {
+    if (contextPopup() && contextPoint) {
+      // у точки щелчка, как меню for-web: справа снизу, у края окна — с другой стороны
+      const { x, y } = contextPoint;
+      const width = palette.offsetWidth;
+      const height = palette.offsetHeight;
+      let left = x + 4;
+      let top = y + 4;
+      if (left + width > innerWidth - GAP) left = Math.max(GAP, x - 4 - width);
+      if (top + height > innerHeight - GAP) top = Math.max(GAP, y - 4 - height);
+      palette.style.left = `${left}px`;
+      palette.style.top = `${top}px`;
+      return;
+    }
     if (!palette || !anchor) return;
     const button = anchor.getBoundingClientRect();
     const bar = menu.getBoundingClientRect();
@@ -1941,6 +2151,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     const refocus = palette.contains(document.activeElement);
     palette.remove();
     palette = null;
+    contextPoint = null;
     if (menu) delete menu.dataset.palette;
     if (refocus) editor?.focus();
   }
@@ -1961,7 +2172,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
   }
 
   function onKeyDown(event) {
-    if (event.key !== "Escape" || !menu) return;
+    if (event.key !== "Escape" || (!menu && !palette)) return;
     // Escape сначала закрывает палитру, затем меню, и только потом доходит
     // до for-web (отмена ответа или правки)
     event.preventDefault();
@@ -1995,6 +2206,7 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     document.addEventListener("pointerup", onPointerUp, true);
     document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("focusout", onFocusOut, true);
+    document.addEventListener("contextmenu", onContextMenu, true);
     addEventListener("scroll", onViewport, true);
     addEventListener("resize", onViewport);
   }
@@ -2007,6 +2219,8 @@ ${Object.entries({ footnotesize: 4, large: 7, Large: 8, huge: 10 })
     document.removeEventListener("pointerup", onPointerUp, true);
     document.removeEventListener("keydown", onKeyDown, true);
     document.removeEventListener("focusout", onFocusOut, true);
+    document.removeEventListener("contextmenu", onContextMenu, true);
+    contextTarget = null;
     removeEventListener("scroll", onViewport, true);
     removeEventListener("resize", onViewport);
   }

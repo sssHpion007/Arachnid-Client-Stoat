@@ -311,6 +311,7 @@
     "sizeHuge": "Huge",
     "link": "Link",
     "linkApply": "Done",
+    "linkText": "Link text",
     "noLink": "Remove link",
     "time": "Time",
     "formatTime": "Time",
@@ -327,7 +328,11 @@
     "tasks": "Task list",
     "divider": "Divider",
     "table": "Table",
+    "tableColumn": "Column",
     "more": "More",
-    "less": "Less"
+    "less": "Less",
+    "insertLink": "Insert link…",
+    "insertTime": "Insert time…",
+    "insertTable": "Insert table…"
   }
 }

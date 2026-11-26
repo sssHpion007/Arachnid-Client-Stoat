@@ -311,6 +311,7 @@
     "sizeHuge": "Milzīgs",
     "link": "Saite",
     "linkApply": "Gatavs",
+    "linkText": "Saites teksts",
     "noLink": "Noņemt saiti",
     "time": "Laiks",
     "formatTime": "Laiks",
@@ -327,7 +328,11 @@
     "tasks": "Uzdevumu saraksts",
     "divider": "Atdalītājs",
     "table": "Tabula",
+    "tableColumn": "Kolonna",
     "more": "Vairāk",
-    "less": "Mazāk"
+    "less": "Mazāk",
+    "insertLink": "Ievietot saiti…",
+    "insertTime": "Ievietot laiku…",
+    "insertTable": "Ievietot tabulu…"
   }
 }

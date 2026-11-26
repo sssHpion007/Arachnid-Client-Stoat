@@ -311,6 +311,7 @@
     "sizeHuge": "خیلی بزرگ",
     "link": "پیوند",
     "linkApply": "انجام شد",
+    "linkText": "متن پیوند",
     "noLink": "حذف پیوند",
     "time": "زمان",
     "formatTime": "زمان",
@@ -327,7 +328,11 @@
     "tasks": "فهرست کارها",
     "divider": "جداکننده",
     "table": "جدول",
+    "tableColumn": "ستون",
     "more": "بیشتر",
-    "less": "کمتر"
+    "less": "کمتر",
+    "insertLink": "درج پیوند…",
+    "insertTime": "درج زمان…",
+    "insertTable": "درج جدول…"
   }
 }

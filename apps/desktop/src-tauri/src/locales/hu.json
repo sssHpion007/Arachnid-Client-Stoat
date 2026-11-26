@@ -311,6 +311,7 @@
     "sizeHuge": "Óriási",
     "link": "Hivatkozás",
     "linkApply": "Kész",
+    "linkText": "Hivatkozás szövege",
     "noLink": "Hivatkozás eltávolítása",
     "time": "Idő",
     "formatTime": "Idő",
@@ -327,7 +328,11 @@
     "tasks": "Feladatlista",
     "divider": "Elválasztó",
     "table": "Táblázat",
+    "tableColumn": "Oszlop",
     "more": "Több",
-    "less": "Kevesebb"
+    "less": "Kevesebb",
+    "insertLink": "Hivatkozás beszúrása…",
+    "insertTime": "Idő beszúrása…",
+    "insertTable": "Táblázat beszúrása…"
   }
 }

@@ -311,6 +311,7 @@
     "sizeHuge": "Énorme",
     "link": "Lien",
     "linkApply": "OK",
+    "linkText": "Texte du lien",
     "noLink": "Retirer le lien",
     "time": "Heure",
     "formatTime": "Heure",
@@ -327,7 +328,11 @@
     "tasks": "Liste de tâches",
     "divider": "Séparateur",
     "table": "Tableau",
+    "tableColumn": "Colonne",
     "more": "Plus",
-    "less": "Moins"
+    "less": "Moins",
+    "insertLink": "Insérer un lien…",
+    "insertTime": "Insérer une heure…",
+    "insertTable": "Insérer un tableau…"
   }
 }

@@ -311,6 +311,7 @@
     "sizeHuge": "Hiiglaslik",
     "link": "Link",
     "linkApply": "Valmis",
+    "linkText": "Lingi tekst",
     "noLink": "Eemalda link",
     "time": "Aeg",
     "formatTime": "Kellaaeg",
@@ -327,7 +328,11 @@
     "tasks": "Ülesannete loend",
     "divider": "Eraldaja",
     "table": "Tabel",
+    "tableColumn": "Veerg",
     "more": "Veel",
-    "less": "Vähem"
+    "less": "Vähem",
+    "insertLink": "Lisa link…",
+    "insertTime": "Lisa aeg…",
+    "insertTable": "Lisa tabel…"
   }
 }

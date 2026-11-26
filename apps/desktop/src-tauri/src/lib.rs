@@ -17,6 +17,7 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri::ipc::CapabilityBuilder;
 
+mod context_menu;
 mod desktop;
 mod emoji_packs;
 mod emoji_raster;

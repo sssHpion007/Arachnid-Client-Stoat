@@ -311,6 +311,7 @@
     "sizeHuge": "Enorm",
     "link": "Länk",
     "linkApply": "Klar",
+    "linkText": "Länktext",
     "noLink": "Ta bort länk",
     "time": "Tid",
     "formatTime": "Tid",
@@ -327,7 +328,11 @@
     "tasks": "Uppgiftslista",
     "divider": "Avdelare",
     "table": "Tabell",
+    "tableColumn": "Kolumn",
     "more": "Mer",
-    "less": "Mindre"
+    "less": "Mindre",
+    "insertLink": "Infoga länk…",
+    "insertTime": "Infoga tid…",
+    "insertTable": "Infoga tabell…"
   }
 }

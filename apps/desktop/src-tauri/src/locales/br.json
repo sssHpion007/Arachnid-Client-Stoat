@@ -311,6 +311,7 @@
     "sizeHuge": "Ramzel",
     "link": "Ere",
     "linkApply": "Graet",
+    "linkText": "Testenn an ere",
     "noLink": "Lemel an ere",
     "time": "Eur",
     "formatTime": "Eur",
@@ -327,7 +328,11 @@
     "tasks": "Roll trevelloù",
     "divider": "Dispartier",
     "table": "Taolenn",
+    "tableColumn": "Bann",
     "more": "Muioc’h",
-    "less": "Nebeutoc’h"
+    "less": "Nebeutoc’h",
+    "insertLink": "Ensoc’hañ un ere…",
+    "insertTime": "Ensoc’hañ an eur…",
+    "insertTable": "Ensoc’hañ un daolenn…"
   }
 }
