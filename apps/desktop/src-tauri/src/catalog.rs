@@ -949,7 +949,10 @@ mod tests {
             name: Some("Переводчик".into()),
             ..RemoteAbout::default()
         };
-        about.insert("ru".to_owned(), BTreeMap::from([("translator".to_owned(), entry)]));
+        about.insert(
+            "ru".to_owned(),
+            BTreeMap::from([("translator".to_owned(), entry)]),
+        );
         let listing = Listing {
             commit: "c".repeat(40),
             checked: SystemTime::now(),
