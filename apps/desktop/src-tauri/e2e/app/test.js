@@ -1580,7 +1580,8 @@ ${sidebarGroup("", [
       // кнопки заголовка: «Каталог», затем папка — у правого края
       const headerButtons = [...(pluginsHeader?.querySelectorAll(".arachnid-button") ?? [])];
       const headerButton = headerButtons.at(-1)?.getBoundingClientRect();
-      const qolDescription = qolRow?.querySelector(".arachnid-item-description")?.textContent ?? "";
+      // автор, версия и папка — в нижней строке плашки, отдельно от описания
+      const qolFooter = qolRow?.querySelector(".arachnid-item-footer")?.textContent ?? "";
       const pluginsLayout = {
         header: Boolean(pluginsHeader && headerTitle && headerButton),
         sameRow: headerTitle && headerButton ? Math.abs(headerTitle.top + headerTitle.height / 2 - (headerButton.top + headerButton.height / 2)) < 2 : null,
@@ -1588,7 +1589,7 @@ ${sidebarGroup("", [
         catalogButton: headerButtons.length === 2 && headerButtons[0].textContent.includes("download"),
         bottomButtons: settingsPage.querySelectorAll("[data-arachnid-panel] > .arachnid-buttons").length,
         cardAuthor: settingsPage.querySelector("[data-arachnid-panel] .arachnid-card")?.textContent.includes("_sssHpion007"),
-        qolAuthor: qolDescription.includes("_sssHpion007"),
+        qolAuthor: qolFooter.includes("_sssHpion007"),
       };
       await check(
         "раздел «Плагины»: папка напротив заголовка, автор — _sssHpion007",
@@ -1605,6 +1606,12 @@ ${sidebarGroup("", [
       // Раздел может перерисоваться (события плагинов) — плашку ищем заново
       const pluginRows = [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item[data-fixed]")];
       const rowHeights = [...new Set(pluginRows.map((row) => Math.round(row.getBoundingClientRect().height)))];
+      // нижняя строка видна целиком по высоте и прижата к низу плашки
+      const footersShown = pluginRows.every((row) => {
+        const footer = row.querySelector(".arachnid-item-footer")?.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        return footer && footer.height >= 14 && footer.bottom <= box.bottom - 8 && footer.bottom >= box.bottom - 16;
+      });
       const qolNow = () =>
         [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item[data-fixed]")].find(
           (row) => row.querySelector(".arachnid-item-title")?.textContent === qolRow?.querySelector(".arachnid-item-title")?.textContent,
@@ -1631,17 +1638,53 @@ ${sidebarGroup("", [
         "раздел «Плагины»: плашки одной высоты, длинное описание — подсказкой",
         pluginRows.length > 0 &&
           rowHeights.length === 1 &&
-          rowHeights[0] === 96 &&
+          rowHeights[0] === 98 &&
+          footersShown &&
           Boolean(clipped) &&
           tipText.includes("строка 8") &&
           Boolean(tipGone),
-        { rows: pluginRows.length, rowHeights, found: Boolean(tipRow), clipped: Boolean(clipped), tipText: tipText.slice(0, 120), tipGone },
+        { rows: pluginRows.length, rowHeights, footersShown, found: Boolean(tipRow), clipped: Boolean(clipped), tipText: tipText.slice(0, 120), tipGone },
       );
       // длинный текст — только для проверки: вернуть как было
       if (tipRow && restoreText !== null) {
         const span = tipRow.querySelector(".arachnid-item-details > .arachnid-item-description");
         if (span) span.textContent = restoreText;
       }
+      // каталог: плитки в сетке одной высоты, у плитки — версия и папка внизу
+      headerButtons[0]?.click();
+      const catalogDialog = await waitFor(() => document.querySelector("[data-arachnid-catalog] .arachnid-dialog"), 3000, 50);
+      const firstPaint = catalogDialog?.querySelector(".arachnid-catalog-grid .arachnid-tile") ? "tiles" : "none";
+      const tiles = await waitFor(
+        () => {
+          const found = [...(catalogDialog?.querySelectorAll(".arachnid-tile[data-arachnid-catalog-plugin]") ?? [])];
+          return found.length && !catalogDialog.querySelector(".arachnid-catalog-status:not([data-error])") ? found : null;
+        },
+        30000,
+        100,
+      );
+      const tileHeights = [...new Set((tiles ?? []).map((tile) => Math.round(tile.getBoundingClientRect().height)))];
+      const translatorTile = tiles?.find((tile) => tile.dataset.arachnidCatalogPlugin === "translator");
+      const catalogUi = {
+        firstPaint,
+        tiles: tiles?.length ?? 0,
+        tileHeights,
+        columns: catalogDialog ? getComputedStyle(catalogDialog.querySelector(".arachnid-catalog-grid") ?? catalogDialog).gridTemplateColumns : null,
+        meta: translatorTile?.querySelector(".arachnid-tile-meta")?.textContent ?? null,
+        error: catalogDialog?.querySelector(".arachnid-catalog-status[data-error]")?.textContent ?? null,
+      };
+      await check(
+        "каталог плагинов: плитки в сетке одной высоты, версия и папка внизу",
+        catalogUi.firstPaint === "tiles" &&
+          catalogUi.tiles > 0 &&
+          tileHeights.length === 1 &&
+          tileHeights[0] === 236 &&
+          String(catalogUi.columns).trim().split(/\s+/).length >= 2 &&
+          /translator$/.test(catalogUi.meta ?? "") &&
+          !catalogUi.error,
+        catalogUi,
+      );
+      catalogDialog?.querySelector(".arachnid-dialog-actions > :last-child")?.click();
+      await sleep(250);
       const gear = qolRow && [...qolRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
       gear?.click();
       const qolDialog = await waitFor(() => document.querySelector('[data-arachnid-plugin-settings="builtin:qol"]'), 3000, 50);
@@ -2313,7 +2356,20 @@ ${sidebarGroup("", [
         const list = await invoke("extensions_catalog", { language: "ru", refresh: true });
         const remote = list.find((plugin) => plugin.id === "translator");
         catalogState.listed = Boolean(remote?.version) && !remote?.error;
+        // сохранённый каталог: отдаётся без сети и свежий
+        const saved = await invoke("extensions_catalog_saved", { language: "ru" });
+        catalogState.saved = Boolean(saved?.fresh && saved.plugins.some((plugin) => plugin.id === "translator"));
+        // ход скачивания приходит странице: от 0 до всего размера
+        const progressSeen = [];
+        const unsubscribe = window.__arachnidDesktop.subscribe((type, detail) => {
+          if (type === "catalog-progress" && detail?.id === "translator") progressSeen.push(detail);
+        });
         const after = await invoke("extensions_install_plugin", { id: "translator", language: "ru" });
+        unsubscribe();
+        const lastProgress = progressSeen.at(-1);
+        catalogState.progress =
+          progressSeen.length >= 2 && progressSeen[0].received === 0 && lastProgress.total > 0 && lastProgress.received === lastProgress.total;
+        catalogState.progressEvents = progressSeen.length;
         const installed = after.find((plugin) => plugin.id === "translator");
         catalogState.installed = installed?.installed && installed?.installedVersion === remote?.version && !installed?.update;
         catalogState.disabled = (await pluginInfo("translator"))?.enabled === false;
@@ -2328,7 +2384,7 @@ ${sidebarGroup("", [
       }
       await check(
         "каталог плагинов: translator скачивается, скачивается заново и удаляется",
-        Boolean(catalogState.listed && catalogState.installed && catalogState.disabled && catalogState.reinstalled && catalogState.removed && catalogState.gone),
+        Boolean(catalogState.listed && catalogState.saved && catalogState.progress && catalogState.installed && catalogState.disabled && catalogState.reinstalled && catalogState.removed && catalogState.gone),
         catalogState,
       );
 

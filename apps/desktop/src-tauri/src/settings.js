@@ -171,16 +171,25 @@
 .arachnid-item-description { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; white-space: pre-line; overflow-wrap: anywhere; }
 .arachnid-item-note { color: var(--md-sys-color-tertiary); }
 .arachnid-item-icon[data-blank] { background: transparent; }
-/* плашка плагина — одной высоты у всех: заголовок и три строки описания
-   (13 + 20 + 2 + 3 × 16 + 13). Не влезло — последняя строка гаснет, а весь
-   текст всплывает подсказкой при наведении */
-.arachnid-item[data-fixed] { box-sizing: border-box; height: 96px; }
-.arachnid-item[data-fixed] .arachnid-item-title { flex-shrink: 0; line-height: 20px; }
-.arachnid-item-details { display: flex; flex-direction: column; max-height: 48px; overflow: hidden; }
-.arachnid-item-details > .arachnid-item-description { line-height: 16px; }
+/* плашка плагина — одной высоты у всех: название, две строки описания
+   (или строка описания и отметка о состоянии) и строка внизу — версия,
+   автор, папка (13 + 20 + 2 + 2 × 16 + 2 + 16 + 13). Описание не влезло —
+   последняя строка гаснет, весь текст всплывает подсказкой при наведении;
+   отметка и нижняя строка видны всегда */
+.arachnid-item[data-fixed] { box-sizing: border-box; height: 98px; }
+.arachnid-item[data-fixed] > .arachnid-item-content { align-self: stretch; justify-content: flex-start; gap: 0; }
+.arachnid-item[data-fixed] .arachnid-item-title { flex-shrink: 0; line-height: 20px; margin-bottom: 2px; }
+.arachnid-item[data-fixed] .arachnid-item-footer { margin-top: 2px; }
+.arachnid-item-details { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.arachnid-item-details > .arachnid-item-description { flex-shrink: 0; line-height: 16px; }
+.arachnid-item[data-fixed] .arachnid-item-note { flex-shrink: 0; line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arachnid-item-details[data-overflow] {
   -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), rgba(0, 0, 0, 0.25));
   mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), rgba(0, 0, 0, 0.25));
+}
+.arachnid-item-footer, .arachnid-tile-meta {
+  flex-shrink: 0; line-height: 16px; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.72;
 }
 .arachnid-tooltip {
   position: fixed; z-index: 10001; box-sizing: border-box; max-width: min(480px, calc(100vw - 16px));
@@ -194,6 +203,8 @@
 .arachnid-tooltip[data-shown] { opacity: 1; }
 .arachnid-tooltip-title { font-size: 0.875rem; line-height: 1.25rem; }
 .arachnid-tooltip-note { color: var(--md-sys-color-inverse-primary); }
+.arachnid-tooltip-error { color: var(--md-sys-color-error-container); }
+.arachnid-tooltip-text:last-child { opacity: 0.8; }
 /* значок плагина из его папки: SVG — маской цвета текста, как значки шрифтом */
 .arachnid-plugin-icon { width: 20px; height: 20px; }
 span.arachnid-plugin-icon {
@@ -348,8 +359,81 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 .arachnid-icon-button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .arachnid-icon-button:disabled { opacity: 0.38; cursor: default; pointer-events: none; }
 /* каталог плагинов: кнопки строки не сжимаются, подписи — в одну строку */
-.arachnid-catalog-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
-.arachnid-catalog-actions .arachnid-button { white-space: nowrap; }
+/* каталог плагинов: плитки в сетке, у всех одна высота */
+.arachnid-scrim[data-arachnid-catalog] .arachnid-dialog[data-compact] { width: min(820px, 100%); }
+/* плитка: шапка, две строки описания, состояние, внизу — версия, размер и
+   папка (всегда на виду, до двух строк) и кнопки
+   (16 + 52 + 8 + 36 + 6 + 16 + 8 + 32 + 6 + 40 + 16) */
+.arachnid-catalog-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
+.arachnid-tile {
+  position: relative; box-sizing: border-box; height: 236px; min-width: 0; padding: 16px;
+  display: flex; flex-direction: column; gap: 6px; user-select: none;
+  border-radius: var(--borderRadius-lg, 16px);
+  background: var(--md-sys-color-secondary-container); color: var(--md-sys-color-on-secondary-container);
+}
+.arachnid-tile-head { display: flex; align-items: center; gap: 12px; min-width: 0; flex-shrink: 0; margin-bottom: 2px; }
+.arachnid-tile-icon { position: relative; width: 52px; height: 52px; flex-shrink: 0; display: grid; place-items: center; }
+.arachnid-tile-badge {
+  width: 44px; height: 44px; display: grid; place-items: center; border-radius: 13px;
+  background: var(--md-sys-color-surface-dim); color: var(--md-sys-color-on-surface);
+  transition: width 0.2s, height 0.2s, border-radius 0.2s;
+}
+.arachnid-tile-badge .arachnid-plugin-icon { width: 26px; height: 26px; }
+/* скачивание: значок сжимается в круг, вокруг заполняется кольцо */
+.arachnid-tile[data-downloading] .arachnid-tile-badge { width: 36px; height: 36px; border-radius: 50%; }
+.arachnid-ring { position: absolute; inset: 0; width: 52px; height: 52px; transform: rotate(-90deg); }
+.arachnid-ring circle { fill: none; stroke-width: 3; }
+.arachnid-ring-track { stroke: color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent); }
+.arachnid-ring-bar {
+  stroke: var(--md-sys-color-primary); stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 0.15s linear;
+}
+.arachnid-ring[data-indeterminate] { animation: arachnid-spin 1s linear infinite; }
+.arachnid-ring[data-indeterminate] .arachnid-ring-bar { stroke-dasharray: 25 75; stroke-dashoffset: 0; transition: none; }
+@keyframes arachnid-spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+.arachnid-tile-heading { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.arachnid-tile-name { font-size: 1rem; line-height: 1.5rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arachnid-tile-author { font-size: 0.75rem; line-height: 1rem; opacity: 0.72; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.arachnid-tile-description {
+  flex-shrink: 0; max-height: 36px; overflow: hidden; font-size: 0.8125rem; line-height: 18px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow-wrap: anywhere;
+}
+.arachnid-tile[data-skeleton] .arachnid-tile-description { display: block; }
+.arachnid-tile-status {
+  flex-shrink: 0; font-size: 0.75rem; line-height: 1rem; font-weight: 500; color: var(--md-sys-color-tertiary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.arachnid-tile-status[data-kind="update"] { color: var(--md-sys-color-primary); }
+.arachnid-tile-status[data-kind="error"] { color: var(--md-sys-color-error); }
+.arachnid-tile-foot { margin-top: auto; display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.arachnid-tile .arachnid-tile-meta {
+  white-space: normal; text-overflow: clip; max-height: 32px;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.arachnid-tile-actions { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 40px; min-width: 0; }
+.arachnid-tile-actions .arachnid-button { white-space: nowrap; padding: 0 16px; min-width: 0; }
+.arachnid-tile-progress { font-size: 0.875rem; font-weight: 500; color: var(--md-sys-color-primary); font-variant-numeric: tabular-nums; }
+.arachnid-catalog-status { display: flex; align-items: center; gap: 8px; min-height: 40px; font-size: 0.875rem; }
+.arachnid-catalog-status > span:not(.arachnid-icon):not(.arachnid-spinner) { flex: 1; }
+.arachnid-catalog-status[data-error] { color: var(--md-sys-color-error); }
+.arachnid-spinner {
+  width: 16px; height: 16px; flex-shrink: 0; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent);
+  border-top-color: var(--md-sys-color-primary); animation: arachnid-spin 0.8s linear infinite;
+}
+.arachnid-shimmer {
+  border-radius: 6px;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, currentColor 8%, transparent) 25%,
+    color-mix(in srgb, currentColor 16%, transparent) 50%,
+    color-mix(in srgb, currentColor 8%, transparent) 75%);
+  background-size: 200% 100%; animation: arachnid-shimmer 1.4s ease-in-out infinite;
+}
+.arachnid-tile-badge.arachnid-shimmer { border-radius: 13px; }
+@keyframes arachnid-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .arachnid-shimmer, .arachnid-spinner, .arachnid-ring[data-indeterminate] { animation-duration: 3s; }
+}
 .arachnid-dialog-status { flex: 1; min-width: 0; }
 .arachnid-dialog-status[data-error] { color: var(--md-sys-color-error); }
 .arachnid-code {
@@ -401,7 +485,9 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * вызывает onClick.
    */
   // Подсказка плашки фиксированной высоты: весь текст, если он не влез.
-  // Одна на страницу, висит в body поверх окон настроек.
+  // Одна на страницу, висит в body поверх окон настроек. Что показывать,
+  // плашка отмечает сама: data-tip="title" — название (только если оно
+  // обрезано), "lines" — блок строк (каждый ребёнок — строка), "text" — строка.
   const TOOLTIP_DELAY_MS = 400;
   let tooltip = null;
   let tooltipTimer = 0;
@@ -417,27 +503,35 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     tooltip = null;
   }
 
-  const overflowing = (element) => element.scrollHeight > element.clientHeight + 1;
+  const overflowing = (element) =>
+    element.scrollHeight > element.clientHeight + 1 || element.scrollWidth > element.clientWidth + 1;
+
+  /** Строки подсказки: { text, kind }; `null` — всё и так видно */
+  function tipLines(anchor) {
+    const sources = [...anchor.querySelectorAll("[data-tip]")];
+    if (!sources.some(overflowing)) return null;
+    return sources.flatMap((source) => {
+      const kind = source.dataset.tip;
+      if (kind === "title") return overflowing(source) ? [{ text: source.textContent, kind }] : [];
+      const lines = kind === "lines" ? [...source.children] : [source];
+      return lines.map((line) => ({ text: line.textContent, kind: line.dataset.tipKind ?? kind }));
+    });
+  }
 
   function showTooltip(anchor) {
-    const title = anchor.querySelector(".arachnid-item-title");
-    const details = anchor.querySelector(".arachnid-item-details");
-    if (!details || !anchor.isConnected) return;
-    const longTitle = title && title.scrollWidth > title.clientWidth + 1;
-    if (!overflowing(details) && !longTitle) return;
+    if (!anchor.isConnected) return;
+    const lines = tipLines(anchor);
+    if (!lines?.length) return;
     hideTooltip();
     const node = h(
       "div",
       { class: "arachnid-tooltip", role: "tooltip" },
-      longTitle ? h("span", { class: "arachnid-tooltip-title" }, title.textContent) : null,
-      [...details.children].map((part) =>
-        h("span", { class: part.classList.contains("arachnid-item-note") ? "arachnid-tooltip-note" : undefined }, part.textContent),
-      ),
+      lines.map((line) => h("span", { class: `arachnid-tooltip-${line.kind}` }, line.text)),
     );
     document.body.append(node);
     // под плашкой, не влезает снизу — над ней; по ширине — от начала текста
     const box = anchor.getBoundingClientRect();
-    const start = (anchor.querySelector(".arachnid-item-content") ?? anchor).getBoundingClientRect();
+    const start = (anchor.querySelector("[data-tip-start]") ?? anchor).getBoundingClientRect();
     const own = node.getBoundingClientRect();
     const gap = 6;
     let top = box.bottom + gap;
@@ -456,6 +550,17 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     node.setAttribute("data-shown", "");
   }
 
+  /** Обработчики плашки с подсказкой — в свойства `h` */
+  const tipHandlers = () => ({
+    onMouseenter: (event) => {
+      const anchor = event.currentTarget;
+      clearTimeout(tooltipTimer);
+      tooltipTimer = setTimeout(() => showTooltip(anchor), TOOLTIP_DELAY_MS);
+    },
+    onMouseleave: hideTooltip,
+    onPointerdown: hideTooltip,
+  });
+
   // гаснущая последняя строка — только у описаний, которые не влезли;
   // строки внутри тоже под наблюдением: блок упёрся в предел и уже не растёт
   const detailsWatch =
@@ -468,15 +573,22 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         })
       : null;
 
-  function item({ iconName, iconNode, title, description, note, action, onClick, fixed }) {
-    const texts = [
-      description ? h("span", { class: "arachnid-item-description" }, description) : null,
-      note ? h("span", { class: "arachnid-item-description arachnid-item-note" }, note) : null,
-    ];
-    let details = null;
+  /**
+   * Строка списка. `fixed` — плашка плагина: одной высоты со всеми,
+   * описание обрезается (целиком — в подсказке), `footer` — строка внизу,
+   * видна всегда (версия, автор, папка).
+   */
+  function item({ iconName, iconNode, title, description, note, footer, action, onClick, fixed }) {
+    const describe = description ? h("span", { class: "arachnid-item-description" }, description) : null;
+    const notice = note
+      ? h("span", { class: "arachnid-item-description arachnid-item-note", dataset: fixed ? { tip: "text", tipKind: "note" } : undefined }, note)
+      : null;
+    let texts = [describe, notice];
     if (fixed) {
-      details = h("div", { class: "arachnid-item-details" }, texts);
+      // описание занимает, что осталось; отметка о состоянии видна всегда
+      const details = h("div", { class: "arachnid-item-details", dataset: { tip: "lines" } }, describe);
       for (const part of [details, ...details.children]) detailsWatch?.observe(part);
+      texts = [details, notice];
     }
     return h(
       "div",
@@ -485,15 +597,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         role: onClick ? "button" : undefined,
         tabIndex: onClick ? 0 : undefined,
         dataset: { ...(onClick ? { clickable: "" } : {}), ...(fixed ? { fixed: "" } : {}) },
-        onMouseenter: fixed
-          ? (event) => {
-              const anchor = event.currentTarget;
-              clearTimeout(tooltipTimer);
-              tooltipTimer = setTimeout(() => showTooltip(anchor), TOOLTIP_DELAY_MS);
-            }
-          : undefined,
-        onMouseleave: fixed ? hideTooltip : undefined,
-        onPointerdown: fixed ? hideTooltip : undefined,
+        ...(fixed ? tipHandlers() : {}),
         onClick: onClick
           ? (event) => {
               event.preventDefault();
@@ -517,9 +621,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       ),
       h(
         "div",
-        { class: "arachnid-item-content" },
-        h("div", { class: "arachnid-item-title" }, title),
-        details ?? texts,
+        { class: "arachnid-item-content", dataset: fixed ? { tipStart: "" } : undefined },
+        h("div", { class: "arachnid-item-title", dataset: fixed ? { tip: "title" } : undefined }, title),
+        texts,
+        fixed && footer ? h("div", { class: "arachnid-item-footer", dataset: { tip: "text" } }, footer) : null,
       ),
       action ?? null,
     );
@@ -879,11 +984,6 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         plugin.native && "WebAssembly",
         !plugin.builtin && plugin.file,
       ].filter(Boolean);
-      const details = [
-        plugin.description,
-        plugin.network.length ? text.network(plugin.network.join(", ")) : null,
-        tags.join(" · "),
-      ].filter(Boolean);
       const waiting = plugin.enabled && !plugin.granted && !plugin.error;
       let note = null;
       if (plugin.error) note = text.broken(plugin.error);
@@ -900,8 +1000,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         iconName: plugin.builtin ? "auto_awesome" : plugin.folder ? "folder_special" : "extension",
         iconNode: plugin.icon ? pluginIcon(plugin.icon) : null,
         title: name,
-        description: details.join("\n"),
+        // доступ в сеть — в окне разрешений, на плашке только описание
+        description: plugin.description,
         note,
+        footer: tags.join(" · "),
         fixed: true,
         action: extra.length ? h("div", { class: "arachnid-item-actions" }, extra, box) : box,
         onClick: () => {
@@ -937,7 +1039,10 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         h(
           "div",
           { class: "arachnid-buttons" },
-          button(text.catalog, () => openCatalog(), "filled", "download"),
+          Object.assign(button(text.catalog, () => openCatalog(), "filled", "download"), {
+            onpointerenter: prefetchCatalog,
+            onfocus: prefetchCatalog,
+          }),
           button(text.openPlugins, () => openFolder("plugins"), undefined, "folder_open"),
         ),
       ),
@@ -2002,101 +2107,288 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
 
   // ─────────────────────────── каталог плагинов ───────────────────────────
   // Плагины из папки plugins репозитория клиента (catalog.rs): скачать,
-  // обновить до версии выше, скачать заново или удалить.
+  // обновить до версии выше, скачать заново или удалить. Плитки в сетке.
+  //
+  // Загрузка: сначала сохранённый каталог (без сети, сразу), затем проверка
+  // свежести — пока она идёт, плитки уже на месте, а над ними строка
+  // «Проверка обновлений…». Сохранённого нет — серые заготовки плиток.
+  // Не обновилось — сохранённый список остаётся, над ним ошибка и «Повторить».
+  // Скачивание — кольцо вокруг значка плагина заполняется по ходу
+  // (catalogProgress из catalog.rs), как в Play Маркете.
 
-  /** Открытый каталог: { render, load } */
+  /** Открытый каталог: { render, load, progress } */
   let catalogView = null;
+  /** Запрос каталога, начатый при наведении на «Каталог»: { language, promise, at } */
+  let catalogPrefetch = null;
+  /** Сколько годится запрос, начатый при наведении, мс */
+  const CATALOG_PREFETCH_MS = 15000;
+  const SVG = "http://www.w3.org/2000/svg";
+
+  /** Запрос каталога; `reuse` — взять начатый при наведении */
+  function requestCatalog(refresh, reuse = false) {
+    const language = i18n.language() ?? "";
+    const early = catalogPrefetch;
+    if (reuse && !refresh && early?.language === language && Date.now() - early.at < CATALOG_PREFETCH_MS) {
+      return early.promise;
+    }
+    const promise = invoke("extensions_catalog", { language, refresh });
+    catalogPrefetch = { language, promise, at: Date.now() };
+    promise.catch(() => {
+      if (catalogPrefetch?.promise === promise) catalogPrefetch = null;
+    });
+    return promise;
+  }
+
+  /** Навели на «Каталог»: проверка свежести начнётся до щелчка */
+  function prefetchCatalog() {
+    if (catalogView || (catalogPrefetch && Date.now() - catalogPrefetch.at < CATALOG_PREFETCH_MS)) return;
+    void requestCatalog(false).catch(() => {});
+  }
+
+  /** Кольцо хода скачивания: `fraction` 0…1, `null` — ход пока неизвестен */
+  function progressRing() {
+    const svg = document.createElementNS(SVG, "svg");
+    svg.setAttribute("class", "arachnid-ring");
+    svg.setAttribute("viewBox", "0 0 56 56");
+    svg.setAttribute("aria-hidden", "true");
+    for (const part of ["track", "bar"]) {
+      const circle = document.createElementNS(SVG, "circle");
+      circle.setAttribute("class", `arachnid-ring-${part}`);
+      for (const [key, value] of Object.entries({ cx: 28, cy: 28, r: 26, pathLength: 100 })) circle.setAttribute(key, value);
+      svg.append(circle);
+    }
+    return svg;
+  }
+
+  function setRing(svg, fraction) {
+    const known = typeof fraction === "number" && Number.isFinite(fraction);
+    svg.toggleAttribute("data-indeterminate", !known);
+    const bar = svg.querySelector(".arachnid-ring-bar");
+    bar.style.strokeDashoffset = known ? String(100 - Math.round(Math.min(1, Math.max(0, fraction)) * 100)) : "";
+  }
 
   function openCatalog() {
     if (!document.body) return;
-    // { plugins } | { error } | null — загрузка
-    let state = null;
-    /** Плагин, который сейчас скачивается */
+    /** Плагины каталога; `null` — ещё нет ни сохранённых, ни новых */
+    let plugins = null;
+    /** Идёт загрузка или проверка свежести */
+    let loading = true;
+    /** Каталог не получен: текст ошибки */
+    let loadError = null;
+    /** Плагин, который сейчас скачивается, и ход: { received, total } */
     let busy = null;
+    let progress = null;
     /** Ошибка скачивания: { id, message } */
     let failure = null;
-    const body = h("div", { class: "arachnid-column" });
+    /** Кольцо и подпись скачиваемой плитки — ход без перерисовки сетки */
+    let busyNodes = null;
+    let generation = 0;
+    const body = h("div", { class: "arachnid-column arachnid-catalog" });
     const language = () => i18n.language() ?? "";
 
-    function load(refresh = false) {
-      state = null;
+    async function load({ refresh = false, reuse = false } = {}) {
+      const run = ++generation;
+      loading = true;
+      loadError = null;
       render();
-      invoke("extensions_catalog", { language: language(), refresh })
-        .then((plugins) => (state = { plugins }))
-        .catch((error) => (state = { error: i18n.errorText(error) }))
-        .finally(render);
+      if (!plugins && !refresh) {
+        const saved = await invoke("extensions_catalog_saved", { language: language() }).catch(() => null);
+        if (run !== generation) return;
+        if (saved) {
+          plugins = saved.plugins;
+          // сверялся недавно — сеть не нужна вовсе
+          if (saved.fresh) {
+            loading = false;
+            return render();
+          }
+          render();
+        }
+      }
+      try {
+        const list = await requestCatalog(refresh, reuse);
+        if (run !== generation) return;
+        plugins = list;
+      } catch (error) {
+        if (run !== generation) return;
+        loadError = i18n.errorText(error);
+      }
+      loading = false;
+      render();
     }
 
     function install(plugin) {
       busy = plugin.id;
+      progress = null;
       failure = null;
+      catalogPrefetch = null;
       render();
       invoke("extensions_install_plugin", { id: plugin.id, language: language() })
-        .then((plugins) => (state = { plugins }))
+        .then((list) => (plugins = list))
         .catch((error) => (failure = { id: plugin.id, message: i18n.errorText(error) }))
         .finally(() => {
           busy = null;
+          progress = null;
           render();
           void refresh();
         });
     }
 
-    function row(plugin) {
+    const fraction = () => (progress?.total > 0 ? progress.received / progress.total : null);
+    const progressLabel = () => {
+      const part = fraction();
+      return part === null ? text.installing : text.installingPercent(Math.round(part * 100));
+    };
+
+    /** Пришёл ход скачивания из catalog.rs */
+    function onProgress(detail) {
+      if (!busy || detail?.id !== busy) return;
+      progress = { received: Number(detail.received) || 0, total: Number(detail.total) || 0 };
+      if (!busyNodes?.ring.isConnected) return;
+      setRing(busyNodes.ring, fraction());
+      busyNodes.label.textContent = progressLabel();
+    }
+
+    function tile(plugin) {
       const name = plugin.name ?? plugin.id;
       const local = overview?.plugins?.find((entry) => entry.file === plugin.id);
-      const tags = [
-        plugin.author && text.author(plugin.author),
-        plugin.version && text.version(plugin.version),
-        plugin.size ? formatSize(plugin.size) : null,
-      ].filter(Boolean);
-      let note = null;
-      if (failure?.id === plugin.id) note = text.installFailed(failure.message);
-      else if (plugin.error) note = text.broken(plugin.error);
-      else if (busy === plugin.id) note = text.installing;
-      else if (plugin.update) note = text.updateAvailable(plugin.installedVersion ?? "?");
-      else if (plugin.installed && local && !local.enabled) note = text.installedOff;
-      else if (plugin.installed) note = text.installed;
+      const downloading = busy === plugin.id;
+      // версия, размер и папка — внизу плитки, всегда на виду
+      const meta = [plugin.version && text.version(plugin.version), plugin.size ? formatSize(plugin.size) : null, plugin.id]
+        .filter(Boolean)
+        .join(" · ");
+      let status = null;
+      let kind = "status";
+      if (failure?.id === plugin.id) [status, kind] = [text.installFailed(failure.message), "error"];
+      else if (plugin.error) [status, kind] = [text.broken(plugin.error), "error"];
+      else if (plugin.update) [status, kind] = [text.updateAvailable(plugin.installedVersion ?? "?"), "update"];
+      else if (plugin.installed && local && !local.enabled) status = text.installedOff;
+      else if (plugin.installed) status = text.installed;
+
       const locked = busy !== null || Boolean(plugin.error);
-      const actions = [];
-      if (!plugin.installed) {
-        actions.push(button(text.install, () => install(plugin), "filled", "download"));
+      let actions;
+      let label = null;
+      if (downloading) {
+        label = h("span", { class: "arachnid-tile-progress", role: "status" }, progressLabel());
+        actions = [label];
+      } else if (!plugin.installed) {
+        actions = [button(text.install, () => install(plugin), "filled", "download")];
       } else {
-        if (plugin.update) actions.push(button(text.update(plugin.version), () => install(plugin), "filled", "upgrade"));
-        else actions.push(iconButton("download", text.reinstall, () => install(plugin)));
-        actions.push(iconButton("delete", text.removePlugin, () => confirmRemove(plugin.id, name, () => load())));
+        actions = [
+          plugin.update
+            ? button(text.update(plugin.version), () => install(plugin), "filled")
+            : iconButton("download", text.reinstall, () => install(plugin)),
+          iconButton("delete", text.removePlugin, () => confirmRemove(plugin.id, name, () => load())),
+        ];
       }
-      for (const control of actions) control.disabled = locked;
-      return item({
-        iconName: "extension",
-        iconNode: plugin.icon ? pluginIcon(plugin.icon) : null,
-        title: name,
-        description: [plugin.description, tags.join(" · ")].filter(Boolean).join("\n"),
-        note,
-        fixed: true,
-        action: h("div", { class: "arachnid-catalog-actions" }, actions),
-      });
+      for (const control of actions) if (control instanceof HTMLButtonElement) control.disabled = locked;
+
+      const ring = downloading ? progressRing() : null;
+      if (ring) {
+        setRing(ring, fraction());
+        busyNodes = { ring, label };
+      }
+      return h(
+        "div",
+        {
+          class: "arachnid-tile",
+          dataset: { arachnidCatalogPlugin: plugin.id, ...(downloading ? { downloading: "" } : {}), ...(plugin.installed ? { installed: "" } : {}) },
+          ...tipHandlers(),
+        },
+        h(
+          "div",
+          { class: "arachnid-tile-head" },
+          h(
+            "div",
+            { class: "arachnid-tile-icon" },
+            ring,
+            h("div", { class: "arachnid-tile-badge" }, plugin.icon ? pluginIcon(plugin.icon) : icon("extension")),
+          ),
+          h(
+            "div",
+            { class: "arachnid-tile-heading", dataset: { tipStart: "" } },
+            h("div", { class: "arachnid-tile-name", dataset: { tip: "title" } }, name),
+            plugin.author ? h("div", { class: "arachnid-tile-author" }, text.author(plugin.author)) : null,
+          ),
+        ),
+        h("div", { class: "arachnid-tile-description", dataset: { tip: "text" } }, plugin.description ?? ""),
+        status ? h("div", { class: "arachnid-tile-status", dataset: { kind, tip: "text", tipKind: kind === "error" ? "error" : "note" } }, status) : null,
+        h(
+          "div",
+          { class: "arachnid-tile-foot" },
+          h("div", { class: "arachnid-tile-meta", dataset: { tip: "text" } }, meta),
+          h("div", { class: "arachnid-tile-actions" }, actions),
+        ),
+      );
+    }
+
+    /** Серая заготовка плитки, пока каталога нет */
+    const skeleton = () =>
+      h(
+        "div",
+        { class: "arachnid-tile", dataset: { skeleton: "" }, "aria-hidden": "true" },
+        h(
+          "div",
+          { class: "arachnid-tile-head" },
+          h("div", { class: "arachnid-tile-icon" }, h("div", { class: "arachnid-tile-badge arachnid-shimmer" })),
+          h(
+            "div",
+            { class: "arachnid-tile-heading" },
+            h("div", { class: "arachnid-shimmer", style: { width: "60%", height: "16px" } }),
+            h("div", { class: "arachnid-shimmer", style: { width: "40%", height: "12px", marginTop: "6px" } }),
+          ),
+        ),
+        h(
+          "div",
+          { class: "arachnid-tile-description" },
+          h("div", { class: "arachnid-shimmer", style: { height: "12px" } }),
+          h("div", { class: "arachnid-shimmer", style: { width: "80%", height: "12px", marginTop: "6px" } }),
+        ),
+        h(
+          "div",
+          { class: "arachnid-tile-foot" },
+          h("div", { class: "arachnid-shimmer", style: { width: "55%", height: "12px" } }),
+          h("div", { class: "arachnid-tile-actions" }, h("div", { class: "arachnid-shimmer", style: { width: "96px", height: "40px", borderRadius: "20px" } })),
+        ),
+      );
+
+    function statusLine() {
+      if (loading) {
+        return h(
+          "div",
+          { class: "arachnid-catalog-status", role: "status" },
+          h("span", { class: "arachnid-spinner", "aria-hidden": "true" }),
+          h("span", {}, plugins ? text.catalogChecking : text.catalogLoading),
+        );
+      }
+      if (loadError) {
+        return h(
+          "div",
+          { class: "arachnid-catalog-status", role: "alert", dataset: { error: "" } },
+          icon("cloud_off"),
+          h("span", {}, plugins ? text.catalogStale(loadError) : text.catalogFailed(loadError)),
+          button(text.retry, () => load({ refresh: true }), "text", "refresh"),
+        );
+      }
+      return null;
     }
 
     function render() {
       if (catalogView?.body !== body) return;
-      if (!state) return setChildren(body, h("span", { class: "arachnid-label", role: "status" }, text.catalogLoading));
-      if (state.error) {
-        return setChildren(
-          body,
-          h("span", { class: "arachnid-label", role: "alert" }, text.catalogFailed(state.error)),
-          h("div", { class: "arachnid-buttons" }, button(text.retry, () => load(true), undefined, "refresh")),
-        );
+      busyNodes = null;
+      let content;
+      if (plugins) {
+        content = plugins.length
+          ? h("div", { class: "arachnid-catalog-grid" }, plugins.map(tile))
+          : h("span", { class: "arachnid-label" }, text.catalogEmpty);
+      } else if (loading) {
+        content = h("div", { class: "arachnid-catalog-grid", "aria-busy": "true" }, Array.from({ length: 4 }, skeleton));
+      } else {
+        content = null;
       }
-      setChildren(
-        body,
-        h("span", { class: "arachnid-label" }, text.catalogIntro),
-        state.plugins.length
-          ? h("div", { class: "arachnid-group" }, state.plugins.map(row))
-          : h("span", { class: "arachnid-label" }, text.catalogEmpty),
-      );
+      setChildren(body, h("span", { class: "arachnid-label" }, text.catalogIntro), statusLine(), content);
     }
 
-    const view = { body, render, load };
+    const view = { body, render, load, progress: onProgress };
     catalogView = view;
     const dialog = openDialog({
       title: text.catalog,
@@ -2104,14 +2396,15 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       dataset: { arachnidCatalog: "" },
       content: body,
       actions: [
-        button(text.refreshCatalog, () => load(true), "text", "refresh"),
+        button(text.refreshCatalog, () => load({ refresh: true }), "text", "refresh"),
         button(text.done, () => dialog.close(), "text"),
       ],
       onClose: () => {
+        hideTooltip();
         if (catalogView === view) catalogView = null;
       },
     });
-    load();
+    void load({ reuse: true });
   }
 
   // ─────────────────────────────── QuickCSS ───────────────────────────────
@@ -2360,14 +2653,17 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     }
     appearance?.actions.replaceChildren(...appearanceButtons());
     renderAll();
+    // названия и описания каталога — на новом языке
+    void catalogView?.load();
   });
 
-  desktop.subscribe((type) => {
+  desktop.subscribe((type, detail) => {
     if (type === "extensions") void refresh();
     else if (type === "menu") renderPluginsPage();
     else if (type === "quickcss") quickCss?.reload();
     else if (type === "open-quickcss") openQuickCss();
     else if (type === "hotkeys") void refreshHotkeys();
+    else if (type === "catalog-progress") catalogView?.progress(detail);
   });
 
   function start() {

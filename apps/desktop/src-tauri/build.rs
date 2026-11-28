@@ -25,6 +25,7 @@ const COMMANDS: &[&str] = &[
     "extensions_reset_plugin",
     "extensions_remove_plugin",
     "extensions_catalog",
+    "extensions_catalog_saved",
     "extensions_install_plugin",
     "plugin_storage_get",
     "plugin_storage_set",

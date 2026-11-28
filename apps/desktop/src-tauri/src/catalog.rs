@@ -11,6 +11,12 @@
 //! raw.githubusercontent.com по тому же коммиту — все файлы плагина всегда
 //! из одной версии.
 //!
+//! Каталог сохраняется в [`CACHE_FILE`] рядом с папкой плагинов: окно
+//! показывает его сразу, без сети, а свежесть проверяет одним запросом —
+//! коммит тот же, значит, и список тот же. Новый коммит — новое дерево, но
+//! описания плагинов, чьи файлы не изменились (те же SHA), не скачиваются
+//! снова. Недостающие описания скачиваются по [`PARALLEL`] сразу.
+//!
 //! Скачанный плагин сначала собирается во временной папке
 //! `plugins/.download-<id>` (папки с точкой клиент не читает) и
 //! проверяется: `plugin.toml` должен читаться, как у положенного вручную.
@@ -19,9 +25,9 @@
 //! включённость, настройки, разрешения и хранилище.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, State};
@@ -53,40 +59,99 @@ const MAX_FILES: usize = 256;
 const MAX_PLUGIN_SIZE: u64 = 64 * 1024 * 1024;
 /// Временная папка скачиваемого плагина внутри папки плагинов.
 const DOWNLOAD_PREFIX: &str = ".download-";
+/// Сохранённый каталог — в папке данных, рядом с папкой плагинов.
+const CACHE_FILE: &str = "catalog-cache.json";
+/// Сколько описаний плагинов скачивается одновременно.
+const PARALLEL: usize = 6;
+/// Как часто сообщать странице ход скачивания плагина.
+const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Файл плагина в каталоге.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct RemoteFile {
     /// Путь внутри папки плагина, через `/`
     path: String,
     /// Размер, байт
     size: u64,
+    /// SHA содержимого в git: по нему видно, что файл не менялся
+    #[serde(default)]
+    sha: String,
 }
 
 /// Название, описание и значок плагина из каталога на одном языке.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct RemoteAbout {
-    about: manifest::About,
+    name: Option<String>,
+    version: Option<String>,
+    author: Option<String>,
+    description: Option<String>,
     /// Значок — адрес `data:`
     icon: Option<String>,
     /// Почему `plugin.toml` не читается
     error: Option<String>,
+    /// Отпечаток файлов плагина ([`signature`]), с которых снято описание
+    #[serde(default)]
+    signature: String,
 }
 
 /// Список каталога на момент запроса.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct Listing {
     /// Коммит, из которого скачиваются файлы
     commit: String,
-    fetched: Instant,
+    /// Когда коммит последний раз сверялся с GitHub
+    checked: SystemTime,
     /// Плагин → его файлы
     plugins: BTreeMap<String, Vec<RemoteFile>>,
-    /// Описания: (язык, плагин) → описание
-    about: BTreeMap<(String, String), RemoteAbout>,
+    /// Описания: язык → плагин → описание
+    about: BTreeMap<String, BTreeMap<String, RemoteAbout>>,
 }
 
-/// Последний список каталога.
+impl Listing {
+    /// Сверялся с GitHub недавно: снова спрашивать незачем.
+    fn fresh(&self) -> bool {
+        self.checked.elapsed().is_ok_and(|age| age < LISTING_TTL)
+    }
+
+    /// Описание плагина `id` на языке `language`.
+    fn about(&self, language: &str, id: &str) -> Option<&RemoteAbout> {
+        self.about.get(language)?.get(id)
+    }
+}
+
+/// Последний список каталога (при первом обращении — из [`CACHE_FILE`]).
 static LISTING: Mutex<Option<Listing>> = Mutex::new(None);
+
+/// Отпечаток файлов плагина: пути, размеры и SHA.
+fn signature(files: &[RemoteFile]) -> String {
+    let parts: Vec<String> = files
+        .iter()
+        .map(|file| format!("{}:{}:{}", file.path, file.size, file.sha))
+        .collect();
+    parts.join("\n")
+}
+
+/// Код языка для ключей описаний: `pt_BR` → `pt-br`.
+fn language_key(language: &str) -> String {
+    language.replace('_', "-").to_ascii_lowercase()
+}
+
+/// Сохранённый каталог для окна: показать сразу, пока идёт проверка.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedCatalog {
+    plugins: Vec<CatalogPlugin>,
+    /// Сверялся с GitHub недавно — проверять снова не нужно
+    fresh: bool,
+}
+
+/// Ход скачивания плагина для окна каталога.
+#[derive(Serialize)]
+struct Progress<'a> {
+    id: &'a str,
+    received: u64,
+    total: u64,
+}
 
 /// Плагин каталога для окна «Каталог плагинов».
 #[derive(Debug, Clone, Serialize)]
@@ -208,6 +273,38 @@ fn download(_url: &Url, _headers: &str, _limit: usize) -> Result<Vec<u8>, Failur
     Err(Failure::Unsupported)
 }
 
+/// Скачать файл размером не больше `size` байт; `on_chunk` получает длину
+/// каждого пришедшего куска — для полосы загрузки.
+#[cfg(windows)]
+fn download_counted(
+    url: &Url,
+    size: u64,
+    mut on_chunk: impl FnMut(usize),
+) -> Result<Vec<u8>, Failure> {
+    use crate::http::StopReason;
+
+    let mut body = Vec::new();
+    let on_data = |chunk: &[u8]| {
+        if (body.len() + chunk.len()) as u64 > size {
+            return Err(StopReason::TooLarge);
+        }
+        body.extend_from_slice(chunk);
+        on_chunk(chunk.len());
+        Ok(())
+    };
+    crate::http::get(url, |_| {}, on_data).map_err(|error| failure(error, url))?;
+    Ok(body)
+}
+
+#[cfg(not(windows))]
+fn download_counted(
+    _url: &Url,
+    _size: u64,
+    _on_chunk: impl FnMut(usize),
+) -> Result<Vec<u8>, Failure> {
+    Err(Failure::Unsupported)
+}
+
 /// `владелец/репозиторий` из адреса репозитория клиента.
 fn repo() -> Result<&'static str, Failure> {
     let repo = extensions::REPOSITORY
@@ -256,6 +353,8 @@ fn parse_tree(body: &[u8]) -> Result<BTreeMap<String, Vec<RemoteFile>>, Failure>
         kind: String,
         #[serde(default)]
         size: u64,
+        #[serde(default)]
+        sha: String,
     }
 
     let broken = |error: serde_json::Error| Failure::Broken(error.to_string());
@@ -278,6 +377,7 @@ fn parse_tree(body: &[u8]) -> Result<BTreeMap<String, Vec<RemoteFile>>, Failure>
         let file = RemoteFile {
             path: path.to_owned(),
             size: item.size,
+            sha: item.sha,
         };
         plugins.entry(id.to_owned()).or_default().push(file);
     }
@@ -290,47 +390,111 @@ fn has_manifest(files: &[RemoteFile]) -> bool {
     files.iter().any(|f| f.path == manifest::PLUGIN_MANIFEST)
 }
 
-/// Скачать список каталога.
-fn fetch_listing() -> Result<Listing, Failure> {
-    let repo = repo()?;
-    let broken = |error: url::ParseError| Failure::Broken(error.to_string());
+/// Последний коммит ветки каталога.
+fn fetch_commit(repo: &str) -> Result<String, Failure> {
     let address = format!("{API}{repo}/commits/{BRANCH}");
-    let url = Url::parse(&address).map_err(broken)?;
+    let url = Url::parse(&address).map_err(|error| Failure::Broken(error.to_string()))?;
     let commit = download(&url, ACCEPT_SHA, 128)?;
     let commit = String::from_utf8_lossy(&commit).trim().to_owned();
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(Failure::Broken("GitHub не назвал коммит".into()));
     }
-    let tree = format!("{API}{repo}/git/trees/{commit}:{CATALOG_DIR}?recursive=1");
-    let url = Url::parse(&tree).map_err(broken)?;
-    let plugins = match download(&url, ACCEPT_JSON, MAX_LISTING) {
-        Ok(body) => parse_tree(&body)?,
-        // папки plugins в репозитории нет — каталог пуст
-        Err(Failure::Status(404)) => BTreeMap::new(),
-        Err(failure) => return Err(failure),
-    };
-    tracing::info!(%commit, plugins = plugins.len(), "каталог плагинов получен");
-    Ok(Listing {
-        commit,
-        fetched: Instant::now(),
-        plugins,
-        about: BTreeMap::new(),
-    })
+    Ok(commit)
 }
 
-/// Список каталога: сохранённый, если он свежий, иначе — новый.
-fn listing(refresh: bool) -> Result<Listing, Failure> {
-    {
-        let cached = LISTING.lock().unwrap_or_else(PoisonError::into_inner);
-        let fresh = cached
-            .as_ref()
-            .filter(|listing| !refresh && listing.fetched.elapsed() < LISTING_TTL);
-        if let Some(listing) = fresh {
-            return Ok(listing.clone());
-        }
+/// Плагины каталога в коммите `commit`.
+fn fetch_tree(repo: &str, commit: &str) -> Result<BTreeMap<String, Vec<RemoteFile>>, Failure> {
+    let tree = format!("{API}{repo}/git/trees/{commit}:{CATALOG_DIR}?recursive=1");
+    let url = Url::parse(&tree).map_err(|error| Failure::Broken(error.to_string()))?;
+    match download(&url, ACCEPT_JSON, MAX_LISTING) {
+        Ok(body) => parse_tree(&body),
+        // папки plugins в репозитории нет — каталог пуст
+        Err(Failure::Status(404)) => Ok(BTreeMap::new()),
+        Err(failure) => Err(failure),
     }
-    let listing = fetch_listing()?;
+}
+
+/// Файл сохранённого каталога.
+fn cache_path(extensions: &Extensions) -> PathBuf {
+    extensions.plugins_dir().with_file_name(CACHE_FILE)
+}
+
+/// Прочитать сохранённый каталог; не читается — как будто его нет.
+fn load_cache(path: &Path) -> Option<Listing> {
+    let data = std::fs::read(path).ok()?;
+    serde_json::from_slice(&data)
+        .inspect_err(|error| tracing::warn!(%error, "сохранённый каталог плагинов не читается"))
+        .ok()
+}
+
+/// Сохранить каталог: сначала во временный файл, потом на место.
+fn save_cache(path: &Path, listing: &Listing) {
+    let temp = path.with_extension("json.tmp");
+    let result = serde_json::to_vec(listing)
+        .map_err(std::io::Error::other)
+        .and_then(|data| std::fs::write(&temp, data))
+        .and_then(|()| std::fs::rename(&temp, path));
+    if let Err(error) = result {
+        tracing::warn!(%error, "каталог плагинов не сохранён");
+    }
+}
+
+/// Каталог в памяти, при первом обращении — из файла.
+fn cached(path: &Path) -> Option<Listing> {
+    let mut cached = LISTING.lock().unwrap_or_else(PoisonError::into_inner);
+    if cached.is_none() {
+        *cached = load_cache(path);
+    }
+    cached.clone()
+}
+
+/// Запомнить каталог в памяти и в файле.
+fn remember(path: &Path, listing: &Listing) {
     *LISTING.lock().unwrap_or_else(PoisonError::into_inner) = Some(listing.clone());
+    save_cache(path, listing);
+}
+
+/// Список каталога: сохранённый, если он свежий; иначе — сверить коммит
+/// и скачать дерево, только если коммит другой.
+fn listing(path: &Path, refresh: bool) -> Result<Listing, Failure> {
+    let old = cached(path);
+    if let Some(listing) = old.as_ref().filter(|listing| !refresh && listing.fresh()) {
+        return Ok(listing.clone());
+    }
+    let repo = repo()?;
+    let commit = fetch_commit(repo)?;
+    let listing = match old {
+        Some(mut listing) if listing.commit == commit => {
+            listing.checked = SystemTime::now();
+            listing
+        }
+        old => {
+            let plugins = fetch_tree(repo, &commit)?;
+            // описания плагинов, чьи файлы не менялись, остаются
+            let mut about: BTreeMap<String, BTreeMap<String, RemoteAbout>> = BTreeMap::new();
+            for (language, entries) in old.map(|old| old.about).unwrap_or_default() {
+                let kept: BTreeMap<String, RemoteAbout> = entries
+                    .into_iter()
+                    .filter(|(id, entry)| {
+                        plugins
+                            .get(id)
+                            .is_some_and(|files| entry.signature == signature(files))
+                    })
+                    .collect();
+                if !kept.is_empty() {
+                    about.insert(language, kept);
+                }
+            }
+            tracing::info!(%commit, plugins = plugins.len(), "каталог плагинов получен");
+            Listing {
+                commit,
+                checked: SystemTime::now(),
+                plugins,
+                about,
+            }
+        }
+    };
+    remember(path, &listing);
     Ok(listing)
 }
 
@@ -371,12 +535,10 @@ fn fetch_about(repo: &str, listing: &Listing, id: &str, language: &str) -> Remot
         Err(error) => {
             tracing::warn!(plugin = id, %error, "plugin.toml из каталога не читается");
             return RemoteAbout {
-                about: manifest::About {
-                    name: Some(id.to_owned()),
-                    ..manifest::About::default()
-                },
-                icon: None,
+                name: Some(id.to_owned()),
                 error: Some(error),
+                signature: signature(files),
+                ..RemoteAbout::default()
             };
         }
     };
@@ -398,10 +560,38 @@ fn fetch_about(repo: &str, listing: &Listing, id: &str, language: &str) -> Remot
             Some(format!("data:{mime};base64,{data}"))
         });
     RemoteAbout {
-        about,
+        name: about.name,
+        version: about.version,
+        author: about.author,
+        description: about.description,
         icon,
         error: None,
+        signature: signature(files),
     }
+}
+
+/// Описания плагинов `ids` — по [`PARALLEL`] одновременно.
+fn fetch_abouts(
+    repo: &str,
+    listing: &Listing,
+    ids: &[String],
+    language: &str,
+) -> Vec<(String, RemoteAbout)> {
+    let mut fetched = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(PARALLEL) {
+        std::thread::scope(|scope| {
+            let tasks: Vec<_> = chunk
+                .iter()
+                .map(|id| scope.spawn(move || fetch_about(repo, listing, id, language)))
+                .collect();
+            for (id, task) in chunk.iter().zip(tasks) {
+                if let Ok(about) = task.join() {
+                    fetched.push((id.clone(), about));
+                }
+            }
+        });
+    }
+    fetched
 }
 
 /// Новее ли версия `remote`, чем `local`: числа через точку сравниваются
@@ -427,51 +617,25 @@ fn newer(remote: &str, local: Option<&str>) -> bool {
     }
 }
 
-/// Каталог с отметками об установленных плагинах.
-fn catalog(
-    extensions: &Extensions,
-    language: &str,
-    refresh: bool,
-) -> CmdResult<Vec<CatalogPlugin>> {
-    let mut listing = listing(refresh)?;
-    let repo = repo()?;
-    let language = language.replace('_', "-").to_ascii_lowercase();
-    let key = |id: &String| (language.clone(), id.clone());
-    let missing: Vec<String> = listing
-        .plugins
-        .keys()
-        .filter(|&id| !listing.about.contains_key(&key(id)))
-        .cloned()
-        .collect();
-    let fetched = !missing.is_empty();
-    for id in missing {
-        let about = fetch_about(repo, &listing, &id, &language);
-        listing.about.insert(key(&id), about);
-    }
-    if fetched {
-        let mut cached = LISTING.lock().unwrap_or_else(PoisonError::into_inner);
-        let same = cached.as_ref().map(|cached| &cached.commit) == Some(&listing.commit);
-        if same {
-            *cached = Some(listing.clone());
-        }
-    }
+/// Плагины каталога с отметками об установленных.
+fn view(extensions: &Extensions, listing: &Listing, language: &str) -> Vec<CatalogPlugin> {
     let installed = extensions.folder_versions();
-    let plugins = listing
+    listing
         .plugins
         .iter()
         .map(|(id, files)| {
-            let remote = listing.about.get(&key(id)).cloned().unwrap_or_default();
+            let remote = listing.about(language, id).cloned().unwrap_or_default();
             let local = installed.get(id);
-            let update = match (local, remote.about.version.as_deref()) {
+            let update = match (local, remote.version.as_deref()) {
                 (Some(local), Some(version)) => newer(version, local.as_deref()),
                 _ => false,
             };
             CatalogPlugin {
                 id: id.clone(),
-                name: remote.about.name,
-                description: remote.about.description,
-                author: remote.about.author,
-                version: remote.about.version,
+                name: remote.name,
+                description: remote.description,
+                author: remote.author,
+                version: remote.version,
                 icon: remote.icon,
                 size: files.iter().map(|file| file.size).sum(),
                 installed: local.is_some(),
@@ -480,8 +644,66 @@ fn catalog(
                 error: remote.error,
             }
         })
+        .collect()
+}
+
+/// Каталог с отметками об установленных плагинах.
+fn catalog(
+    extensions: &Extensions,
+    language: &str,
+    refresh: bool,
+) -> CmdResult<Vec<CatalogPlugin>> {
+    let path = cache_path(extensions);
+    let mut listing = listing(&path, refresh)?;
+    let language = language_key(language);
+    let missing: Vec<String> = listing
+        .plugins
+        .keys()
+        .filter(|id| listing.about(&language, id).is_none())
+        .cloned()
         .collect();
-    Ok(plugins)
+    if !missing.is_empty() {
+        let fetched = fetch_abouts(repo()?, &listing, &missing, &language);
+        let entries = listing.about.entry(language.clone()).or_default();
+        entries.extend(fetched);
+        // пока скачивались описания, каталог могли обновить — тогда не трогать
+        let same = LISTING
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .is_some_and(|cached| cached.commit == listing.commit);
+        if same {
+            remember(&path, &listing);
+        }
+    }
+    Ok(view(extensions, &listing, &language))
+}
+
+/// Сохранённый каталог без сети; `None` — его нет или нет описаний на
+/// этом языке.
+fn saved(extensions: &Extensions, language: &str) -> Option<SavedCatalog> {
+    let listing = cached(&cache_path(extensions))?;
+    let language = language_key(language);
+    let complete = listing
+        .plugins
+        .keys()
+        .all(|id| listing.about(&language, id).is_some());
+    complete.then(|| SavedCatalog {
+        fresh: listing.fresh(),
+        plugins: view(extensions, &listing, &language),
+    })
+}
+
+/// Сообщить окну каталога, сколько скачано.
+fn report(app: &AppHandle, id: &str, received: u64, total: u64) {
+    let progress = Progress {
+        id,
+        received,
+        total,
+    };
+    if let Ok(json) = serde_json::to_string(&progress) {
+        extensions::call_page(app, &format!("catalogProgress({json})"));
+    }
 }
 
 /// Ошибка записи скачанного плагина.
@@ -497,19 +719,29 @@ fn not_written(error: std::io::Error) -> CommandError {
 /// Скачать файлы плагина `id` в папку `staging` и проверить, что плагин
 /// читается.
 fn fetch_files(
+    app: &AppHandle,
     listing: &Listing,
     repo: &str,
     id: &str,
     files: &[RemoteFile],
     staging: &Path,
 ) -> CmdResult<()> {
+    let total: u64 = files.iter().map(|file| file.size).sum();
+    let mut received = 0u64;
+    let mut reported = Instant::now();
+    report(app, id, 0, total);
     for file in files {
         let Some(relative) = manifest::relative_path(&file.path) else {
             continue;
         };
         let url = raw_url(repo, &listing.commit, id, &file.path)?;
-        let limit = usize::try_from(file.size).unwrap_or(usize::MAX);
-        let body = download(&url, "", limit)?;
+        let body = download_counted(&url, file.size, |length| {
+            received += length as u64;
+            if reported.elapsed() >= PROGRESS_INTERVAL {
+                reported = Instant::now();
+                report(app, id, received.min(total), total);
+            }
+        })?;
         if body.len() as u64 != file.size {
             let error = format!("{} скачан не целиком", file.path);
             return Err(Failure::Broken(error).into());
@@ -520,6 +752,7 @@ fn fetch_files(
         }
         std::fs::write(&path, &body).map_err(not_written)?;
     }
+    report(app, id, total, total);
     // скачанный плагин должен читаться, как положенный вручную
     let invalid = |error: String| {
         CommandError::translated(
@@ -537,8 +770,8 @@ fn fetch_files(
 
 /// Скачать плагин `id` из каталога во временную папку и поставить его на
 /// место установленного.
-fn install(extensions: &Extensions, id: &str) -> CmdResult<()> {
-    let listing = listing(false)?;
+fn install(app: &AppHandle, extensions: &Extensions, id: &str) -> CmdResult<()> {
+    let listing = listing(&cache_path(extensions), false)?;
     let repo = repo()?;
     let Some(files) = listing.plugins.get(id) else {
         return Err(CommandError::translated(
@@ -563,7 +796,7 @@ fn install(extensions: &Extensions, id: &str) -> CmdResult<()> {
     if staging.exists() {
         std::fs::remove_dir_all(&staging).map_err(not_written)?;
     }
-    let result = fetch_files(&listing, repo, id, files, &staging)
+    let result = fetch_files(app, &listing, repo, id, files, &staging)
         .and_then(|()| extensions.replace_plugin(id, &staging).map_err(not_written));
     if result.is_err() && staging.exists() {
         let removed = std::fs::remove_dir_all(&staging);
@@ -587,6 +820,18 @@ pub async fn extensions_catalog(
     tauri::async_runtime::spawn_blocking(task).await?
 }
 
+/// Сохранённый каталог на языке интерфейса — без сети, чтобы окно
+/// показало плагины сразу; `null` — сохранённого нет.
+#[tauri::command]
+pub async fn extensions_catalog_saved(
+    language: String,
+    extensions: State<'_, Arc<Extensions>>,
+) -> CmdResult<Option<SavedCatalog>> {
+    let extensions = Arc::clone(extensions.inner());
+    let task = move || saved(&extensions, &language);
+    Ok(tauri::async_runtime::spawn_blocking(task).await?)
+}
+
 /// Скачать плагин из каталога: установить, обновить или скачать заново.
 /// Возвращает каталог с новыми отметками.
 #[tauri::command]
@@ -597,8 +842,9 @@ pub async fn extensions_install_plugin(
     extensions: State<'_, Arc<Extensions>>,
 ) -> CmdResult<Vec<CatalogPlugin>> {
     let extensions = Arc::clone(extensions.inner());
+    let handle = app.clone();
     let task = move || {
-        install(&extensions, &id)?;
+        install(&handle, &extensions, &id)?;
         tracing::info!(plugin = %id, "плагин скачан из каталога");
         catalog(&extensions, &language, false)
     };
@@ -615,6 +861,7 @@ mod tests {
         RemoteFile {
             path: path.to_owned(),
             size,
+            sha: String::new(),
         }
     }
 
@@ -645,7 +892,7 @@ mod tests {
         let body = br#"{"sha":"t","truncated":false,"tree":[
             {"path":"README.md","mode":"100644","type":"blob","size":5},
             {"path":"translator","mode":"040000","type":"tree"},
-            {"path":"translator/plugin.toml","mode":"100644","type":"blob","size":10},
+            {"path":"translator/plugin.toml","mode":"100644","type":"blob","size":10,"sha":"aa"},
             {"path":"translator/locales","mode":"040000","type":"tree"},
             {"path":"translator/locales/ru.toml","mode":"100644","type":"blob","size":3},
             {"path":"translator/link","mode":"120000","type":"blob","size":3},
@@ -654,7 +901,9 @@ mod tests {
         ]}"#;
         let plugins = parse_tree(body).unwrap();
         assert_eq!(plugins.keys().collect::<Vec<_>>(), ["translator"]);
-        let expected = [file("plugin.toml", 10), file("locales/ru.toml", 3)];
+        let mut manifest = file("plugin.toml", 10);
+        manifest.sha = "aa".into();
+        let expected = [manifest, file("locales/ru.toml", 3)];
         assert_eq!(plugins["translator"], expected);
         let truncated = br#"{"truncated":true,"tree":[]}"#;
         assert!(parse_tree(truncated).is_err());
@@ -679,5 +928,44 @@ mod tests {
         assert!(newer("1.0.0", None));
         assert!(newer("beta", Some("alpha")));
         assert!(!newer("beta", Some("beta")));
+    }
+
+    #[test]
+    fn signature_follows_file_contents() {
+        let before = files(&["plugin.toml", "main.js"]);
+        let mut after = before.clone();
+        assert_eq!(signature(&before), signature(&after));
+        after[1].sha = "changed".into();
+        assert_ne!(signature(&before), signature(&after));
+    }
+
+    #[test]
+    fn cache_survives_restart() {
+        let dir = std::env::temp_dir().join(format!("arachnid-catalog-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(CACHE_FILE);
+        let mut about = BTreeMap::new();
+        let entry = RemoteAbout {
+            name: Some("Переводчик".into()),
+            ..RemoteAbout::default()
+        };
+        about.insert("ru".to_owned(), BTreeMap::from([("translator".to_owned(), entry)]));
+        let listing = Listing {
+            commit: "c".repeat(40),
+            checked: SystemTime::now(),
+            plugins: BTreeMap::from([("translator".to_owned(), files(&["plugin.toml"]))]),
+            about,
+        };
+        save_cache(&path, &listing);
+        let loaded = load_cache(&path).unwrap();
+        assert_eq!(loaded.commit, listing.commit);
+        assert!(loaded.fresh());
+        let name = loaded
+            .about("ru", "translator")
+            .and_then(|entry| entry.name.as_deref());
+        assert_eq!(name, Some("Переводчик"));
+        std::fs::write(&path, "не json").unwrap();
+        assert!(load_cache(&path).is_none());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -453,6 +453,8 @@
       openQuickCss: () => emit("open-quickcss"),
       // скачивание, удаление и ход загрузки наборов эмодзи (emoji_packs.rs)
       emojiPacksChanged: () => emit("emoji-packs"),
+      // ход скачивания плагина из каталога (catalog.rs): { id, received, total }
+      catalogProgress: (progress) => emit("catalog-progress", progress),
       // горячие клавиши (hotkeys.rs): нажатое действие звонка выполняет
       // hotkeys.js, записанное сочетание показывает settings.js
       hotkey: (action) => emit("hotkey", String(action)),
