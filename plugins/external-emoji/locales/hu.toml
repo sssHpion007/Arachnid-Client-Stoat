@@ -1,2 +1,2 @@
 name = "Külső emojik"
-description = "A [:név:](képhivatkozás) alakú hivatkozásokat emojiként mutatja a szövegben, nem hivatkozásként nagy képpel"
+description = "Az emojik helyes megjelenítése a csevegésben. Formátumok: [:név:](kép_hivatkozása), [név](kép_hivatkozása)."

@@ -1,5 +1,5 @@
 name = "Übersetzer"
-description = "Übersetzt Nachrichten per Schaltfläche in der Nachrichtenleiste und per Kontextmenü"
+description = "Übersetzung von Chatnachrichten."
 
 [settings.service]
 label = "Übersetzungsdienst"

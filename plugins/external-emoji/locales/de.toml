@@ -1,2 +1,2 @@
 name = "Externe Emojis"
-description = "Zeigt Links wie [:name:](Bildlink) als Emoji im Text statt als Link mit großem Bild"
+description = "Korrekte Anzeige von Emojis im Chat. Formate: [:name:](bildlink), [name](bildlink)."

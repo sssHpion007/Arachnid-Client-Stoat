@@ -1,7 +1,7 @@
 name = "Translator"
-version = "1.2.0"
+version = "1.2.1"
 author = "_sssHpion007"
-description = "Translates messages with a button in the message toolbar and a context menu item"
+description = "Translation of chat messages."
 icon = "icon.svg"
 
 [permissions]

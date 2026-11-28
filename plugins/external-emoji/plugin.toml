@@ -1,5 +1,5 @@
 name = "External Emoji"
-version = "1.0.1"
+version = "1.0.2"
 author = "_sssHpion007"
-description = "Shows links like [:name:](image link) as emoji in the text instead of a link and a large picture"
+description = "Correct display of emoji in chat. Formats: [:name:](image_link), [name](image_link)."
 icon = "icon.svg"

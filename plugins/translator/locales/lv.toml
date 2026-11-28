@@ -1,5 +1,5 @@
 name = "Tulkotājs"
-description = "Tulko ziņas ar pogu ziņas rīkjoslā un konteksta izvēlnes vienumu"
+description = "Tērzēšanas ziņu tulkošana."
 
 [settings.service]
 label = "Tulkošanas pakalpojums"

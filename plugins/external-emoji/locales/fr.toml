@@ -1,2 +1,2 @@
 name = "Émojis externes"
-description = "Affiche les liens du type [:nom:](lien d’image) comme des émojis dans le texte, au lieu d’un lien avec une grande image"
+description = "Affichage correct des émojis dans le chat. Formats : [:nom:](lien_de_l’image), [nom](lien_de_l’image)."

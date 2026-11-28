@@ -1,5 +1,5 @@
 name = "Översättare"
-description = "Översätter meddelanden med en knapp i meddelandets verktygsfält och ett menyalternativ"
+description = "Översättning av chattmeddelanden."
 
 [settings.service]
 label = "Översättningstjänst"

@@ -1,2 +1,2 @@
 name = "Välised emojid"
-description = "Näitab linke kujul [:nimi:](pildi link) tekstis emojidena, mitte lingi ja suure pildina"
+description = "Emojide korrektne kuvamine vestluses. Vormingud: [:nimi:](pildi_link), [nimi](pildi_link)."

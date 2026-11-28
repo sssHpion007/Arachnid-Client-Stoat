@@ -1,5 +1,5 @@
 name = "Tõlkija"
-description = "Tõlgib sõnumeid sõnumi tööriistariba nupu ja kontekstimenüü kirjega"
+description = "Vestlussõnumite tõlkimine."
 
 [settings.service]
 label = "Tõlketeenus"

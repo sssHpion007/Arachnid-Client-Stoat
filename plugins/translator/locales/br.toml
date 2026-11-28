@@ -1,5 +1,5 @@
 name = "Troer"
-description = "Treiñ a ra ar c’hemennadennoù gant ur bouton e barrenn ostilhoù ar gemennadenn hag un elfenn el lañser"
+description = "Treiñ kemennadennoù ar flap."
 
 [settings.service]
 label = "Servij treiñ"

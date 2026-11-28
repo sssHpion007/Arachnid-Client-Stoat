@@ -1,5 +1,5 @@
 name = "Fordító"
-description = "Üzenetek fordítása az üzenet eszköztárának gombjával és a helyi menüből"
+description = "A csevegőüzenetek fordítása."
 
 [settings.service]
 label = "Fordítószolgáltatás"

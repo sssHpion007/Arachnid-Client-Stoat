@@ -171,6 +171,29 @@
 .arachnid-item-description { line-height: 1rem; font-size: 0.75rem; letter-spacing: 0.03125rem; font-weight: 500; white-space: pre-line; overflow-wrap: anywhere; }
 .arachnid-item-note { color: var(--md-sys-color-tertiary); }
 .arachnid-item-icon[data-blank] { background: transparent; }
+/* плашка плагина — одной высоты у всех: заголовок и три строки описания
+   (13 + 20 + 2 + 3 × 16 + 13). Не влезло — последняя строка гаснет, а весь
+   текст всплывает подсказкой при наведении */
+.arachnid-item[data-fixed] { box-sizing: border-box; height: 96px; }
+.arachnid-item[data-fixed] .arachnid-item-title { flex-shrink: 0; line-height: 20px; }
+.arachnid-item-details { display: flex; flex-direction: column; max-height: 48px; overflow: hidden; }
+.arachnid-item-details > .arachnid-item-description { line-height: 16px; }
+.arachnid-item-details[data-overflow] {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), rgba(0, 0, 0, 0.25));
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 16px), rgba(0, 0, 0, 0.25));
+}
+.arachnid-tooltip {
+  position: fixed; z-index: 10001; box-sizing: border-box; max-width: min(480px, calc(100vw - 16px));
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; border-radius: 8px; pointer-events: none;
+  background: var(--md-sys-color-inverse-surface); color: var(--md-sys-color-inverse-on-surface);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-size: 0.75rem; line-height: 1rem; letter-spacing: 0.03125rem; font-weight: 500;
+  white-space: pre-line; overflow-wrap: anywhere;
+  opacity: 0; transition: opacity 0.15s;
+}
+.arachnid-tooltip[data-shown] { opacity: 1; }
+.arachnid-tooltip-title { font-size: 0.875rem; line-height: 1.25rem; }
+.arachnid-tooltip-note { color: var(--md-sys-color-inverse-primary); }
 /* значок плагина из его папки: SVG — маской цвета текста, как значки шрифтом */
 .arachnid-plugin-icon { width: 20px; height: 20px; }
 span.arachnid-plugin-icon {
@@ -377,14 +400,94 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
    * Щелчок по строке отменяет переключение самого флажка (как в for-web) и
    * вызывает onClick.
    */
-  function item({ iconName, iconNode, title, description, note, action, onClick }) {
+  // Подсказка плашки фиксированной высоты: весь текст, если он не влез.
+  // Одна на страницу, висит в body поверх окон настроек.
+  const TOOLTIP_DELAY_MS = 400;
+  let tooltip = null;
+  let tooltipTimer = 0;
+
+  function hideTooltip() {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = 0;
+    if (!tooltip) return;
+    tooltip.node.remove();
+    clearInterval(tooltip.watch);
+    window.removeEventListener("scroll", hideTooltip, true);
+    window.removeEventListener("blur", hideTooltip);
+    tooltip = null;
+  }
+
+  const overflowing = (element) => element.scrollHeight > element.clientHeight + 1;
+
+  function showTooltip(anchor) {
+    const title = anchor.querySelector(".arachnid-item-title");
+    const details = anchor.querySelector(".arachnid-item-details");
+    if (!details || !anchor.isConnected) return;
+    const longTitle = title && title.scrollWidth > title.clientWidth + 1;
+    if (!overflowing(details) && !longTitle) return;
+    hideTooltip();
+    const node = h(
+      "div",
+      { class: "arachnid-tooltip", role: "tooltip" },
+      longTitle ? h("span", { class: "arachnid-tooltip-title" }, title.textContent) : null,
+      [...details.children].map((part) =>
+        h("span", { class: part.classList.contains("arachnid-item-note") ? "arachnid-tooltip-note" : undefined }, part.textContent),
+      ),
+    );
+    document.body.append(node);
+    // под плашкой, не влезает снизу — над ней; по ширине — от начала текста
+    const box = anchor.getBoundingClientRect();
+    const start = (anchor.querySelector(".arachnid-item-content") ?? anchor).getBoundingClientRect();
+    const own = node.getBoundingClientRect();
+    const gap = 6;
+    let top = box.bottom + gap;
+    if (top + own.height > window.innerHeight - 8) top = Math.max(8, box.top - gap - own.height);
+    const left = Math.min(Math.max(8, start.left), window.innerWidth - own.width - 8);
+    Object.assign(node.style, { top: `${top}px`, left: `${left}px` });
+    // плашку перерисовали под курсором — mouseleave уже не придёт
+    const watch = setInterval(() => {
+      if (!anchor.isConnected) hideTooltip();
+    }, 250);
+    tooltip = { node, anchor, watch };
+    window.addEventListener("scroll", hideTooltip, true);
+    window.addEventListener("blur", hideTooltip);
+    requestAnimationFrame(() => node.setAttribute("data-shown", ""));
+  }
+
+  // гаснущая последняя строка — только у описаний, которые не влезли
+  const detailsWatch =
+    typeof ResizeObserver === "function"
+      ? new ResizeObserver((entries) => {
+          for (const entry of entries) entry.target.toggleAttribute("data-overflow", overflowing(entry.target));
+        })
+      : null;
+
+  function item({ iconName, iconNode, title, description, note, action, onClick, fixed }) {
+    const texts = [
+      description ? h("span", { class: "arachnid-item-description" }, description) : null,
+      note ? h("span", { class: "arachnid-item-description arachnid-item-note" }, note) : null,
+    ];
+    let details = null;
+    if (fixed) {
+      details = h("div", { class: "arachnid-item-details" }, texts);
+      detailsWatch?.observe(details);
+    }
     return h(
       "div",
       {
         class: "arachnid-item",
         role: onClick ? "button" : undefined,
         tabIndex: onClick ? 0 : undefined,
-        dataset: onClick ? { clickable: "" } : undefined,
+        dataset: { ...(onClick ? { clickable: "" } : {}), ...(fixed ? { fixed: "" } : {}) },
+        onMouseenter: fixed
+          ? (event) => {
+              const anchor = event.currentTarget;
+              clearTimeout(tooltipTimer);
+              tooltipTimer = setTimeout(() => showTooltip(anchor), TOOLTIP_DELAY_MS);
+            }
+          : undefined,
+        onMouseleave: fixed ? hideTooltip : undefined,
+        onPointerdown: fixed ? hideTooltip : undefined,
         onClick: onClick
           ? (event) => {
               event.preventDefault();
@@ -410,8 +513,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         "div",
         { class: "arachnid-item-content" },
         h("div", { class: "arachnid-item-title" }, title),
-        description ? h("span", { class: "arachnid-item-description" }, description) : null,
-        note ? h("span", { class: "arachnid-item-description arachnid-item-note" }, note) : null,
+        details ?? texts,
       ),
       action ?? null,
     );
@@ -794,6 +896,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         title: name,
         description: details.join("\n"),
         note,
+        fixed: true,
         action: extra.length ? h("div", { class: "arachnid-item-actions" }, extra, box) : box,
         onClick: () => {
           if (!plugin.enabled && plugin.error) return;
@@ -1963,6 +2066,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
         title: name,
         description: [plugin.description, tags.join(" · ")].filter(Boolean).join("\n"),
         note,
+        fixed: true,
         action: h("div", { class: "arachnid-catalog-actions" }, actions),
       });
     }

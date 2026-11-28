@@ -1,5 +1,5 @@
 name = "Traducteur"
-description = "Traduit les messages avec un bouton dans la barre du message et un élément du menu contextuel"
+description = "Traduction des messages du chat."
 
 [settings.service]
 label = "Service de traduction"
