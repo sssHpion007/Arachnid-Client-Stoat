@@ -451,14 +451,20 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     tooltip = { node, anchor, watch };
     window.addEventListener("scroll", hideTooltip, true);
     window.addEventListener("blur", hideTooltip);
-    requestAnimationFrame(() => node.setAttribute("data-shown", ""));
+    // появление — переходом прозрачности: стиль уже посчитан (getBoundingClientRect
+    // выше), а requestAnimationFrame в скрытом окне может и не прийти
+    node.setAttribute("data-shown", "");
   }
 
-  // гаснущая последняя строка — только у описаний, которые не влезли
+  // гаснущая последняя строка — только у описаний, которые не влезли;
+  // строки внутри тоже под наблюдением: блок упёрся в предел и уже не растёт
   const detailsWatch =
     typeof ResizeObserver === "function"
       ? new ResizeObserver((entries) => {
-          for (const entry of entries) entry.target.toggleAttribute("data-overflow", overflowing(entry.target));
+          for (const entry of entries) {
+            const details = entry.target.closest(".arachnid-item-details");
+            details?.toggleAttribute("data-overflow", overflowing(details));
+          }
         })
       : null;
 
@@ -470,7 +476,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
     let details = null;
     if (fixed) {
       details = h("div", { class: "arachnid-item-details" }, texts);
-      detailsWatch?.observe(details);
+      for (const part of [details, ...details.children]) detailsWatch?.observe(part);
     }
     return h(
       "div",

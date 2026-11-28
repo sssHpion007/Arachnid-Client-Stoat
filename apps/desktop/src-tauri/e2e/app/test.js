@@ -1601,31 +1601,47 @@ ${sidebarGroup("", [
           pluginsLayout.qolAuthor,
         pluginsLayout,
       );
-      // плашки плагинов одной высоты; длинное описание — подсказкой при наведении
+      // плашки плагинов одной высоты; длинное описание — подсказкой при наведении.
+      // Раздел может перерисоваться (события плагинов) — плашку ищем заново
       const pluginRows = [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item[data-fixed]")];
       const rowHeights = [...new Set(pluginRows.map((row) => Math.round(row.getBoundingClientRect().height)))];
-      const qolText = qolRow?.querySelector(".arachnid-item-details > .arachnid-item-description");
-      const shortText = qolText?.textContent ?? "";
+      const qolNow = () =>
+        [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item[data-fixed]")].find(
+          (row) => row.querySelector(".arachnid-item-title")?.textContent === qolRow?.querySelector(".arachnid-item-title")?.textContent,
+        );
       const longText = Array.from({ length: 8 }, (_, index) => `e2e длинное описание, строка ${index + 1}`).join("\n");
-      if (qolText) qolText.textContent = longText;
-      const clipped = await waitFor(() => qolRow?.querySelector(".arachnid-item-details[data-overflow]"), 1000, 20);
-      qolRow?.dispatchEvent(new MouseEvent("mouseenter"));
-      const tip = await waitFor(() => document.querySelector(".arachnid-tooltip[data-shown]"), 2000, 20);
-      const tipText = tip?.textContent ?? "";
-      qolRow?.dispatchEvent(new MouseEvent("mouseleave"));
+      let tipRow = null;
+      let clipped = null;
+      let tipText = "";
+      let restoreText = null;
+      for (let attempt = 0; attempt < 3 && !tipText; attempt++) {
+        tipRow = qolNow();
+        const span = tipRow?.querySelector(".arachnid-item-details > .arachnid-item-description");
+        if (!span) break;
+        restoreText = span.textContent;
+        span.textContent = longText;
+        clipped = await waitFor(() => tipRow.querySelector(".arachnid-item-details[data-overflow]"), 1000, 20);
+        tipRow.dispatchEvent(new MouseEvent("mouseenter"));
+        const tip = await waitFor(() => document.querySelector(".arachnid-tooltip[data-shown]"), 2000, 20);
+        tipText = tip?.textContent ?? "";
+      }
+      tipRow?.dispatchEvent(new MouseEvent("mouseleave"));
       const tipGone = await waitFor(() => !document.querySelector(".arachnid-tooltip"), 1000, 20);
-      if (qolText?.isConnected) qolText.textContent = shortText;
       await check(
         "раздел «Плагины»: плашки одной высоты, длинное описание — подсказкой",
         pluginRows.length > 0 &&
-          pluginRows.includes(qolRow) &&
           rowHeights.length === 1 &&
           rowHeights[0] === 96 &&
           Boolean(clipped) &&
           tipText.includes("строка 8") &&
           Boolean(tipGone),
-        { rows: pluginRows.length, rowHeights, clipped: Boolean(clipped), tipText: tipText.slice(0, 120), tipGone },
+        { rows: pluginRows.length, rowHeights, found: Boolean(tipRow), clipped: Boolean(clipped), tipText: tipText.slice(0, 120), tipGone },
       );
+      // длинный текст — только для проверки: вернуть как было
+      if (tipRow && restoreText !== null) {
+        const span = tipRow.querySelector(".arachnid-item-details > .arachnid-item-description");
+        if (span) span.textContent = restoreText;
+      }
       const gear = qolRow && [...qolRow.querySelectorAll(".arachnid-icon-button")].find((button) => button.textContent === "settings");
       gear?.click();
       const qolDialog = await waitFor(() => document.querySelector('[data-arachnid-plugin-settings="builtin:qol"]'), 3000, 50);
