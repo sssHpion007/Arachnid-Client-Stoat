@@ -17,6 +17,9 @@
     "plugins": "Plugins",
     "about": "Client de bureau pour Stoat : thèmes et plugins.",
     "builtin": "Intégré",
+    "builtinName": {
+      "builtin:qol": "Qualité de vie"
+    },
     "builtinDescription": {
       "builtin:qol": "Corrections et améliorations du confort d’utilisation."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Le dossier des aperçus est vide",
     "hotkeys": "Raccourcis",
     "hotkeysIntro": "Ils fonctionnent partout, même lorsque le client est réduit ou masqué dans la zone de notification. Dans la fenêtre du client, un raccourci effectue seulement son action ; les autres programmes le reçoivent aussi. Les actions d’appel fonctionnent comme les boutons de la carte d’appel.",
-    "hotkeysInactive": "Les raccourcis fonctionneront quand « Quality of Life » sera relancé — après le rechargement du client.",
+    "hotkeysInactive": "Les raccourcis fonctionneront quand « Qualité de vie » sera relancée — après le rechargement du client.",
     "hotkeyActions": {
       "toggle_mute": "Microphone",
       "toggle_deafen": "Son",

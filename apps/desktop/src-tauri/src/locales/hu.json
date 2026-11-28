@@ -17,6 +17,9 @@
     "plugins": "Pluginok",
     "about": "Asztali kliens a Stoathoz: témák és pluginok.",
     "builtin": "Beépített",
+    "builtinName": {
+      "builtin:qol": "Életminőség"
+    },
     "builtinDescription": {
       "builtin:qol": "Javítások és kényelmi fejlesztések."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Az előnézeti mappa üres",
     "hotkeys": "Billentyűparancsok",
     "hotkeysIntro": "Mindenhol működnek, akkor is, ha a kliens kis méretre van állítva vagy a tálcaikonok közé van rejtve. A kliens ablakában a billentyűparancs csak a saját műveletét hajtja végre; más programok is megkapják. A hívásműveletek úgy működnek, mint a híváskártya gombjai.",
-    "hotkeysInactive": "A billentyűparancsok akkor kezdenek működni, amikor a „Quality of Life” újra fut – a kliens újratöltése után.",
+    "hotkeysInactive": "A billentyűparancsok akkor kezdenek működni, amikor a „Életminőség” újra fut – a kliens újratöltése után.",
     "hotkeyActions": {
       "toggle_mute": "Mikrofon",
       "toggle_deafen": "Hang",

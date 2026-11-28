@@ -17,6 +17,9 @@
     "plugins": "Lugantoù",
     "about": "Arval burev evit Stoat: neuzioù ha lugantoù.",
     "builtin": "Enframmet",
+    "builtinName": {
+      "builtin:qol": "Kalite ar vuhez"
+    },
     "builtinDescription": {
       "builtin:qol": "Reizhadennoù ha gwellaennoù evit an aesamant."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Goullo eo teuliad ar rakweloù",
     "hotkeys": "Berradennoù",
     "hotkeysIntro": "Mont a reont e pep lec’h, zoken pa vez bihanaet an arval pe kuzhet en takad ar c’hemennoù. E prenestr an arval ne ra ur verradenn nemet he ober; ar goulevioù all a resev anezhi ivez. Oberoù ar galv a ya en-dro evel boutonoù kartenn ar galv.",
-    "hotkeysInactive": "Mont a raio en-dro ar berradennoù pa vo lañset adarre “Quality of Life” — goude adkargañ an arval.",
+    "hotkeysInactive": "Mont a raio en-dro ar berradennoù pa vo lañset adarre “Kalite ar vuhez” — goude adkargañ an arval.",
     "hotkeyActions": {
       "toggle_mute": "Mikro",
       "toggle_deafen": "Son",

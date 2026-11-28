@@ -17,6 +17,9 @@
     "plugins": "Pluginad",
     "about": "Stoati töölauaklient: teemad ja pluginad.",
     "builtin": "Sisseehitatud",
+    "builtinName": {
+      "builtin:qol": "Elukvaliteet"
+    },
     "builtinDescription": {
       "builtin:qol": "Parandused ja mugavuse täiustused."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Eelvaadete kaust on tühi",
     "hotkeys": "Kiirklahvid",
     "hotkeysIntro": "Need töötavad kõikjal, ka siis, kui klient on minimeeritud või süsteemisalve peidetud. Kliendi aknas teeb kiirklahv ainult oma toimingu; teised programmid saavad selle samuti. Kõnetoimingud töötavad nagu kõnekaardi nupud.",
-    "hotkeysInactive": "Kiirklahvid hakkavad tööle, kui „Quality of Life” uuesti käivitub – pärast kliendi uuesti laadimist.",
+    "hotkeysInactive": "Kiirklahvid hakkavad tööle, kui „Elukvaliteet” uuesti käivitub – pärast kliendi uuesti laadimist.",
     "hotkeyActions": {
       "toggle_mute": "Mikrofon",
       "toggle_deafen": "Heli",

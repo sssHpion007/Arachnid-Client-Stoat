@@ -17,6 +17,9 @@
     "plugins": "Spraudņi",
     "about": "Stoat darbvirsmas klients: motīvi un spraudņi.",
     "builtin": "Iebūvēts",
+    "builtinName": {
+      "builtin:qol": "Dzīves kvalitāte"
+    },
     "builtinDescription": {
       "builtin:qol": "Labojumi un ērtību uzlabojumi."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Priekšskatījumu mape ir tukša",
     "hotkeys": "Īsinājumtaustiņi",
     "hotkeysIntro": "Tie darbojas visur, pat ja klients ir minimizēts vai paslēpts paziņojumu apgabalā. Klienta logā īsinājumtaustiņš veic tikai savu darbību; arī citas programmas to saņem. Zvana darbības strādā kā zvana kartītes pogas.",
-    "hotkeysInactive": "Īsinājumtaustiņi sāks darboties, kad “Quality of Life” atkal būs palaists – pēc klienta pārlādes.",
+    "hotkeysInactive": "Īsinājumtaustiņi sāks darboties, kad “Dzīves kvalitāte” atkal būs palaists – pēc klienta pārlādes.",
     "hotkeyActions": {
       "toggle_mute": "Mikrofons",
       "toggle_deafen": "Skaņa",

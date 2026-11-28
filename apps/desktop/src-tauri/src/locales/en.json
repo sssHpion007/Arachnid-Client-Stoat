@@ -17,6 +17,9 @@
     "plugins": "Plugins",
     "about": "Desktop client for Stoat: themes and plugins.",
     "builtin": "Built-in",
+    "builtinName": {
+      "builtin:qol": "Quality of Life"
+    },
     "builtinDescription": {
       "builtin:qol": "Fixes and quality of life improvements."
     },

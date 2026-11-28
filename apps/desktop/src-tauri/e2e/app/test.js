@@ -1561,7 +1561,9 @@ ${sidebarGroup("", [
       const qolRow = await waitFor(
         () =>
           [...settingsPage.querySelectorAll("[data-arachnid-panel] .arachnid-item")].find(
-            (item) => item.querySelector(".arachnid-item-title")?.textContent === "Quality of Life",
+            (item) =>
+              item.querySelector(".arachnid-item-title")?.textContent ===
+              window.__arachnidI18n.messages("settings").builtinName["builtin:qol"],
           ),
         3000,
         50,

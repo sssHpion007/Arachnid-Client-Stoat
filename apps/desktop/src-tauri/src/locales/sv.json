@@ -17,6 +17,9 @@
     "plugins": "Plugins",
     "about": "Skrivbordsklient för Stoat: teman och plugins.",
     "builtin": "Inbyggd",
+    "builtinName": {
+      "builtin:qol": "Livskvalitet"
+    },
     "builtinDescription": {
       "builtin:qol": "Rättningar och bekvämlighetsförbättringar."
     },
@@ -77,7 +80,7 @@
     "gifPreviewsEmpty": "Mappen för förhandsvisningar är tom",
     "hotkeys": "Kortkommandon",
     "hotkeysIntro": "De fungerar överallt, även när klienten är minimerad eller dold i meddelandefältet. I klientfönstret utför ett kortkommando bara sin åtgärd; andra program tar också emot det. Samtalsåtgärder fungerar som knapparna på samtalskortet.",
-    "hotkeysInactive": "Kortkommandon börjar fungera när ”Quality of Life” körs igen – efter att klienten laddats om.",
+    "hotkeysInactive": "Kortkommandon börjar fungera när ”Livskvalitet” körs igen – efter att klienten laddats om.",
     "hotkeyActions": {
       "toggle_mute": "Mikrofon",
       "toggle_deafen": "Ljud",

@@ -713,6 +713,7 @@ label:has(> .arachnid-checkbox) + .arachnid-setting-hint { padding-inline-start:
       const requires = BUILTIN_REQUIRES[plugin.file] ?? {};
       return {
         ...plugin,
+        name: text.builtinName?.[plugin.file] ?? plugin.name,
         description: text.builtinDescription[plugin.file] ?? plugin.description,
         settings: plugin.settings.map((setting) => ({
           ...setting,
